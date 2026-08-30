@@ -37,3 +37,9 @@ R_THRESHOLD = 0.5
 LLM_RETRY = 2
 # 清洗时要求块最小长度（低于则 low_confidence=1）
 CLEAN_MIN_REQ_LEN = 30
+
+# ---- 模块二：测评（07 文档 §8/§14-7）----
+# 用户输入超过该 token 数（近似 len/2）才走 P-refine 精炼
+REFINE_MIN_TOKENS = int(os.environ.get("REFINE_MIN_TOKENS", "500"))
+# 单题追问上限（07 §7.2）
+FOLLOWUP_MAX = int(os.environ.get("FOLLOWUP_MAX", "2"))

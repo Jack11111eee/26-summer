@@ -83,8 +83,8 @@ def update_model(model_id: str, body: dict) -> dict:
 
 
 @router.post("/models/{model_id}/confirm")
-def confirm_model(model_id: str, admin: dict = Depends(require_admin)) -> dict:
-    """确认模型：status→confirmed，记录确认人与时间。版本号聚合时已分配。"""
+def confirm_model(model_id: str, background: BackgroundTasks, admin: dict = Depends(require_admin)) -> dict:
+    """确认模型：status→confirmed，记录确认人与时间；异步触发题库生成（07 §6.2）。"""
     conn = get_conn()
     row = conn.execute("SELECT version, status, position_id FROM competency_model WHERE model_id=?",
                        (model_id,)).fetchone()
@@ -100,7 +100,11 @@ def confirm_model(model_id: str, admin: dict = Depends(require_admin)) -> dict:
         (admin["user_id"], now_iso(), model_id),
     )
     conn.commit()
-    return {"model_id": model_id, "status": "confirmed", "version": row["version"]}
+
+    from ...services.question_bank import generate_question_bank
+    background.add_task(generate_question_bank, row["position_id"], model_id)
+    return {"model_id": model_id, "status": "confirmed", "version": row["version"],
+            "question_bank_generating": True}
 
 
 @router.post("/positions/{position_id}/retry-level")
