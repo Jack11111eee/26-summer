@@ -24,11 +24,24 @@ const routes = [
     component: () => import('../views/admin/ModelReview.vue'),
     meta: { role: 'admin' }
   },
+  {
+    path: '/admin/positions/:id/versions',
+    name: 'VersionHistory',
+    component: () => import('../views/admin/VersionHistory.vue'),
+    meta: { role: 'admin' }
+  },
+  { path: '/admin/dict', name: 'AdminDict', component: () => import('../views/admin/Dict.vue'), meta: { role: 'admin' } },
   // 测评端（登录即可）
   {
     path: '/assessment/positions',
     name: 'AssessmentPositions',
     component: () => import('../views/assessment/Positions.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/assessment/positions/:id',
+    name: 'PositionAssess',
+    component: () => import('../views/assessment/PositionAssess.vue'),
     meta: { requiresAuth: true }
   },
   // 根路径与兜底：交给守卫按登录态/角色分发

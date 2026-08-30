@@ -1,4 +1,5 @@
 <template>
+  <AdminNav />
   <div class="page">
     <el-card shadow="never" class="panel">
       <!-- 页头 -->
@@ -195,6 +196,7 @@
 </template>
 
 <script setup>
+import AdminNav from '../../components/AdminNav.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

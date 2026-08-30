@@ -1,4 +1,5 @@
 <template>
+  <AdminNav />
   <div class="page">
     <el-card shadow="never" class="panel">
       <!-- 页头 -->
@@ -12,7 +13,6 @@
             模型审核
           </el-button>
           <el-button type="primary" @click="importVisible = true">+ 导入 JD</el-button>
-          <el-button @click="onLogout">退出登录</el-button>
         </div>
       </div>
 
@@ -122,17 +122,16 @@
 </template>
 
 <script setup>
+import AdminNav from '../../components/AdminNav.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import api from '../../api'
-import { useAuthStore } from '../../stores/auth'
 import ItemTable from '../../components/ItemTable.vue'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
 const positionId = route.params.id
 
 const positionName = ref('')
@@ -246,11 +245,6 @@ function resetImport() {
   importCompany.value = ''
   importFile.value = null
   importTab.value = 'paste'
-}
-
-function onLogout() {
-  auth.logout()
-  router.push('/login')
 }
 
 function sourceLabel(t) {
