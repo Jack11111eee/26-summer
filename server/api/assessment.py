@@ -7,16 +7,12 @@ from ..core.security import require_login
 from ..db import get_conn
 from ..services.interview import decide_next_action
 from ..services.pipeline import new_id, now_iso
+from ..services.question_selection import select_questions_for_session
 from ..services.refine import refine_user_input
 from ..services.report import generate_report
 from ..services.scoring import score_session
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
-
-# 选题配额（07 文档 §6.2）：hard 6~7 / soft 2~3 / experience 2 / qualification 走表单不占题
-_CATEGORY_QUOTA = {"hard_skill": 6, "soft_skill": 2, "experience": 2}
-_TOTAL_MAX = 12
-_DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2, None: 0}
 
 
 @router.get("/positions")
@@ -58,56 +54,20 @@ def get_confirmed_model(position_id: str) -> dict:
     return d
 
 
-# ---------- 选题（07 §6.3，代码执行可审计） ----------
-
-def _select_questions(position_id: str, model_id: str) -> list[dict]:
-    """从题库选题：岗位题 + 通用题，按类目配额，required 优先，难度递进，沿 chain 排序。"""
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM question_bank WHERE status='active'"
-        " AND ((scope='position' AND position_id=?) OR scope='general')",
-        (position_id,),
-    ).fetchall()
-    bank = [dict(r) for r in rows]
-    if not bank:
-        return []
-
-    # required 项（该模型内 importance='required' 的 std_name 集合）优先
-    req_rows = conn.execute(
-        "SELECT std_name, importance, weight FROM competency_item WHERE model_id=?",
-        (model_id,),
-    ).fetchall()
-    importance = {r["std_name"]: r["importance"] for r in req_rows}
-    weight = {r["std_name"]: r["weight"] or 0 for r in req_rows}
-
-    by_cat: dict[str, list[dict]] = {}
-    for q in bank:
-        by_cat.setdefault(q["category"], []).append(q)
-
-    def _sort_key(q: dict):
-        imp_rank = {"required": 0, "preferred": 1, "plus": 2}.get(importance.get(q["std_name"]), 3)
-        return (imp_rank, -weight.get(q["std_name"], 0),
-                q.get("chain_key") or "", q.get("chain_seq") or 0,
-                _DIFFICULTY_ORDER.get(q.get("difficulty"), 0))
-
-    picked: list[dict] = []
-    for cat, quota in _CATEGORY_QUOTA.items():
-        candidates = sorted(by_cat.get(cat, []), key=_sort_key)
-        picked.extend(candidates[:quota])
-    return picked[:_TOTAL_MAX]
-
-
 # ---------- 会话 ----------
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
 def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
-    """创建测评会话：锚定 confirmed 模型最新版 + 从题库选题落 assessment_question。"""
+    """创建测评会话：锚定 confirmed 模型最新版 + 从题库选题落 assessment_question。
+
+    选题走 services.question_selection（07 §6.3 代码执行可审计）。
+    """
     position_id = body.get("position_id")
     if not position_id:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 position_id")
     conn = get_conn()
     model = conn.execute(
-        "SELECT model_id, version FROM competency_model"
+        "SELECT model_id, version, model_json FROM competency_model"
         " WHERE position_id=? AND status='confirmed' ORDER BY version DESC LIMIT 1",
         (position_id,),
     ).fetchone()
@@ -122,7 +82,7 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
         (session_id, user["user_id"], position_id, model["model_id"], model["version"],
          "in_progress", now, now),
     )
-    questions = _select_questions(position_id, model["model_id"])
+    questions = select_questions_for_session(position_id, json.loads(model["model_json"]))
     for i, q in enumerate(questions, start=1):
         conn.execute(
             "INSERT INTO assessment_question(question_id, session_id, bank_question_id, seq, created_at)"
