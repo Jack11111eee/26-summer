@@ -8,6 +8,10 @@
 
 # ---- 临时/参考目录 ----
 deepseek-chat/
+.impeccable/
+prototype/
+PRODUCT.md
+1/
 
 # ---- macOS ----
 .DS_Store
