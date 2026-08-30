@@ -30,6 +30,7 @@ _load_env()
 from .db import init_db  # noqa: E402  (须在 .env 加载后导入，DB_PATH 才生效)
 from .api import auth  # noqa: E402
 from .api.admin import jds as admin_jds  # noqa: E402
+from .api.admin import models as admin_models  # noqa: E402
 
 app = FastAPI(title="岗位胜任力测评系统 - 模块一")
 
@@ -54,6 +55,7 @@ def health() -> dict:
 
 app.include_router(auth.router)
 app.include_router(admin_jds.router)
+app.include_router(admin_models.router)
 
 # 生产：挂载前端构建产物（web/dist 存在时）；API 路由已优先注册，不会被静态文件拦截
 _dist = ROOT / "web" / "dist"

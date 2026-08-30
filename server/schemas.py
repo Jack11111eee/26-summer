@@ -58,3 +58,9 @@ class MergePair(BaseModel):
 
 class DisambiguateResult(BaseModel):
     merges: list[MergePair]
+
+
+# ---- LLM#3 等级裁决输出 Schema（§8.2 工序⑤）----
+class AggregateLevelResult(BaseModel):
+    level: int = Field(ge=1, le=5)
+    reason: str

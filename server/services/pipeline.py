@@ -184,6 +184,7 @@ def disambiguate_items(jd_id: str, items: list[dict]) -> list[dict]:
 def run_parse_pipeline(jd_id: str) -> None:
     """imported → parsing → parsed / failed。产物逐工序落库。"""
     conn = get_conn()
+    auto_aggregate: str | None = None
     row = conn.execute("SELECT raw_text FROM jd_record WHERE jd_id=?", (jd_id,)).fetchone()
     if row is None:
         return
@@ -214,9 +215,22 @@ def run_parse_pipeline(jd_id: str) -> None:
             (json.dumps(std_items, ensure_ascii=False), jd_id),
         )
         conn.commit()
+        auto_aggregate = position_id
     except Exception as e:  # noqa: BLE001 - 单 JD 失败不阻塞其他
         conn.execute(
             "UPDATE jd_record SET status='failed', error_msg=? WHERE jd_id=?",
             (str(e), jd_id),
         )
         conn.commit()
+        return
+
+    # 自动触发聚合（2026-08-30 决策）：解析成功后、独立于解析异常处理；
+    # 仅当岗位 active 时聚合，pending_review 不聚合。聚合自身异常不连累 JD 状态。
+    if auto_aggregate:
+        pos = conn.execute("SELECT status FROM position WHERE position_id=?", (auto_aggregate,)).fetchone()
+        if pos and pos["status"] == "active":
+            try:
+                from .aggregate import run_aggregate
+                run_aggregate(auto_aggregate)
+            except Exception:  # noqa: BLE001 - 聚合失败静默（管理员可手动重新聚合）
+                pass
