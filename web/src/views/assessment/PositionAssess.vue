@@ -1,64 +1,94 @@
 <template>
-  <CandidateNav />
-  <div class="page">
-    <el-card shadow="never" class="panel">
-      <!-- 页头 -->
-      <div class="head">
-        <div>
-          <el-button text @click="$router.push('/assessment/positions')">← 返回岗位列表</el-button>
-          <h2 class="title">{{ model?.position_name || '岗位测评' }}</h2>
-          <div v-if="meta.version" class="subtitle">
-            <el-tag size="small" effect="plain">模型 v{{ meta.version }}</el-tag>
+  <div class="grail">
+    <!-- 通栏头 -->
+    <header class="grail-head">
+      <div class="gh-brand">
+        <div class="gh-mark">测</div>
+        <span class="gh-name">胜任力测评</span>
+      </div>
+      <div class="gh-divider"></div>
+      <div class="gh-crumb">测评端 / <b>{{ model?.position_name || '岗位测评' }}</b></div>
+      <div class="gh-actions">
+        <button class="btn btn-sm" @click="$router.push('/assessment/positions')">← 返回岗位列表</button>
+        <span class="gh-user">{{ auth.user?.username }}</span>
+        <button class="btn btn-sm" @click="onLogout">退出</button>
+      </div>
+    </header>
+
+    <!-- 单栏主体 -->
+    <div class="grail-body">
+      <main class="rail-center">
+        <div class="rc-head">
+          <div class="rc-title">{{ model?.position_name || '岗位测评' }}</div>
+          <div class="rc-meta" v-if="meta.version">
+            <span>模型 v{{ meta.version }}</span>
+            <span>已确认</span>
           </div>
         </div>
-      </div>
 
-      <el-alert type="info" :closable="false" class="mb16"
-        title="交互式测评由模块二提供，敬请期待。以下为该岗位已确认的胜任力模型（只读）。" />
+        <div class="rr-callout grey callout-note">
+          以下为该岗位已确认的胜任力模型（只读）。确认无误后点击下方「开始测评」进入交互式问答。
+        </div>
 
-      <div v-loading="loading">
-        <template v-if="model">
-          <!-- 按类目分组展示能力项 -->
-          <div v-for="cat in categoryOrder" :key="cat" class="group">
-            <template v-if="groups[cat]?.length">
-              <div class="cat-head">{{ categoryLabel(cat) }}（{{ groups[cat].length }}）</div>
-              <el-table :data="groups[cat]" size="small" border>
-                <el-table-column prop="std_name" label="能力项" min-width="140" />
-                <el-table-column label="等级" width="80" align="center">
-                  <template #default="{ row }">
-                    {{ row.required_level != null ? 'Lv' + row.required_level : '—' }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="重要性" width="90">
-                  <template #default="{ row }">
-                    <el-tag size="small" :type="importanceType(row.importance)">
-                      {{ importanceLabel(row.importance) }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="权重" width="90" align="center">
-                  <template #default="{ row }">{{ pct(row.weight) }}%</template>
-                </el-table-column>
-              </el-table>
+        <div v-loading="loading">
+          <template v-if="model">
+            <!-- 按类目分组展示能力项 -->
+            <template v-for="cat in categoryOrder" :key="cat">
+              <template v-if="groups[cat]?.length">
+                <div class="rc-section">
+                  {{ categoryLabel(cat) }}<span class="cnt">{{ groups[cat].length }}</span>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>能力项</th>
+                        <th style="width:80px">等级</th>
+                        <th style="width:90px">重要性</th>
+                        <th style="width:90px">权重</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in groups[cat]" :key="row.std_name">
+                        <td><span class="cell-main">{{ row.std_name }}</span></td>
+                        <td class="num">{{ row.required_level != null ? 'Lv' + row.required_level : '—' }}</td>
+                        <td>
+                          <span class="tag" :class="importanceTagClass(row.importance)">
+                            {{ importanceLabel(row.importance) }}
+                          </span>
+                        </td>
+                        <td class="num">{{ pct(row.weight) }}%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
             </template>
-          </div>
 
-          <!-- 测评入口（后端本期返回 501） -->
-          <div class="actions">
-            <el-button type="primary" size="large" :loading="starting" @click="onStart">开始测评</el-button>
-          </div>
-        </template>
-      </div>
-    </el-card>
+            <!-- 测评入口 -->
+            <div class="actions">
+              <button class="btn btn-primary btn-lg" :disabled="starting" @click="onStart">
+                {{ starting ? '创建会话中…' : '开始测评' }}
+              </button>
+            </div>
+          </template>
+        </div>
+      </main>
+    </div>
+
+    <!-- 通栏脚 -->
+    <footer class="grail-foot">
+      <span>CF · 测评端</span>
+      <div class="f-right"><span>候选人</span></div>
+    </footer>
   </div>
 </template>
 
 <script setup>
-import CandidateNav from '../../components/CandidateNav.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import api from '../../api'
+import api, { assessment } from '../../api'
 import { useAuthStore } from '../../stores/auth'
 
 const route = useRoute()
@@ -82,7 +112,8 @@ const groups = computed(() => {
   return g
 })
 
-async function load() {
+// 加载该岗位 confirmed 模型
+async function loadModel() {
   loading.value = true
   try {
     const { data } = await api.get(`/assessment/positions/${positionId}/model`)
@@ -93,11 +124,13 @@ async function load() {
   }
 }
 
-// 开始测评：模块二未上线，后端返回 501，捕获后提示
+// 开始测评：创建会话 -> 跳转对话页
 async function onStart() {
   starting.value = true
   try {
-    await api.post('/assessment/sessions', { position_id: positionId })
+    const { data } = await assessment.createSession(positionId)
+    const sessionId = data.session_id || data.id
+    router.push(`/assessment/session/${sessionId}`)
   } catch (e) {
     if (e.response?.status === 501) {
       ElMessage.warning('测评功能尚未上线（模块二）')
@@ -109,6 +142,10 @@ async function onStart() {
   }
 }
 
+function onLogout() {
+  auth.logout()
+  router.push('/login')
+}
 
 function categoryLabel(c) {
   return { hard_skill: '硬技能', soft_skill: '软技能', experience: '经验', qualification: '门槛' }[c] || c
@@ -116,8 +153,8 @@ function categoryLabel(c) {
 function importanceLabel(i) {
   return { required: '必备', preferred: '优先', plus: '加分' }[i] || i
 }
-function importanceType(i) {
-  return { required: 'danger', preferred: 'primary', plus: 'info' }[i] || 'info'
+function importanceTagClass(i) {
+  return { required: 'tag-red', preferred: 'tag-amber', plus: 'tag-grey' }[i] || 'tag-grey'
 }
 // 权重 0-1 小数 -> 百分比整数
 function pct(v) {
@@ -126,45 +163,29 @@ function pct(v) {
   return n <= 1 ? (n * 100).toFixed(0) : n.toFixed(0)
 }
 
-onMounted(load)
+onMounted(loadModel)
 </script>
 
 <style scoped>
-.page {
-  padding: 24px;
+.gh-user {
+  font-size: 13px;
+  color: var(--ink-2);
+  align-self: center;
 }
-.panel {
-  max-width: 960px;
-  margin: 0 auto;
-  border-radius: 12px;
-}
-.head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 12px;
-}
-.title {
-  margin: 4px 0 0;
-  color: #303133;
-}
-.subtitle {
-  margin-top: 6px;
-}
-.mb16 {
-  margin-bottom: 16px;
-}
-.group {
-  margin-bottom: 20px;
-}
-.cat-head {
-  font-weight: 600;
-  color: #303133;
+.callout-note {
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: default;
   margin-bottom: 8px;
 }
 .actions {
   display: flex;
   justify-content: center;
   margin-top: 24px;
+}
+.btn-lg {
+  height: 36px;
+  padding: 0 22px;
+  font-size: 14px;
 }
 </style>

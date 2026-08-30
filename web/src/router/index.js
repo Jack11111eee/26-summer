@@ -45,6 +45,18 @@ const routes = [
     component: () => import('../views/assessment/PositionAssess.vue'),
     meta: { requiresAuth: true }
   },
+  {
+    path: '/assessment/session/:session_id',
+    name: 'AssessmentChat',
+    component: () => import('../views/assessment/Chat.vue'),
+    meta: { role: 'candidate' }
+  },
+  {
+    path: '/assessment/report/:session_id',
+    name: 'AssessmentReport',
+    component: () => import('../views/assessment/Report.vue'),
+    meta: { role: 'candidate' }
+  },
   // 根路径与兜底：交给守卫按登录态/角色分发
   { path: '/', redirect: '/login' },
   { path: '/:pathMatch(.*)*', redirect: '/' }

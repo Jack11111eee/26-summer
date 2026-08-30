@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { streamAnswer } from '../utils/sse'
 
 // 统一 axios 实例：baseURL 走 Vite 代理到后端
 const api = axios.create({
@@ -32,5 +33,25 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// 测评端（模块二）接口集合。除流式作答外均走上方 axios 实例（自动携带 token）。
+// submitAnswer 是 SSE 流，须用 fetch（见 utils/sse.js），这里仅作转发以保持调用方统一入口。
+export const assessment = {
+  listPositions: () => api.get('/assessment/positions'),
+  createSession: (positionId) => api.post('/assessment/sessions', { position_id: positionId }),
+  getSession: (sessionId) => api.get(`/assessment/sessions/${sessionId}`),
+  // callbacks: {onDecision, onReply, onDone, onError}；返回 abort() 用于组件卸载时中断
+  submitAnswer: (sessionId, questionId, answer, callbacks) =>
+    streamAnswer(sessionId, questionId, answer, callbacks),
+  getForm: (formId) => api.get(`/assessment/forms/${formId}`),
+  submitForm: (sessionId, formType, payload) =>
+    api.post(`/assessment/sessions/${sessionId}/forms/submit`, { form_type: formType, payload }),
+  // 报告（M6）：异步生成（202）+ 轮询 by-session + 按 id 取 + 异议反馈
+  generateReport: (sessionId) => api.post(`/assessment/sessions/${sessionId}/report`),
+  getReportBySession: (sessionId) => api.get(`/assessment/reports/by-session/${sessionId}`),
+  getReport: (reportId) => api.get(`/assessment/reports/${reportId}`),
+  submitFeedback: (reportId, itemId, feedbackText) =>
+    api.post(`/assessment/reports/${reportId}/feedback`, { item_id: itemId, feedback_text: feedbackText })
+}
 
 export default api
