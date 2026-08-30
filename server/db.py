@@ -200,8 +200,17 @@ CREATE TABLE IF NOT EXISTS feedback (
   report_id     TEXT NOT NULL REFERENCES report,
   item_id       TEXT NOT NULL REFERENCES competency_item,
   feedback_text TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed')),
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','bad_case')),
   created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS eval_results (
+  task_id      TEXT PRIMARY KEY,
+  test_name    TEXT NOT NULL,
+  status       TEXT NOT NULL CHECK(status IN ('running','completed','failed')),
+  result_json  TEXT,
+  created_at   TEXT NOT NULL,
+  completed_at TEXT
 );
 """
 
@@ -242,6 +251,30 @@ def _migrate_llm_trace(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_feedback_status(conn: sqlite3.Connection) -> None:
+    """老库 feedback.status CHECK 无 'bad_case' 时，重建表加入该值（同 llm_trace 迁移思路）。"""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='feedback'"
+    ).fetchone()
+    if row is None or "'bad_case'" in (row[0] or ""):
+        return  # 表不存在（新建走 _DDL）或已是含 bad_case 的约束
+    conn.executescript("""
+    BEGIN;
+    CREATE TABLE feedback_new (
+      feedback_id   TEXT PRIMARY KEY,
+      report_id     TEXT NOT NULL REFERENCES report,
+      item_id       TEXT NOT NULL REFERENCES competency_item,
+      feedback_text TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','bad_case')),
+      created_at    TEXT NOT NULL
+    );
+    INSERT INTO feedback_new SELECT * FROM feedback;
+    DROP TABLE feedback;
+    ALTER TABLE feedback_new RENAME TO feedback;
+    COMMIT;
+    """)
+
+
 def init_db() -> None:
     """建表（幂等）+ 老库迁移，启动时调用一次。"""
     db_dir = os.path.dirname(DB_PATH)
@@ -250,6 +283,7 @@ def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
     try:
         _migrate_llm_trace(conn)
+        _migrate_feedback_status(conn)
         conn.executescript(_DDL)
         conn.commit()
     finally:

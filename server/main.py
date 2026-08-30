@@ -35,6 +35,9 @@ from .api.admin import models as admin_models  # noqa: E402
 from .api.admin import positions as admin_positions  # noqa: E402
 from .api.admin import dict as admin_dict  # noqa: E402
 from .api.admin import users as admin_users  # noqa: E402
+from .api.admin import trace as admin_trace  # noqa: E402
+from .api.admin import feedback as admin_feedback  # noqa: E402
+from .api.admin import eval as admin_eval  # noqa: E402
 
 app = FastAPI(title="岗位胜任力测评系统 - 模块一")
 
@@ -63,6 +66,9 @@ app.include_router(admin_models.router)
 app.include_router(admin_positions.router)
 app.include_router(admin_dict.router)
 app.include_router(admin_users.router)
+app.include_router(admin_trace.router)
+app.include_router(admin_feedback.router)
+app.include_router(admin_eval.router)
 app.include_router(assessment.router)
 
 # 生产：挂载前端构建产物（web/dist 存在时）；API 路由已优先注册，不会被静态文件拦截
