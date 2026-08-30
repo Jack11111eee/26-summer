@@ -8,6 +8,9 @@
           <h2 class="title">{{ positionName || '岗位详情' }}</h2>
         </div>
         <div>
+          <el-button type="success" plain @click="$router.push(`/admin/positions/${positionId}/review`)">
+            模型审核
+          </el-button>
           <el-button type="primary" @click="importVisible = true">+ 导入 JD</el-button>
           <el-button @click="onLogout">退出登录</el-button>
         </div>
