@@ -126,7 +126,7 @@ def retry_level(position_id: str, body: dict, background: BackgroundTasks) -> di
 
 @router.get("/positions/{position_id}/versions")
 def list_versions(position_id: str) -> list[dict]:
-    """版本历史（M3 diff 审阅流用，本期先提供列表）。"""
+    """版本历史。"""
     conn = get_conn()
     rows = conn.execute(
         "SELECT model_id, version, status, confirmed_by, confirmed_at, created_at"
@@ -134,3 +134,40 @@ def list_versions(position_id: str) -> list[dict]:
         (position_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+@router.get("/models/{new_id}/diff")
+def diff_models(new_id: str, against: str) -> dict:
+    """两版本逐项 diff：added/removed/field 变更（P4 diff 审阅流）。
+
+    以 std_name+category 为对齐键。返回每项的变更类型与字段级差异。
+    """
+    conn = get_conn()
+    def load(mid):
+        row = conn.execute("SELECT model_json FROM competency_model WHERE model_id=?", (mid,)).fetchone()
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"模型不存在: {mid}")
+        return {f"{i['std_name']}|{i['category']}": i for i in json.loads(row["model_json"])["items"]}
+
+    new_items, old_items = load(new_id), load(against)
+    FIELD_LABELS = {"required_level": "等级", "importance": "重要性", "weight": "权重",
+                    "years": "年限", "gate": "门槛"}
+    changes = []
+    for key, nitem in new_items.items():
+        if key not in old_items:
+            changes.append({"std_name": nitem["std_name"], "category": nitem["category"],
+                            "change": "added", "new": nitem})
+            continue
+        oitem = old_items[key]
+        field_diffs = [
+            {"field": f, "label": FIELD_LABELS[f], "old": oitem.get(f), "new": nitem.get(f)}
+            for f in FIELD_LABELS if oitem.get(f) != nitem.get(f)
+        ]
+        if field_diffs:
+            changes.append({"std_name": nitem["std_name"], "category": nitem["category"],
+                            "change": "field", "diffs": field_diffs, "new": nitem, "old": oitem})
+    for key, oitem in old_items.items():
+        if key not in new_items:
+            changes.append({"std_name": oitem["std_name"], "category": oitem["category"],
+                            "change": "removed", "old": oitem})
+    return {"new_id": new_id, "against": against, "changes": changes}
