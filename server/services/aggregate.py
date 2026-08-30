@@ -131,7 +131,7 @@ def run_aggregate(position_id: str) -> str:
         req = len(g["req_jds"]) / total_jds
         importance = _map_importance(r, req)
 
-        is_gate = category == "qualification" or (category == "experience" and g.get("years_list"))
+        is_gate = category == "qualification" or (category == "experience" and bool(g.get("years_list")))
         if is_gate:
             level, reason = None, "门槛项，二值判定（模块三评分）"
         else:
