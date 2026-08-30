@@ -11,6 +11,18 @@ from ...services.pipeline import new_id, now_iso, run_parse_pipeline
 router = APIRouter(prefix="/api/admin", tags=["admin-jds"], dependencies=[Depends(require_admin)])
 
 
+@router.get("/positions")
+def list_positions() -> list[dict]:
+    """岗位列表（M1 简版：id/名称/状态/JD 数）。完整 P1 岗位库在 M3 实现。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT p.position_id, p.name, p.status,"
+        " (SELECT COUNT(*) FROM jd_record j WHERE j.position_id=p.position_id) AS jd_count"
+        " FROM position p ORDER BY p.created_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def _insert_jd(jd_text: str, company: str | None, source_type: str) -> str:
     jd_id = new_id("jd")
     conn = get_conn()

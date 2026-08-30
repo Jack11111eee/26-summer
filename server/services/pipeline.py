@@ -27,11 +27,21 @@ def clean_jd(raw_text: str) -> tuple[str, bool]:
     kept: list[str] = []
     in_noise = False
     for ln in lines:
-        if any(h in ln for h in NOISE_HEADERS):
+        # 噪音段 header：进入噪音态；header 之前若同行有要求内容则保留
+        noise_hit = next((h for h in NOISE_HEADERS if h in ln), None)
+        if noise_hit:
+            before = ln.split(noise_hit, 1)[0].strip(" ：:，,")
+            if before and not in_noise:
+                kept.append(before)
             in_noise = True
             continue
-        if any(h in ln for h in REQ_HEADERS):
+        # 要求段 header：退出噪音态；header 之后同行的内容必须保留（header 与内容常同行）
+        req_hit = next((h for h in REQ_HEADERS if h in ln), None)
+        if req_hit:
             in_noise = False
+            after = ln.split(req_hit, 1)[1].strip(" ：:，,")
+            if after:
+                kept.append(after)
             continue
         if not in_noise:
             kept.append(ln)

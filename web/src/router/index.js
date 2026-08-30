@@ -12,6 +12,12 @@ const routes = [
     component: () => import('../views/admin/Positions.vue'),
     meta: { role: 'admin' }
   },
+  {
+    path: '/admin/positions/:id',
+    name: 'AdminPositionDetail',
+    component: () => import('../views/admin/PositionDetail.vue'),
+    meta: { role: 'admin' }
+  },
   // 测评端（登录即可）
   {
     path: '/assessment/positions',
