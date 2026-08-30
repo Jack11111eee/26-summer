@@ -32,6 +32,7 @@ const routes = [
   },
   { path: '/admin/dict', name: 'AdminDict', component: () => import('../views/admin/Dict.vue'), meta: { role: 'admin' } },
   { path: '/admin/users', name: 'AdminUsers', component: () => import('../views/admin/Users.vue'), meta: { role: 'admin' } },
+  { path: '/admin/test-center', name: 'AdminTestCenter', component: () => import('../views/admin/TestCenter.vue'), meta: { role: 'admin' } },
   // 测评端（登录即可）
   {
     path: '/assessment/positions',

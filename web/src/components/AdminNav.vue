@@ -6,6 +6,7 @@
         <el-menu-item index="/admin/positions">岗位库</el-menu-item>
         <el-menu-item index="/admin/dict">能力词典</el-menu-item>
         <el-menu-item index="/admin/users">用户管理</el-menu-item>
+        <el-menu-item index="/admin/test-center">测试中心</el-menu-item>
       </el-menu>
       <div class="right">
         <span class="username">{{ auth.user?.username }}</span>
@@ -29,6 +30,7 @@ const activePath = computed(() => {
   const p = route.path
   if (p.startsWith('/admin/dict')) return '/admin/dict'
   if (p.startsWith('/admin/users')) return '/admin/users'
+  if (p.startsWith('/admin/test-center')) return '/admin/test-center'
   return '/admin/positions'
 })
 

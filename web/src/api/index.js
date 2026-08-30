@@ -54,4 +54,24 @@ export const assessment = {
     api.post(`/assessment/reports/${reportId}/feedback`, { item_id: itemId, feedback_text: feedbackText })
 }
 
+// 管理端 P8 测试中心（模块四 M7）接口集合
+export const admin = {
+  eval: {
+    runConsistency: (session_id, runs) => api.post('/admin/eval/consistency', { session_id, runs }),
+    runVirtualCandidates: (position_id) => api.post('/admin/eval/virtual-candidates', { position_id }),
+    getResult: (task_id) => api.get(`/admin/eval/results/${task_id}`),
+    getHistory: () => api.get('/admin/eval/history'),
+  },
+  trace: {
+    list: (filters) => api.get('/admin/trace/list', { params: filters }),
+    getDetail: (trace_id) => api.get(`/admin/trace/${trace_id}`),
+    getBySession: (session_id) => api.get(`/admin/trace/by-session/${session_id}`),
+  },
+  feedback: {
+    list: (status) => api.get('/admin/feedback/list', { params: { status } }),
+    review: (feedback_id, note = '') => api.post(`/admin/feedback/${feedback_id}/review`, { note }),
+    badCase: (feedback_id, note = '') => api.post(`/admin/feedback/${feedback_id}/bad-case`, { note }),
+  },
+}
+
 export default api
