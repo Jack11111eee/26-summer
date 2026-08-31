@@ -1,0 +1,206 @@
+/* ============================================================
+   视觉世界 J：Holy Grail 骨架 × Notion 色彩（候选人端落地）
+   来源：prototype/final/grail-notion.css（设计令牌原样保留）。
+   说明：为不破坏既有 Element Plus/admin 页，本文件不含原型里的
+   `* {margin:0}` 全局重置与 `body{overflow:hidden}`；骨架/组件
+   均为 opt-in class，仅在候选人端页面显式使用。
+   ============================================================ */
+:root {
+  --deck: #f7f6f3;
+  --panel: #ffffff;
+  --panel-2: #f7f6f3;
+  --line: #e9e9e7;
+  --ink-1: #37352f;
+  --ink-2: #6f6e69;
+  --ink-3: #9b9a97;
+  --red: #e16259;
+  --red-bg: #fdebec;
+  --amber: #cb912f;
+  --amber-bg: #fbf3db;
+  --green: #448361;
+  --green-bg: #edf3ec;
+  --blue: #337ea9;
+  --blue-bg: #e7f3f8;
+  --grey-bg: #f1f1ef;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* ============ 圣杯骨架 ============ */
+.grail { display: flex; flex-direction: column; height: 100vh; }
+.grail-head {
+  height: 50px; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; padding: 0 18px; gap: 14px; flex-shrink: 0;
+}
+.grail-body { flex: 1; display: flex; min-height: 0; }
+.grail-foot {
+  height: 30px; background: var(--ink-1); color: rgba(255,255,255,.65);
+  display: flex; align-items: center; padding: 0 18px; gap: 16px;
+  font-family: var(--mono); font-size: 10px; flex-shrink: 0;
+}
+.grail-foot .f-right { margin-left: auto; display: flex; gap: 16px; }
+.grail-foot .ok { color: #9fd4b4; }
+
+/* ============ 通栏头 ============ */
+.gh-brand { display: flex; align-items: center; gap: 9px; }
+.gh-mark {
+  width: 26px; height: 26px; border-radius: 5px; background: var(--ink-1);
+  color: #fff; font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+.gh-name { font-weight: 600; font-size: 14px; }
+.gh-divider { width: 1px; height: 20px; background: var(--line); }
+.gh-crumb { font-size: 13px; color: var(--ink-2); }
+.gh-crumb b { color: var(--ink-1); font-weight: 600; }
+.gh-actions { margin-left: auto; display: flex; gap: 8px; }
+
+/* ============ 左栏：导航 ============ */
+.rail-left {
+  width: 200px; background: var(--panel); border-right: 1px solid var(--line);
+  flex-shrink: 0; overflow-y: auto; padding: 12px 10px;
+  display: flex; flex-direction: column;
+}
+.rl-section {
+  padding: 10px 8px 4px; font-size: 11px; font-weight: 600; color: var(--ink-3);
+}
+.nav-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 5px; color: var(--ink-2);
+  margin-bottom: 1px; font-size: 14px;
+}
+.nav-item:hover { background: rgba(0,0,0,.045); color: var(--ink-1); }
+.nav-item.active { background: rgba(0,0,0,.055); color: var(--ink-1); font-weight: 500; }
+.nav-item .icon { width: 18px; text-align: center; font-size: 14px; }
+.nav-badge {
+  margin-left: auto; font-size: 11px; color: var(--ink-3); font-family: var(--mono);
+}
+.rl-user {
+  margin-top: auto; padding: 12px 8px 2px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px;
+}
+.avatar {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--red);
+  color: #fff; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+.user-name { font-size: 13px; }
+.user-role { font-size: 11px; color: var(--ink-3); }
+
+/* ============ 中栏：数据主栏 ============ */
+.rail-center {
+  flex: 1; min-width: 0; overflow-y: auto; padding: 18px 22px 28px;
+}
+.rc-head { margin-bottom: 16px; }
+.rc-title { font-size: 22px; font-weight: 700; letter-spacing: -0.2px; }
+.rc-meta {
+  font-size: 12px; color: var(--ink-3); margin-top: 4px;
+  display: flex; gap: 12px; font-family: var(--mono);
+}
+.rc-section {
+  font-size: 15px; font-weight: 600; margin: 22px 2px 10px;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.rc-section .cnt { font-size: 12px; color: var(--ink-3); font-family: var(--mono); font-weight: 400; }
+.rc-section .more { margin-left: auto; font-size: 12px; color: var(--ink-3); cursor: pointer; font-weight: 400; }
+.rc-section .more:hover { color: var(--ink-1); }
+
+.table-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.table-wrap table { width: 100%; border-collapse: collapse; }
+.table-wrap th {
+  text-align: left; padding: 8px 14px; font-size: 12px; font-weight: 500;
+  color: var(--ink-2); background: var(--panel-2); border-bottom: 1px solid var(--line);
+}
+.table-wrap td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.table-wrap tr:last-child td { border-bottom: none; }
+.table-wrap tbody tr:hover td { background: var(--panel-2); }
+.cell-main { font-weight: 500; }
+.cell-sub { font-size: 12px; color: var(--ink-3); margin-top: 1px; }
+.mono { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ============ 右栏：常驻上下文 ============ */
+.rail-right {
+  width: 268px; flex-shrink: 0; overflow-y: auto; padding: 18px 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rr-title {
+  font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: 8px;
+}
+.rr-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px;
+}
+/* callout（Notion 粉彩块） */
+.rr-callout { border-radius: 8px; padding: 12px 14px; cursor: pointer; }
+.rr-callout.amber { background: var(--amber-bg); }
+.rr-callout.red { background: var(--red-bg); }
+.rr-callout.grey { background: var(--grey-bg); }
+.rr-callout-top { display: flex; align-items: center; gap: 8px; }
+.rr-callout-label { font-size: 13px; font-weight: 600; }
+.rr-callout-arrow { margin-left: auto; color: var(--ink-3); font-size: 12px; }
+.rr-callout-num { font-size: 22px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.rr-callout-foot { font-size: 11px; color: var(--ink-2); margin-top: 1px; font-family: var(--mono); }
+
+.callout-dot {
+  width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+  display: inline-block;
+}
+.callout-dot-amber { background: var(--amber); }
+.callout-dot-red { background: var(--red); }
+.callout-dot-grey { background: var(--ink-3); }
+
+/* ============ 按钮（深墨主按钮 + 幽灵钮） ============ */
+.btn {
+  height: 28px; padding: 0 10px; border-radius: 5px; font-size: 13px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-2);
+  cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px;
+}
+.btn:hover { background: var(--panel-2); color: var(--ink-1); }
+.btn-primary { background: var(--ink-1); border-color: var(--ink-1); color: #fff; font-weight: 500; }
+.btn-primary:hover { background: #4c4a44; border-color: #4c4a44; color: #fff; }
+.btn-success-ghost { border-color: transparent; color: var(--green); background: transparent; }
+.btn-success-ghost:hover { background: #d8ead9; color: #295e43; }
+.btn-danger-ghost { border-color: transparent; color: var(--red); background: transparent; }
+.btn-danger-ghost:hover { background: #fad5d1; color: #a6352f; }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-ghost:hover { background: var(--panel-2); }
+.btn-sm { height: 24px; padding: 0 8px; font-size: 12px; }
+.btn[disabled] { opacity: .35; cursor: not-allowed; }
+
+/* ============ 状态标签（Notion 圆润粉彩） ============ */
+.tag {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+  border-radius: 10px; font-size: 12px; font-weight: 500;
+}
+.tag-green { background: var(--green-bg); color: var(--green); }
+.tag-amber { background: var(--amber-bg); color: var(--amber); }
+.tag-red { background: var(--red-bg); color: var(--red); }
+.tag-grey { background: var(--grey-bg); color: var(--ink-2); }
+
+/* ============ 表单（原生控件；Element Plus 组件另由主题变量染墨） ============ */
+.input, .select, textarea.input {
+  height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 5px;
+  font-size: 12px; font-family: inherit; color: var(--ink-1); background: var(--panel); width: 100%;
+}
+.input:focus, .select:focus, textarea.input:focus {
+  outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(51,126,169,.15);
+}
+.input::placeholder { color: var(--ink-3); }
+
+/* ============ 引用块 / 旁注 ============ */
+.quote {
+  border-left: 1.5px solid var(--ink-1); padding: 4px 0 4px 12px;
+  margin: 6px 0; font-size: 13px; line-height: 1.7;
+}
+.aside-note { font-size: 12px; color: var(--ink-3); line-height: 1.6; }
+
+/* ============ Σ 读数条 ============ */
+.sigma {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 8px; margin-bottom: 12px;
+  background: var(--panel); border: 1px solid var(--line); font-size: 13px;
+}
+.sigma .bar { flex: 1; height: 5px; background: var(--grey-bg); border-radius: 3px; overflow: hidden; }
+.sigma .bar i { display: block; height: 100%; background: var(--green); border-radius: 3px; }
+.sigma.bad .bar i { background: var(--red); }
+.sigma .val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sigma .lbl { color: var(--ink-3); font-size: 12px; }

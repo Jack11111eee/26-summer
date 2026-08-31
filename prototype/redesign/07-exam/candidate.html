@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对话测评 · 考试答卷</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="candidate">
+
+<!-- 桌面上的 A4 答卷 -->
+<div class="cand">
+  <div class="sheet">
+
+    <!-- 试卷头 -->
+    <div class="sheet-head">
+      <div class="seal">装 订 线</div>
+      <div class="exam-head">
+        <div class="exam-title">岗位胜任力<em>测·评·卷</em></div>
+        <div class="exam-sub">后端开发 · 动态多轮测评</div>
+        <div class="exam-meta">
+          <span>考生：<span class="v">张同学</span></span>
+          <span>科目：<span class="v">后端开发</span></span>
+          <span>模型：<span class="v">v2</span></span>
+          <span class="exam-no">卷号 NO.0231</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 第三题 -->
+    <div class="q">
+      <div class="q-no"><span class="red">三、</span>硬技能 · 中等</div>
+      <div class="q-text">请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。</div>
+    </div>
+    <div class="answer">
+      <div class="answer-label"><b>作答区</b></div>
+      <div class="lines">
+        <div class="filled">去年负责一个线上订单服务，上线后经常出现超时报警。我先看监控面板，发现是数据库连接池被打满，慢查询集中在订单表的联表统计……我加了索引并拆出独立统计库，问题就解决了。</div>
+      </div>
+    </div>
+
+    <!-- 追问 -->
+    <div class="q next">
+      <div class="q-no"><span class="red">追问</span></div>
+      <div class="q-text">很好。那你怎么判断问题根源是连接池配置，而不是应用代码本身的逻辑缺陷？有没有做过对照实验来排除干扰因素？</div>
+      <div class="note">阅卷批注：作答缺「对照验证」，故追问。<b>过程判分 4 / 5</b></div>
+    </div>
+    <div class="answer">
+      <div class="answer-label"><b>作答区</b></div>
+      <div class="lines">
+        <div class="filled">我让流量先绕过一个节点做 AB 对比……</div>
+      </div>
+    </div>
+
+    <!-- 页脚 -->
+    <div class="sheet-foot">
+      <div class="compose">
+        <textarea placeholder="在横线上作答……"></textarea>
+      </div>
+      <button class="send">作答</button>
+      <span class="page-no">第 3 页 · 共 10 页</span>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

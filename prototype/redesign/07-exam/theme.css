@@ -1,0 +1,198 @@
+/* ============================================================
+   配对⑦ 答卷 × 阅卷（视觉原型）
+   Admin：阅卷台 —— 成绩册、红笔批注、白桌
+   Candidate：考试答卷 —— 白纸黑字、题号、密封线、横线作答区
+   中性色 + 唯一红笔。body.admin / body.candidate 切换两端。
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+a { text-decoration: none; color: inherit; }
+button { font-family: inherit; cursor: pointer; }
+
+/* ============================================================
+   ADMIN · 阅卷台
+   ============================================================ */
+body.admin {
+  --desk: #f3f2ee;
+  --card: #ffffff;
+  --line: #e3e1da;
+  --ink-1: #26251f;
+  --ink-2: #6d6a60;
+  --ink-3: #a5a195;
+  --red: #c22f23;
+  --serif: 'Songti SC', 'STSong', 'SimSun', Georgia, serif;
+  --mono: 'Courier New', 'SF Mono', Menlo, monospace;
+  color: var(--ink-1);
+  background: var(--desk);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  font-size: 14px;
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ---- 侧栏：卷宗架 ---- */
+.admin .sidebar {
+  width: 204px; background: var(--card); border-right: 1px solid var(--line); flex-shrink: 0;
+  display: flex; flex-direction: column; padding: 0;
+  position: sticky; top: 0; height: 100vh;
+}
+.admin .side-head { padding: 20px 20px 16px; border-bottom: 1px solid var(--line); }
+.admin .side-name { font-size: 18px; font-weight: 700; letter-spacing: .1em; font-family: var(--serif); }
+.admin .side-name em { font-style: normal; color: var(--red); }
+.admin .side-mark { font-size: 11px; color: var(--ink-3); margin-top: 5px; letter-spacing: .2em; }
+
+.admin .nav { padding: 14px 10px; }
+.admin .nav-item { display: block; padding: 9px 12px; font-size: 14px; color: var(--ink-2); position: relative; }
+.admin .nav-item:hover { color: var(--ink-1); }
+.admin .nav-item.active { color: var(--ink-1); font-weight: 600; }
+.admin .nav-item.active::before { content: ""; position: absolute; left: 2px; top: 7px; bottom: 7px; width: 2px; background: var(--red); }
+.admin .nav-item .nav-badge { float: right; font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+.admin .side-foot { margin-top: auto; padding: 16px 20px; border-top: 1px solid var(--line); }
+.admin .side-user { font-size: 13px; font-weight: 600; }
+.admin .side-role { font-size: 11px; color: var(--ink-3); margin-top: 3px; font-family: var(--mono); }
+
+/* ---- 主区 ---- */
+.admin .main { flex: 1; min-width: 0; padding: 28px 32px 48px; }
+
+.admin .topbar { display: flex; align-items: baseline; gap: 14px; border-bottom: 2px solid var(--ink-1); padding-bottom: 14px; margin-bottom: 22px; }
+.admin .topbar-title { font-size: 24px; font-weight: 700; font-family: var(--serif); letter-spacing: .04em; }
+.admin .topbar-title em { font-style: normal; color: var(--red); }
+.admin .topbar-meta { font-size: 12px; color: var(--ink-3); font-family: var(--mono); }
+.admin .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+
+.admin .btn {
+  height: 30px; padding: 0 14px; font-size: 13px;
+  border: 1px solid var(--ink-1); background: transparent; color: var(--ink-1);
+  display: inline-flex; align-items: center; gap: 6px; font-family: var(--serif);
+}
+.admin .btn:hover { background: var(--ink-1); color: var(--card); }
+.admin .btn-primary { background: var(--ink-1); color: var(--card); }
+
+/* ---- KPI：成绩栏 ---- */
+.admin .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+.admin .stat { background: var(--card); border: 1px solid var(--line); padding: 16px 18px; position: relative; }
+.admin .stat-label { font-size: 12px; color: var(--ink-2); letter-spacing: .06em; }
+.admin .stat-num { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 8px; font-family: var(--serif); }
+.admin .stat-foot { font-size: 11px; color: var(--ink-3); font-family: var(--mono); margin-top: 6px; }
+.admin .stat .grade { position: absolute; top: 12px; right: 14px; font-size: 11px; font-family: var(--mono); color: var(--ink-3); }
+.admin .stat.hot { border-color: var(--red); }
+.admin .stat.hot .stat-num { color: var(--red); }
+
+/* ---- 成绩册表格 ---- */
+.admin .panel { background: var(--card); border: 1px solid var(--line); margin-bottom: 22px; }
+.admin .panel-head { display: flex; align-items: baseline; gap: 12px; padding: 13px 18px 11px; border-bottom: 1px solid var(--line); }
+.admin .panel-title { font-size: 14px; font-weight: 600; font-family: var(--serif); letter-spacing: .04em; }
+.admin .panel-cnt { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+.admin .panel-more { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.admin .panel-more:hover { color: var(--red); }
+
+.admin table { width: 100%; border-collapse: collapse; }
+.admin th {
+  text-align: left; font-size: 12px; font-weight: 400; color: var(--ink-3);
+  padding: 9px 18px; border-bottom: 1px solid var(--line); letter-spacing: .04em; font-family: var(--serif);
+}
+.admin th.num, .admin td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin td { padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
+.admin tbody tr:last-child td { border-bottom: none; }
+.admin tbody tr:hover td { background: #faf9f5; }
+.admin .cell-main { font-weight: 600; }
+.admin .cell-sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.admin .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+
+/* 红笔批注 */
+.admin .rednote { font-family: var(--serif); font-size: 13px; color: var(--red); position: relative; padding-left: 10px; }
+.admin .rednote::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 2px; background: var(--red); opacity: .5; }
+.admin .rednote .star { color: var(--red); }
+
+.admin .tag { display: inline-block; padding: 2px 8px; font-size: 12px; border: 1px solid var(--line); color: var(--ink-2); font-family: var(--serif); }
+.admin .tag-solid { border-color: var(--ink-1); color: var(--ink-1); font-weight: 600; }
+.admin .tag-red { border-color: var(--red); color: var(--red); }
+
+.admin .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.admin .row-btn {
+  height: 26px; padding: 0 12px; font-size: 13px; font-family: var(--serif);
+  border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+  opacity: 0; transition: opacity .12s ease;
+}
+.admin tbody tr:hover .row-btn { opacity: 1; }
+.admin .row-btn:hover { border-color: var(--ink-1); color: var(--ink-1); }
+.admin .row-btn-primary { border-color: var(--ink-1); color: var(--ink-1); font-weight: 600; }
+.admin .row-btn-primary:hover { background: var(--ink-1); color: var(--card); }
+.admin .row-btn-danger { color: var(--red); }
+.admin .row-btn-danger:hover { border-color: var(--red); }
+
+/* ============================================================
+   CANDIDATE · 考试答卷
+   ============================================================ */
+body.candidate {
+  --desk: #eceae4;
+  --paper: #fffefa;
+  --ink-1: #23211c;
+  --ink-2: #55503f;
+  --ink-3: #a09a88;
+  --line: #d8d2c2;
+  --red: #c22f23;
+  --serif: 'Songti SC', 'STSong', 'SimSun', Georgia, serif;
+  --mono: 'Courier New', 'SF Mono', monospace;
+  color: var(--ink-1);
+  background: var(--desk);
+  font-family: var(--serif);
+  font-size: 15px;
+}
+
+.cand { display: flex; flex-direction: column; min-height: 100vh; }
+/* 桌面上的 A4 答卷 */
+.cand .sheet {
+  flex: 1; max-width: 760px; width: 100%; margin: 26px auto; background: var(--paper);
+  box-shadow: 0 4px 26px rgba(35,33,28,.12); padding: 34px 40px 30px;
+  display: flex; flex-direction: column;
+}
+
+/* 试卷头：密封线 + 科目 */
+.cand .sheet-head { display: flex; gap: 18px; border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+.cand .seal { writing-mode: vertical-rl; font-size: 12px; letter-spacing: .5em; color: var(--ink-3); border-left: 1px dashed var(--ink-3); padding-left: 8px; align-self: stretch; }
+.cand .exam-head { flex: 1; }
+.cand .exam-title { font-size: 22px; font-weight: 700; letter-spacing: .12em; text-align: center; }
+.cand .exam-title em { font-style: normal; color: var(--red); }
+.cand .exam-sub { text-align: center; font-size: 12px; color: var(--ink-3); letter-spacing: .2em; margin-top: 6px; }
+.cand .exam-meta { display: flex; gap: 24px; margin-top: 18px; font-size: 13px; color: var(--ink-2); border-top: 1px dotted var(--line); padding-top: 12px; }
+.cand .exam-meta b { font-weight: 600; }
+.cand .exam-meta .v { border-bottom: 1px solid var(--ink-3); padding: 0 6px; }
+.cand .exam-no { margin-left: auto; font-family: var(--mono); color: var(--ink-3); }
+
+/* 试题 */
+.cand .q { margin-top: 26px; }
+.cand .q-no { font-size: 15px; font-weight: 700; letter-spacing: .08em; }
+.cand .q-no .red { color: var(--red); }
+.cand .q-tags { display: inline-flex; gap: 8px; margin-left: 10px; }
+.cand .q-tag { font-size: 11px; letter-spacing: .1em; color: var(--ink-3); border: 1px solid var(--line); padding: 1px 8px; }
+.cand .q-text { font-size: 17px; line-height: 1.9; margin-top: 14px; letter-spacing: .02em; }
+
+/* 作答区：横线 */
+.cand .answer { margin-top: 26px; }
+.cand .answer-label { font-size: 12px; letter-spacing: .14em; color: var(--ink-3); margin-bottom: 12px; }
+.cand .answer-label b { color: var(--red); }
+.cand .lines {
+  background-image: repeating-linear-gradient(to bottom, transparent 0 35px, #e2dccb 35px 36px);
+  min-height: 108px; line-height: 36px;
+}
+.cand .filled { color: var(--ink-1); line-height: 36px; font-size: 15px; }
+
+/* 追问（同页第二题） */
+.cand .q.next { margin-top: 22px; border-top: 1px dashed var(--line); padding-top: 22px; }
+.cand .note { margin-top: 14px; font-size: 13px; color: var(--ink-3); line-height: 1.8; }
+.cand .note b { color: var(--red); font-weight: 600; }
+
+/* 页脚：交卷 */
+.cand .sheet-foot { margin-top: auto; padding-top: 22px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 14px; font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+.cand .compose { flex: 1; }
+.cand textarea {
+  width: 100%; min-height: 76px; padding: 10px 4px; border: none; border-bottom: 1px solid var(--ink-1);
+  background: transparent; font-family: var(--serif); font-size: 15px; line-height: 36px; color: var(--ink-1); resize: none;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 35px, #e2dccb 35px 36px);
+}
+.cand textarea:focus { outline: none; }
+.cand textarea::placeholder { color: var(--ink-3); }
+.cand .send { height: 32px; padding: 0 24px; font-size: 14px; font-family: var(--serif); letter-spacing: .08em; border: 1px solid var(--ink-1); background: transparent; color: var(--ink-1); flex-shrink: 0; }
+.cand .send:hover { background: var(--ink-1); color: var(--paper); }
+.cand .page-no { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }

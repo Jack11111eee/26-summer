@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>岗位库 · 工具书</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="admin">
+
+  <!-- 目录页（书页侧栏） -->
+  <aside class="sidebar">
+    <div class="side-head">
+      <div class="side-kicker">工具书 · 总目录</div>
+      <div class="side-name">岗位<em>胜任力</em></div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-group">第一编 · 岗位</div>
+      <a class="nav-item active" href="#"><span class="sec">§1</span>岗位库</a>
+      <a class="nav-item" href="#"><span class="sec">§2</span>岗位详情</a>
+      <a class="nav-item" href="#"><span class="sec">§3</span>能力词典</a>
+
+      <div class="nav-group">第二编 · 评测</div>
+      <a class="nav-item" href="#"><span class="sec">§4</span>模型审核</a>
+      <a class="nav-item" href="#"><span class="sec">§5</span>版本历史</a>
+      <a class="nav-item" href="#"><span class="sec">§6</span>测试中心</a>
+
+      <div class="nav-group">附编</div>
+      <a class="nav-item" href="#"><span class="sec">§7</span>用户管理</a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="side-user">admin</div>
+      <div class="side-role">第 3 次修订 · 2026-08</div>
+    </div>
+  </aside>
+
+  <!-- 正文 -->
+  <main class="main">
+
+    <div class="book-head">
+      <h1 class="book-title">第一章 · 岗位<em>库</em></h1>
+      <div class="book-meta">CHAPTER 01 · 共计 3 个岗位 · 53 份 JD · 模型 v2.4</div>
+    </div>
+
+    <div class="section">
+      <div class="sec-head">
+        <span class="sec-no">提要</span>
+        <span class="sec-title">本页摘要</span>
+        <span class="sec-meta">TABLE OF CONTENTS</span>
+      </div>
+      <div class="stats">
+        <div class="stat hot">
+          <div class="stat-label">待审新岗位</div>
+          <div class="stat-num">2</div>
+          <div class="stat-foot">等待确认入编</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">stalled 模型</div>
+          <div class="stat-num">1</div>
+          <div class="stat-foot">AI Agent 开发工程师</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">待归属 JD</div>
+          <div class="stat-num">3</div>
+          <div class="stat-foot">无岗位指向</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="sec-head">
+        <span class="sec-no">§1.1</span>
+        <span class="sec-title">待审新岗位</span>
+        <span class="sec-meta">2 ENTRIES</span>
+      </div>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr><th>position_name</th><th class="num">jd_count</th><th>created_at</th><th style="text-align:right">action</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="cell-main">智能体工程师</div>
+                <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
+              </td>
+              <td class="num">3</td>
+              <td class="mono">08-31 09:12</td>
+              <td>
+                <div class="row-actions">
+                  <button class="row-btn">通过</button>
+                  <button class="row-btn row-btn-danger">拒绝</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="cell-main">AI Agent 开发工程师</div>
+                <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
+              </td>
+              <td class="num">5</td>
+              <td class="mono">08-30 17:40</td>
+              <td>
+                <div class="row-actions">
+                  <button class="row-btn">通过</button>
+                  <button class="row-btn row-btn-danger">拒绝</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="sec-head">
+        <span class="sec-no">§1.2</span>
+        <span class="sec-title">岗位清单</span>
+        <span class="sec-meta">3 ENTRIES</span>
+      </div>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr><th>position_name</th><th>status</th><th class="num">jd_count</th><th>model_version</th><th style="text-align:right">action</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="cell-main">后端开发</span></td>
+              <td><span class="tag tag-solid">ACTIVE</span></td>
+              <td class="num">12</td>
+              <td><span class="tag tag-red">v2 · confirmed</span></td>
+              <td>
+                <div class="row-actions">
+                  <button class="row-btn">详情</button>
+                  <button class="row-btn row-btn-primary">模型审核</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">AI Agent 开发工程师</span></td>
+              <td><span class="tag tag-solid">ACTIVE</span></td>
+              <td class="num">30</td>
+              <td><span class="tag tag-red">STALLED</span></td>
+              <td>
+                <div class="row-actions">
+                  <button class="row-btn">详情</button>
+                  <button class="row-btn row-btn-primary">模型审核</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">后端开发工程师（高级）</span></td>
+              <td><span class="tag">待审核</span></td>
+              <td class="num">8</td>
+              <td class="mono" style="color:var(--ink-3)">—</td>
+              <td>
+                <div class="row-actions">
+                  <button class="row-btn">详情</button>
+                  <button class="row-btn" disabled style="opacity:.35; cursor:not-allowed">模型审核</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="page-foot">— §1 · 第 3 页，共 12 页 · —</div>
+  </main>
+</body>
+</html>

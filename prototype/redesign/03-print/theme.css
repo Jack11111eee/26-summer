@@ -1,0 +1,223 @@
+/* ============================================================
+   配对③ 排印 × 杂志（视觉原型）
+   Admin：瑞士排印 —— 严格栅格、黑白灰 + 唯一正红、全大写小标题、hairline
+   Candidate：编辑杂志 —— 纸白底、衬线标题、规则线、访谈体
+   均为浅色。body.admin / body.candidate 切换两端。
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  font-size: 13px; -webkit-font-smoothing: antialiased;
+}
+a { text-decoration: none; color: inherit; }
+button { font-family: inherit; cursor: pointer; }
+
+/* ============================================================
+   ADMIN · 瑞士排印
+   ============================================================ */
+body.admin {
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --ink-1: #111111;
+  --ink-2: #666666;
+  --ink-3: #999999;
+  --line: #e5e5e5;
+  --line-strong: #111111;
+  --red: #e02424;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--ink-1);
+  background: var(--bg);
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ---- 侧栏：无彩色，3px 黑顶线 ---- */
+.admin .sidebar {
+  width: 200px; background: var(--panel); flex-shrink: 0;
+  display: flex; flex-direction: column; padding: 0 0 16px;
+  border-right: 1px solid var(--line);
+  position: sticky; top: 0; height: 100vh;
+}
+.admin .side-head { padding: 18px 20px 14px; border-bottom: 3px solid var(--line-strong); }
+.admin .side-kicker { font-size: 10px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; }
+.admin .side-name { font-size: 16px; font-weight: 700; margin-top: 4px; letter-spacing: .02em; }
+
+.admin .nav { padding: 16px 0; }
+.admin .nav-item {
+  display: block; padding: 8px 20px; font-size: 12px; letter-spacing: .05em;
+  color: var(--ink-2); text-transform: uppercase; position: relative;
+}
+.admin .nav-item:hover { color: var(--ink-1); }
+.admin .nav-item.active { color: var(--ink-1); font-weight: 700; }
+.admin .nav-item.active::before {
+  content: ""; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--ink-1);
+}
+.admin .nav-item .nav-badge { font-size: 10px; color: var(--ink-3); font-family: var(--mono); margin-left: 6px; }
+
+.admin .side-foot { margin-top: auto; padding: 14px 20px; border-top: 1px solid var(--line); }
+.admin .side-user-name { font-size: 12px; font-weight: 600; }
+.admin .side-user-role { font-size: 10px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .08em; margin-top: 2px; }
+
+/* ---- 主区 ---- */
+.admin .main { flex: 1; min-width: 0; padding: 28px 32px 48px; }
+.admin .topbar { display: flex; align-items: baseline; gap: 14px; border-bottom: 3px solid var(--line-strong); padding-bottom: 14px; margin-bottom: 22px; }
+.admin .topbar-title { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+.admin .topbar-meta { font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
+.admin .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+
+.admin .btn {
+  height: 30px; padding: 0 14px; font-size: 11px; letter-spacing: .06em;
+  border: 1px solid var(--ink-1); background: transparent; color: var(--ink-1);
+  text-transform: uppercase; display: inline-flex; align-items: center; gap: 6px;
+}
+.admin .btn:hover { background: var(--ink-1); color: #fff; }
+.admin .btn-primary { background: var(--ink-1); color: #fff; }
+.admin .btn-primary:hover { background: #333; }
+.admin .btn-ghost { border-color: var(--line); color: var(--ink-2); }
+.admin .btn-ghost:hover { border-color: var(--ink-1); color: var(--ink-1); background: transparent; }
+
+/* ---- KPI：无卡数字条 ---- */
+.admin .stats { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); background: var(--panel); margin-bottom: 24px; }
+.admin .stat { padding: 16px 20px; }
+.admin .stat + .stat { border-left: 1px solid var(--line); }
+.admin .stat-label { font-size: 10px; letter-spacing: .1em; color: var(--ink-3); text-transform: uppercase; }
+.admin .stat-num { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 8px; letter-spacing: -0.02em; }
+.admin .stat-foot { font-size: 10px; color: var(--ink-3); font-family: var(--mono); margin-top: 4px; text-transform: uppercase; }
+.admin .stat.hot .stat-num { color: var(--red); }
+.admin .stat.hot .stat-label { color: var(--red); }
+
+/* ---- 表格：hairline，无彩色 ---- */
+.admin .panel { border-top: 1px solid var(--line-strong); margin-bottom: 26px; }
+.admin .panel-head { display: flex; align-items: baseline; gap: 12px; padding: 12px 0 10px; }
+.admin .panel-title { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.admin .panel-cnt { font-size: 10px; color: var(--ink-3); font-family: var(--mono); }
+.admin .panel-more { margin-left: auto; font-size: 10px; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; }
+.admin .panel-more:hover { color: var(--ink-1); }
+
+.admin table { width: 100%; border-collapse: collapse; background: var(--panel); }
+.admin th {
+  text-align: left; font-size: 10px; font-weight: 600; color: var(--ink-3);
+  padding: 8px 14px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.admin th.num, .admin td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin td { padding: 11px 14px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
+.admin tbody tr:last-child td { border-bottom: none; }
+.admin tbody tr:hover td { background: #f4f4f4; }
+.admin .cell-main { font-weight: 500; }
+.admin .cell-sub { font-size: 12px; color: var(--ink-3); margin-top: 1px; }
+.admin .mono { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+
+.admin .tag { display: inline-flex; align-items: center; padding: 2px 7px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line); color: var(--ink-2); }
+.admin .tag-solid { border-color: var(--ink-1); background: var(--ink-1); color: #fff; }
+.admin .tag-red { border-color: var(--red); color: var(--red); }
+.admin .tag-red-solid { background: var(--red); border-color: var(--red); color: #fff; }
+
+.admin .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.admin .row-btn {
+  height: 24px; padding: 0 10px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+  opacity: 0; transition: opacity .12s ease;
+}
+.admin tbody tr:hover .row-btn { opacity: 1; }
+.admin .row-btn:hover { border-color: var(--ink-1); color: var(--ink-1); }
+.admin .row-btn-solid { border-color: var(--ink-1); color: var(--ink-1); font-weight: 600; }
+.admin .row-btn-solid:hover { background: var(--ink-1); color: #fff; }
+.admin .row-btn-danger { color: var(--red); }
+.admin .row-btn-danger:hover { border-color: var(--red); }
+
+/* ============================================================
+   CANDIDATE · 编辑杂志
+   ============================================================ */
+body.candidate {
+  --paper: #fffef9;
+  --paper-2: #f6f4ec;
+  --ink-1: #1a1a18;
+  --ink-2: #4a4a45;
+  --ink-3: #8a8a80;
+  --rule: #d8d4c8;
+  --rule-dark: #1a1a18;
+  --accent: #c40233;
+  --serif: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--ink-1);
+  background: var(--paper);
+  font-family: var(--sans);
+}
+
+.cand { display: flex; flex-direction: column; height: 100vh; max-width: 1120px; margin: 0 auto; }
+.cand-head {
+  height: 54px; display: flex; align-items: center; gap: 14px; padding: 0 4px;
+  border-bottom: 1px solid var(--rule); flex-shrink: 0;
+}
+.cand-brand { display: flex; align-items: baseline; gap: 12px; }
+.cand-masthead { font-family: var(--serif); font-size: 17px; font-weight: 700; letter-spacing: .04em; }
+.cand-masthead em { font-style: normal; color: var(--accent); }
+.cand-kicker { font-size: 10px; letter-spacing: .14em; color: var(--ink-3); text-transform: uppercase; }
+.cand-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.cand-user { font-size: 12px; color: var(--ink-2); font-family: var(--serif); font-style: italic; }
+.cand .btn {
+  height: 26px; padding: 0 12px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  border: 1px solid var(--rule-dark); background: transparent; color: var(--ink-1);
+}
+.cand .btn:hover { background: var(--ink-1); color: #fff; }
+
+/* ---- 正文：杂志栅格 ---- */
+.cand .body { flex: 1; min-height: 0; display: flex; padding: 26px 0 10px; }
+.cand .article { flex: 1; min-width: 0; overflow-y: auto; padding-right: 28px; }
+
+.cand .issue { display: flex; align-items: baseline; gap: 12px; padding-bottom: 10px; border-bottom: 2px solid var(--rule-dark); margin-bottom: 18px; }
+.cand .issue-title { font-family: var(--serif); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+.cand .issue-title em { font-style: normal; color: var(--accent); }
+.cand .issue-meta { font-size: 10px; color: var(--ink-3); letter-spacing: .12em; text-transform: uppercase; margin-left: auto; font-family: var(--mono); }
+
+.cand .question {
+  margin-bottom: 22px; padding-top: 18px; border-top: 1px solid var(--rule);
+}
+.cand .q-kicker { font-size: 10px; letter-spacing: .14em; color: var(--ink-3); text-transform: uppercase; margin-bottom: 8px; }
+.cand .q-kicker b { color: var(--ink-1); font-weight: 700; }
+.cand .q-text { font-family: var(--serif); font-size: 17px; line-height: 1.75; font-weight: 700; }
+.cand .q-tags { margin-top: 8px; display: flex; gap: 8px; }
+.cand .q-tag { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); border: 1px solid var(--rule); padding: 2px 8px; }
+.cand .q-tag.accent { color: var(--accent); border-color: var(--accent); }
+
+.cand .answer {
+  margin: 0 0 22px 26px; padding-left: 18px; border-left: 1px solid var(--rule);
+  font-family: var(--serif); font-size: 15px; line-height: 1.9; color: var(--ink-1);
+}
+.cand .answer .who { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 6px; }
+.cand .answer .who b { color: var(--accent); font-weight: 700; }
+
+.cand .gloss {
+  margin: 0 0 22px 26px; padding: 10px 16px; background: var(--paper-2);
+  font-size: 12px; line-height: 1.7; color: var(--ink-2);
+}
+.cand .gloss .gloss-head { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px; }
+.cand .gloss .gloss-head span { color: var(--accent); }
+
+/* ---- 右栏：本场访谈 TOC ---- */
+.cand .toc { width: 220px; flex-shrink: 0; border-left: 1px solid var(--rule); padding-left: 24px; overflow-y: auto; }
+.cand .toc-title { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 14px; }
+.cand .toc-item { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 13px; color: var(--ink-2); font-family: var(--serif); }
+.cand .toc-item .no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.cand .toc-item.current { color: var(--ink-1); font-weight: 700; }
+.cand .toc-item.current .no { color: var(--accent); }
+.cand .toc-foot { margin-top: 18px; font-size: 10px; line-height: 1.7; color: var(--ink-3); letter-spacing: .06em; }
+
+/* ---- 输入区（印刷感） ---- */
+.cand .compose { border-top: 2px solid var(--rule-dark); padding: 14px 0 0; margin-top: 4px; }
+.cand .compose-label { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px; }
+.cand .compose-label b { color: var(--accent); }
+.cand textarea {
+  width: 100%; height: 74px; padding: 12px 14px; border: 1px solid var(--rule);
+  font-family: var(--serif); font-size: 15px; line-height: 1.8; color: var(--ink-1);
+  background: var(--paper); resize: none;
+}
+.cand textarea:focus { outline: none; border-color: var(--ink-1); }
+.cand textarea::placeholder { color: var(--ink-3); }
+.cand .compose-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.cand .compose .send { height: 32px; padding: 0 22px; }
+
+.cand-foot { height: 30px; display: flex; align-items: center; gap: 14px; font-size: 10px; color: var(--ink-3); letter-spacing: .1em; text-transform: uppercase; border-top: 1px solid var(--rule); margin-top: 12px; flex-shrink: 0; }
+.cand-foot .f-right { margin-left: auto; }

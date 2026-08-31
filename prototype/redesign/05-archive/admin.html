@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>岗位库 · 纸质档案</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="admin">
+
+  <!-- 档案目录 -->
+  <aside class="sidebar">
+    <div class="side-head">
+      <div class="side-mark">档案室</div>
+      <div class="side-name">胜任力<em>测评</em></div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-group">模型案卷</div>
+      <a class="nav-item active" href="#"><span>📁</span>岗位库<span class="nav-badge">3</span></a>
+      <a class="nav-item" href="#"><span>📖</span>能力词典</a>
+      <div class="nav-group">系统</div>
+      <a class="nav-item" href="#"><span>👤</span>用户管理</a>
+      <a class="nav-item" href="#"><span>🧪</span>测试中心</a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="side-user">admin · 档案管理员</div>
+      <div class="side-role">登录于 08-31 10:21</div>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <main class="main">
+    <div class="doc-head">
+      <div class="doc-title">岗位<em>库</em></div>
+      <span class="doc-meta">归档号 · POS-2026 · 共 3 岗 / 53 份 JD</span>
+      <div style="margin-left:auto; display:flex; gap:8px">
+        <button class="btn btn-ghost">刷新</button>
+        <button class="btn btn-primary">+ 导入 JD</button>
+      </div>
+    </div>
+
+    <!-- 索引卡 -->
+    <div class="stats">
+      <div class="stat hot">
+        <span class="stamp">待审</span>
+        <div class="stat-label">待审新岗位</div>
+        <div class="stat-num">2</div>
+        <div class="stat-foot">/positions/pending</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">stalled 模型</div>
+        <div class="stat-num">1</div>
+        <div class="stat-foot">AI Agent 开发工程师</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">待归属 JD</div>
+        <div class="stat-num">3</div>
+        <div class="stat-foot">/jds/orphan</div>
+      </div>
+    </div>
+
+    <!-- 待审 -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-title">待审新岗位</span>
+        <span class="panel-cnt">2</span>
+        <span class="panel-more">收起 ▴</span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>岗位名称</th><th class="num">JD 数</th><th>创建时间</th><th style="text-align:right">处理</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="cell-main">智能体工程师</div>
+              <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
+            </td>
+            <td class="num">3</td>
+            <td class="mono">08-31 09:12</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn row-btn-primary">批复通过</button>
+                <button class="row-btn row-btn-danger">驳回</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="cell-main">AI Agent 开发工程师</div>
+              <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
+            </td>
+            <td class="num">5</td>
+            <td class="mono">08-30 17:40</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn row-btn-primary">批复通过</button>
+                <button class="row-btn row-btn-danger">驳回</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 岗位登记簿 -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-title">岗位登记簿</span>
+        <span class="panel-cnt">3 条记录</span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>岗位名称</th><th>状态</th><th class="num">JD 数</th><th>模型版本</th><th style="text-align:right">操作</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="cell-main">后端开发</span></td>
+            <td><span class="mini-stamp">已确认</span></td>
+            <td class="num">12</td>
+            <td><span class="mini-stamp ghost">v2 · 已归档</span></td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">详情</button>
+                <button class="row-btn row-btn-primary">模型审核</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="cell-main">AI Agent 开发工程师</span></td>
+            <td><span class="mini-stamp red">滞留</span></td>
+            <td class="num">30</td>
+            <td><span class="mini-stamp red">stalled</span></td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">详情</button>
+                <button class="row-btn row-btn-primary">模型审核</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="cell-main">后端开发工程师（高级）</span></td>
+            <td><span class="mini-stamp red">待审</span></td>
+            <td class="num">8</td>
+            <td class="mono" style="color:var(--ink-3)">—</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">详情</button>
+                <button class="row-btn" disabled style="opacity:.35; cursor:not-allowed">模型审核</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>后端开发 · 版本历史</title>
+<link rel="stylesheet" href="grail-notion.css">
+<style>
+  .pd-back { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-3); cursor:pointer; margin-bottom:10px; }
+  .pd-back:hover { color:var(--ink-1); }
+  .pd-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .pd-title { font-size:22px; font-weight:700; letter-spacing:-0.2px; }
+  .pd-meta { font-size:12px; color:var(--ink-3); margin-top:4px; font-family:var(--mono); display:flex; gap:12px; }
+
+  /* 版本表格行可选中 */
+  .ver-tr { cursor:pointer; }
+  .ver-tr.sel td { background:var(--blue-bg); }
+  .ver-tr td .ver-no {
+    font-family:var(--mono); font-weight:700; font-size:13px;
+  }
+  .pick-dot {
+    width:14px; height:14px; border-radius:50%; border:1.5px solid var(--ink-3);
+    display:inline-block; vertical-align:-2px;
+  }
+  .ver-tr.sel .pick-dot { background:var(--blue); border-color:var(--blue); }
+
+  /* diff 区 */
+  .diff-head-row {
+    display:flex; align-items:center; gap:10px; margin:20px 2px 12px;
+    font-size:13px; color:var(--ink-2);
+  }
+  .diff-title { font-size:15px; font-weight:600; color:var(--ink-1); }
+  .diff-meta { margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--ink-3); }
+
+  .chg {
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:12px 14px; margin-bottom:10px;
+  }
+  .chg-hd { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .chg-name { font-weight:600; font-size:13px; }
+  .chg-tag {
+    display:inline-flex; align-items:center; height:19px; padding:0 8px; border-radius:9px;
+    font-size:11px; font-weight:600;
+  }
+  .chg-added .chg-tag { background:var(--green-bg); color:#295e43; }
+  .chg-removed .chg-tag { background:var(--red-bg); color:#a6352f; }
+  .chg-field .chg-tag { background:var(--amber-bg); color:#92560d; }
+  .chg-cat { font-size:11px; color:var(--ink-3); margin-left:auto; }
+
+  .diff-list { display:flex; flex-direction:column; gap:4px; }
+  .diff-item { display:flex; align-items:baseline; gap:8px; font-size:12px; line-height:1.7; }
+  .diff-fld { color:var(--ink-3); min-width:60px; }
+  .diff-old { color:#a6352f; text-decoration:line-through; background:var(--red-bg); padding:0 4px; border-radius:3px; }
+  .diff-arr { color:var(--ink-3); }
+  .diff-new { color:#295e43; background:var(--green-bg); padding:0 4px; border-radius:3px; font-weight:600; }
+  .diff-brief { font-size:12px; color:var(--ink-2); }
+
+  /* 空态 */
+  .diff-empty {
+    background:var(--panel); border:1px dashed var(--line); border-radius:8px;
+    padding:30px; text-align:center; color:var(--ink-3); font-size:13px;
+  }
+</style>
+</head>
+<body>
+<div class="grail">
+
+  <header class="grail-head">
+    <div class="gh-brand">
+      <div class="gh-mark">测</div>
+      <span class="gh-name">胜任力测评</span>
+    </div>
+    <div class="gh-divider"></div>
+    <div class="gh-crumb">模块一 / 岗位库 / <b>后端开发</b> / 版本历史</div>
+    <div class="gh-actions">
+      <a class="btn" href="position-detail.html">返回岗位详情</a>
+    </div>
+  </header>
+
+  <div class="grail-body">
+
+    <nav class="rail-left">
+      <div class="rl-section">模块一</div>
+      <a class="nav-item active" href="index.html"><span class="icon">◼</span>岗位库<span class="nav-badge">2</span></a>
+      <a class="nav-item" href="dict.html"><span class="icon">◻</span>能力词典</a>
+      <div class="rl-section">系统</div>
+      <a class="nav-item" href="users.html"><span class="icon">◉</span>用户管理</a>
+      <div class="rl-user">
+        <div class="avatar">A</div>
+        <div>
+          <div class="user-name">admin</div>
+          <div class="user-role">管理员</div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="rail-center">
+      <a class="pd-back" href="position-detail.html">← 返回岗位详情</a>
+      <div class="pd-head">
+        <div>
+          <div class="pd-title">版本历史与对比</div>
+          <div class="pd-meta">
+            <span>后端开发</span><span>共 2 个版本</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rc-section">版本列表<span class="cnt">2</span><span class="more">点击两行进行 diff</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px"></th>
+              <th style="width:70px">版本</th>
+              <th style="width:110px">状态</th>
+              <th style="width:110px">确认人</th>
+              <th style="width:160px">确认时间</th>
+              <th style="width:160px">创建时间</th>
+              <th>模型 ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="ver-tr sel">
+              <td><span class="pick-dot"></span></td>
+              <td><span class="ver-no">v2</span></td>
+              <td><span class="tag tag-green">已确认</span></td>
+              <td>admin</td>
+              <td class="mono">2026-08-28 16:40</td>
+              <td class="mono">2026-08-28 15:52</td>
+              <td class="mono">mdl_b7f2…k9c1</td>
+            </tr>
+            <tr class="ver-tr sel">
+              <td><span class="pick-dot"></span></td>
+              <td><span class="ver-no">v1</span></td>
+              <td><span class="tag tag-grey">已确认</span></td>
+              <td>admin</td>
+              <td class="mono">2026-08-20 10:12</td>
+              <td class="mono">2026-08-19 18:03</td>
+              <td class="mono">mdl_a1d9…f3e7</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- diff 结果 -->
+      <div class="diff-head-row">
+        <span class="diff-title">v2 ↔ v1 差异</span>
+        <span class="diff-meta">1 新增 · 0 删除 · 2 字段变更</span>
+      </div>
+
+      <!-- 新增 -->
+      <div class="chg chg-added">
+        <div class="chg-hd">
+          <span class="chg-tag">新增</span>
+          <span class="chg-name">向量数据库（Milvus/Qdrant）</span>
+          <span class="chg-cat">硬技能</span>
+        </div>
+        <div class="diff-list">
+          <span class="diff-brief">Lv3 · 优先 · 权重 8% · r 58% / req 42%</span>
+        </div>
+      </div>
+
+      <!-- 变更 1 -->
+      <div class="chg chg-field">
+        <div class="chg-hd">
+          <span class="chg-tag">变更</span>
+          <span class="chg-name">RAG 系统设计</span>
+          <span class="chg-cat">硬技能</span>
+        </div>
+        <div class="diff-list">
+          <div class="diff-item">
+            <span class="diff-fld">等级</span>
+            <span class="diff-old">Lv3</span>
+            <span class="diff-arr">→</span>
+            <span class="diff-new">Lv4</span>
+          </div>
+          <div class="diff-item">
+            <span class="diff-fld">权重</span>
+            <span class="diff-old">18%</span>
+            <span class="diff-arr">→</span>
+            <span class="diff-new">20%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 变更 2 -->
+      <div class="chg chg-field">
+        <div class="chg-hd">
+          <span class="chg-tag">变更</span>
+          <span class="chg-name">跨团队协作</span>
+          <span class="chg-cat">软技能</span>
+        </div>
+        <div class="diff-list">
+          <div class="diff-item">
+            <span class="diff-fld">重要性</span>
+            <span class="diff-old">优先</span>
+            <span class="diff-arr">→</span>
+            <span class="diff-new">必备</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <aside class="rail-right">
+      <div class="rr-card">
+        <div class="rr-title">当前对比</div>
+        <div class="legend">
+          <div class="legend-item">基准<span class="legend-note">v1</span></div>
+          <div class="legend-item">对比<span class="legend-note">v2</span></div>
+          <div class="legend-item" style="margin-top:6px; color:var(--ink-3); font-size:11px">点击版本列表中任意两行可更换 diff 对象。</div>
+        </div>
+      </div>
+
+      <div class="rr-card">
+        <div class="rr-title">变更统计</div>
+        <div class="legend">
+          <div class="legend-item"><span class="chg-tag" style="background:var(--green-bg); color:#295e43; height:18px">新增</span><span class="legend-note">1</span></div>
+          <div class="legend-item"><span class="chg-tag" style="background:var(--red-bg); color:#a6352f; height:18px">删除</span><span class="legend-note">0</span></div>
+          <div class="legend-item"><span class="chg-tag" style="background:var(--amber-bg); color:#92560d; height:18px">变更</span><span class="legend-note">2</span></div>
+        </div>
+      </div>
+
+      <div class="rr-alert">
+        已确认的版本为只读快照，不会被后续编辑覆盖。
+      </div>
+    </aside>
+
+  </div>
+
+  <footer class="grail-foot">
+    <span>CF-01 · 模块一建模台</span>
+    <span class="ok">● API 正常</span>
+    <span>/admin/positions/{id}/versions · /admin/models/{id}/diff</span>
+    <div class="f-right">
+      <span>v0.3.2</span>
+      <span>2026-08-29 15:01</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

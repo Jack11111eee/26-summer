@@ -1,0 +1,28 @@
+# ---- 临时/参考目录 ----
+deepseek-chat/
+.impeccable/
+PRODUCT.md
+CLAUDE.md
+1/
+
+# ---- macOS ----
+.DS_Store
+
+# ---- 项目运行产物与密钥 ----
+data/
+*.db
+*.sqlite3
+.env
+.env.local
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# ---- 前端 ----
+node_modules/
+web/dist/
+*.local

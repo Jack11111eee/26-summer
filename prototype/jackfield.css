@@ -1,0 +1,205 @@
+/* ============================================================
+   视觉世界 C：黑玻璃琥珀配线架 (jackfield normalling schedule)
+   THESIS: 状态即线条形态——每条记录一根琥珀链路线：连通=live、
+          打叉=挂起、断开=禁用、双线=选中、末端开环=危险。
+          无卡片、无圆角，琥珀单一信号，黑玻璃底。
+   OWN-WORLD: 黑玻璃(#05070a)、单一信号琥珀(#ffb020)、condensed grotesk、
+          hairline 线框、编号车道、SVG 链路 rail。
+   ============================================================ */
+:root {
+  --bg: #05070a;
+  --bg-2: #07090d;
+  --amber: #ffb020;
+  --amber-dim: rgba(255,176,32,.4);
+  --amber-faint: rgba(255,176,32,.14);
+  --amber-ghost: rgba(255,176,32,.07);
+  --ink-1: #ffd98a;      /* 主文字：琥珀高亮 */
+  --ink-2: #c98f2e;      /* 次文字：暗琥珀 */
+  --ink-3: #6b5a34;      /* 弱文字 */
+  --line: rgba(255,176,32,.16);
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Arial Narrow', 'Helvetica Neue Condensed', -apple-system, 'PingFang SC', sans-serif;
+  font-size: 13px; color: var(--ink-1); background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+a { text-decoration: none; color: inherit; }
+.layout { display: flex; min-height: 100vh; }
+
+/* ============ 侧边栏（黑玻璃 legend 轨） ============ */
+.sidebar {
+  width: 200px; background: var(--bg-2);
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh; flex-shrink: 0;
+}
+.side-brand { padding: 20px 18px 16px; border-bottom: 1px solid var(--line); }
+.brand-plate {
+  display: inline-block; background: var(--amber); color: #120a00;
+  font-family: var(--mono); font-weight: 700; font-size: 11px; letter-spacing: 1px;
+  padding: 3px 8px; margin-bottom: 8px;
+}
+.brand-name { font-size: 13px; font-weight: 700; color: var(--ink-1); letter-spacing: .5px; }
+.brand-sub { font-size: 10px; color: var(--ink-3); font-family: var(--mono); letter-spacing: 1px; margin-top: 2px; }
+.side-section {
+  padding: 16px 18px 6px; font-size: 10px; color: var(--ink-3);
+  letter-spacing: 2px; font-family: var(--mono);
+}
+.side-nav { padding: 4px 0; }
+.nav-item {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 9px 18px; color: var(--ink-2);
+  font-size: 13px; border-left: 2px solid transparent;
+}
+.nav-item:hover { background: var(--amber-ghost); color: var(--ink-1); }
+.nav-item.active {
+  color: var(--ink-1); border-left-color: var(--amber);
+  background: var(--amber-ghost); font-weight: 700;
+}
+.nav-item .lane-num { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.nav-item.active .lane-num { color: var(--amber); }
+.nav-badge {
+  margin-left: auto; font-family: var(--mono); font-size: 11px; font-weight: 700;
+  color: var(--amber);
+}
+.side-user {
+  margin-top: auto; padding: 14px 18px; border-top: 1px solid var(--line);
+  display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 12px;
+}
+.side-user .uname { color: var(--ink-1); }
+.side-user .urole { color: var(--ink-3); font-size: 10px; }
+.side-user .logout { margin-left: auto; color: var(--ink-3); cursor: pointer; }
+.side-user .logout:hover { color: var(--amber); }
+
+/* ============ 内容区 ============ */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  height: 48px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; padding: 0 24px; gap: 14px;
+}
+.crumb { font-family: var(--mono); font-size: 12px; color: var(--ink-2); letter-spacing: .5px; }
+.crumb a { color: var(--ink-3); }
+.crumb a:hover { color: var(--amber); }
+.crumb .sep { color: var(--ink-3); margin: 0 4px; }
+.top-actions { margin-left: auto; display: flex; gap: 8px; }
+.content { padding: 20px 24px; max-width: 1240px; width: 100%; margin: 0 auto; }
+.page-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+.page-title { font-size: 17px; font-weight: 700; letter-spacing: 1px; }
+.page-meta { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+
+/* ============ 区块标题（hairline 分节） ============ */
+.section-head { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; }
+.section-title {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  color: var(--ink-2); letter-spacing: 2.5px;
+}
+.section-head::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* ============ 按钮（hairline 琥珀框） ============ */
+.btn {
+  height: 30px; padding: 0 13px; background: transparent;
+  border: 1px solid var(--amber-dim); color: var(--ink-1);
+  font-family: var(--mono); font-size: 12px; letter-spacing: .5px;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  border-radius: 0; /* 无圆角 */
+}
+.btn:hover { background: var(--amber-faint); border-color: var(--amber); }
+.btn-primary { background: var(--amber); color: #120a00; border-color: var(--amber); font-weight: 700; }
+.btn-primary:hover { background: #ffc042; color: #120a00; }
+.btn-danger { border-color: rgba(255,80,40,.5); color: #ff7a5c; }
+.btn-danger:hover { background: rgba(255,80,40,.1); border-color: #ff5340; }
+.btn-sm { height: 24px; padding: 0 9px; font-size: 11px; }
+.btn[disabled] { opacity: .3; cursor: not-allowed; }
+
+/* ============ 待办仪表条（lane 读数） ============ */
+.todo-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 22px; border: 1px solid var(--line); }
+.todo {
+  padding: 16px 18px; display: flex; align-items: baseline; gap: 12px;
+  border-right: 1px solid var(--line); cursor: pointer;
+}
+.todo:last-child { border-right: none; }
+.todo:hover { background: var(--amber-ghost); }
+.todo-num { font-family: var(--mono); font-size: 30px; font-weight: 700; color: var(--ink-3); line-height: 1; }
+.todo.hot .todo-num { color: var(--amber); }
+.todo.hot-red .todo-num { color: #ff5340; }
+.todo-label { font-size: 12px; font-weight: 700; color: var(--ink-2); letter-spacing: .5px; }
+.todo.hot .todo-label { color: var(--ink-1); }
+.todo.hot-red .todo-label { color: #ff8a70; }
+.todo .lnk { margin-left: auto; }
+
+/* ============ lane 链路 rail（SVG 线态） ============ */
+.lnk { display: inline-block; vertical-align: middle; }
+.lnk svg { display: block; }
+
+/* ============ 面板（hairline 框，无卡片感） ============ */
+.panel { border: 1px solid var(--line); margin-bottom: 18px; }
+.panel-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+  background: var(--amber-ghost);
+}
+.panel-lane { font-family: var(--mono); font-size: 11px; color: var(--amber); letter-spacing: 1px; }
+.panel-title { font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--ink-1); }
+.panel-count { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.panel-head .more { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-3); cursor: pointer; }
+.panel-head .more:hover { color: var(--amber); }
+.panel-body { padding: 0; }
+
+/* ============ lane 表格（行=链路线） ============ */
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; padding: 8px 16px; font-family: var(--mono);
+  font-size: 10px; font-weight: 700; color: var(--ink-3);
+  letter-spacing: 1.5px; border-bottom: 1px solid var(--line);
+}
+td { padding: 10px 16px; border-bottom: 1px solid var(--amber-ghost); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--amber-ghost); }
+.cell-main { font-weight: 700; color: var(--ink-1); letter-spacing: .3px; }
+.cell-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+.mono { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.num { font-family: var(--mono); color: var(--ink-1); }
+
+/* ============ 状态徽章（hairline 框，非填充） ============ */
+.tag {
+  display: inline-flex; align-items: center; height: 19px; padding: 0 7px;
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: .5px; border: 1px solid; border-radius: 0;
+}
+.tag-amber { color: var(--amber); border-color: var(--amber-dim); }
+.tag-red { color: #ff5340; border-color: rgba(255,80,40,.5); }
+.tag-ghost { color: var(--ink-2); border-color: var(--line); }
+.tag-grey { color: var(--ink-2); border-color: var(--line); background: var(--amber-ghost); }
+
+/* ============ 表单 ============ */
+.input, .select, textarea.input {
+  height: 28px; padding: 0 10px; border: 1px solid var(--line);
+  background: var(--bg-2); color: var(--ink-1);
+  font-family: var(--mono); font-size: 12px; width: 100%; border-radius: 0;
+}
+textarea.input { height: auto; padding: 8px 10px; line-height: 1.6; }
+.input:focus, .select:focus, textarea.input:focus { outline: none; border-color: var(--amber); }
+.input::placeholder { color: var(--ink-3); }
+.select option { background: var(--bg-2); color: var(--ink-1); }
+
+/* ============ 提示条（hairline 框） ============ */
+.alert {
+  border: 1px solid; padding: 11px 14px; font-size: 12px;
+  margin-bottom: 16px; display: flex; gap: 10px; line-height: 1.6;
+}
+.alert-red { border-color: rgba(255,80,40,.4); color: #ff8a70; background: rgba(255,80,40,.06); }
+.alert-amber { border-color: var(--amber-dim); color: var(--ink-1); background: var(--amber-ghost); }
+
+/* Σ 读数条 */
+.sigma {
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--line); padding: 10px 14px; margin-bottom: 14px;
+  font-family: var(--mono); font-size: 12px;
+}
+.sigma .bar { flex: 1; height: 4px; background: var(--amber-ghost); }
+.sigma .bar i { display: block; height: 100%; background: var(--amber); }
+.sigma.bad .bar i { background: #ff5340; }
+.sigma .val { font-weight: 700; color: var(--amber); }
+.sigma .lbl { color: var(--ink-3); letter-spacing: 1px; font-size: 10px; }

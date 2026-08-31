@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对话测评 · 禅意水墨</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="candidate">
+
+<div class="cand">
+  <!-- 页眉 -->
+  <header class="cand-head">
+    <div class="cand-brand">
+      <span class="cand-name">胜任力测评</span>
+      <span class="cand-seal">测</span>
+    </div>
+    <span class="cand-kicker">后端开发 · 第 3 题</span>
+    <div class="cand-actions">
+      <span class="cand-user">张同学</span>
+      <button class="btn">退出</button>
+    </div>
+  </header>
+
+  <!-- 墨点进度 -->
+  <div class="prog">
+    <div class="dots">
+      <span class="dot fill"></span>
+      <span class="dot fill"></span>
+      <span class="dot fill"></span>
+      <span class="dot cur"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+    </div>
+    <span class="prog-text">第 3 / 10 题</span>
+  </div>
+
+  <!-- 对话 -->
+  <div class="chat">
+    <div class="scene">
+      <div class="scene-label"><span class="mark">·</span> 问 · 硬技能 / 中等</div>
+      <div class="q">请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。</div>
+      <div class="a">
+        <span class="a-who"><b>答</b> · 张同学</span>
+        去年负责一个线上订单服务，上线后经常出现超时报警。我先看监控面板，发现是数据库连接池被打满，慢查询集中在订单表的联表统计……我加了索引并拆出独立统计库，问题就解决了。
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-label"><span class="mark">·</span> 再问</div>
+      <div class="q">很好。那你怎么判断问题根源是连接池配置，而不是应用代码本身的逻辑缺陷？有没有做过对照实验来排除干扰因素？</div>
+      <div class="note">测评注：作答缺「对照验证」，故再问。<b>过程判分 4 / 5</b></div>
+      <div class="a">
+        <span class="a-who"><b>答</b> · 张同学</span>
+        我让流量先绕过一个节点做 AB 对比……
+      </div>
+    </div>
+  </div>
+
+  <!-- 作答 -->
+  <div class="compose">
+    <div class="compose-label"><b>作答</b> · Enter 送，Shift+Enter 换行</div>
+    <textarea placeholder="静心书写你的回答……"></textarea>
+    <div class="compose-actions"><button class="btn">作答</button></div>
+  </div>
+
+  <footer class="cand-foot">
+    <span>沉着 · 如实 · 从容</span>
+    <div class="f-right">张同学 · 候选人</div>
+  </footer>
+</div>
+
+</body>
+</html>

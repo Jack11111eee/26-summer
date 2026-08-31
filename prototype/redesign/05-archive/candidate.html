@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对话测评 · 书信往来</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="candidate">
+
+<div class="cand">
+  <!-- 台头 -->
+  <header class="cand-head">
+    <div class="cand-brand">
+      <span class="cand-name">胜任力<em>·</em>测评</span>
+      <span class="cand-kicker">书信往来 · 第 3 封</span>
+    </div>
+    <div class="cand-actions">
+      <span class="cand-user">张同学 收</span>
+      <button class="btn">退出</button>
+    </div>
+  </header>
+
+  <div class="body">
+    <!-- 正文 -->
+    <div class="post">
+      <!-- 面试官来信 -->
+      <div class="letter to">
+        <div class="letter-head">
+          <span class="letter-no">来函 <b>03</b> · 硬技能 / 中等</span>
+          <span class="letter-date">2026-08-31</span>
+        </div>
+        <div class="salute">张同学，你好：</div>
+        <div class="letter-body">
+          请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。
+        </div>
+        <div class="letter-sign">—— 面试官 <span class="seal">测</span></div>
+      </div>
+
+      <!-- 候选人回信 -->
+      <div class="letter from">
+        <div class="letter-head">
+          <span class="letter-no">回信</span>
+          <span class="letter-date">2026-08-31</span>
+        </div>
+        <div class="letter-body">
+          去年负责一个线上订单服务，上线后经常出现超时报警。我先看监控面板，发现是数据库连接池被打满，慢查询集中在订单表的联表统计……我加了索引并拆出独立统计库，问题就解决了。
+        </div>
+        <div class="letter-sign">敬复 · 张同学</div>
+      </div>
+
+      <!-- 面试官追函 -->
+      <div class="letter to">
+        <div class="letter-head">
+          <span class="letter-no">追函 · 测评思路</span>
+          <span class="letter-date">2026-08-31</span>
+        </div>
+        <div class="letter-body">
+          很好。那你怎么判断问题根源是连接池配置，而不是应用代码本身的逻辑缺陷？有没有做过对照实验来排除干扰因素？
+        </div>
+        <div class="letter-sign">—— 面试官 <span class="seal">测</span></div>
+        <div class="q-tags">
+          <span class="q-tag red">编按：作答缺「对照验证」，故追问</span>
+          <span class="q-tag">判分 4 / 5</span>
+        </div>
+      </div>
+
+      <!-- 回信 -->
+      <div class="letter from">
+        <div class="letter-head">
+          <span class="letter-no">回信</span>
+          <span class="letter-date">2026-08-31</span>
+        </div>
+        <div class="letter-body">
+          我让流量先绕过一个节点做 AB 对比……
+        </div>
+        <div class="letter-sign">敬复 · 张同学</div>
+      </div>
+
+      <!-- 回信区 -->
+      <div class="reply">
+        <div class="reply-label"><b>继续回信</b> · Enter 寄出，Shift+Enter 换行</div>
+        <textarea placeholder="在此书写你的回信……"></textarea>
+        <div class="reply-actions"><button class="btn send">寄出回信</button></div>
+      </div>
+    </div>
+
+    <!-- 右栏：往来通信 -->
+    <aside class="rail">
+      <div class="rail-title">往来通信</div>
+      <div class="rail-item"><span class="no">01</span><span>自我介绍与经历</span></div>
+      <div class="rail-item"><span class="no">02</span><span>项目分工协作</span></div>
+      <div class="rail-item current"><span class="no">03</span><span>棘手问题 · 定位处理</span></div>
+      <div class="rail-item"><span class="no">04</span><span>追问 · 对照验证</span></div>
+      <div class="rail-item"><span class="no">05</span><span>……</span></div>
+      <div class="rail-foot">通信共 <b>10</b> 封 · 已往来 <b>3</b> 封<br>AI 面试官将逐封追问或推进。</div>
+    </aside>
+  </div>
+</div>
+
+</body>
+</html>

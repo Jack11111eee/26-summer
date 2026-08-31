@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>岗位库 · 色块工作台</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="admin">
+
+  <!-- 动态浅色背景 -->
+  <div class="bg"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
+
+  <!-- 左侧悬停触发区：鼠标贴左缘 → 侧栏伸出；离开 → 收回 -->
+  <div class="edge" title="将鼠标移到此处"></div>
+
+  <!-- 侧栏：默认隐藏 -->
+  <aside class="sidebar">
+    <div class="side-head">
+      <span class="side-chip">胜任力系统</span>
+      <div class="side-kicker">Admin Console</div>
+      <div class="side-name">岗位<em>管理</em></div>
+    </div>
+
+    <nav class="nav">
+      <a class="nav-item active" href="#">岗位库 <span class="cnt">3</span></a>
+      <a class="nav-item" href="#">岗位详情</a>
+      <a class="nav-item" href="#">能力词典</a>
+      <a class="nav-item" href="#">用户管理</a>
+      <a class="nav-item" href="#">测试中心</a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="avatar">A</div>
+      <div>
+        <div class="side-user">admin</div>
+        <div class="side-role">管理员 · 在线</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <div class="topbar-title">岗位<span>库</span></div>
+        <div class="topbar-meta">3 POSITIONS · 53 JDS · REV 2.4</div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn">刷新</button>
+        <button class="btn primary">＋ 导入 JD</button>
+      </div>
+    </header>
+
+    <!-- KPI 素色块 -->
+    <div class="stats">
+      <div class="stat hot">
+        <div class="stat-label">待审新岗位</div>
+        <div class="stat-num">02</div>
+        <div class="stat-foot">等待确认入编</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">stalled 模型</div>
+        <div class="stat-num">01</div>
+        <div class="stat-foot">AI Agent 开发工程师</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">待归属 JD</div>
+        <div class="stat-num">03</div>
+        <div class="stat-foot">暂无岗位指向</div>
+      </div>
+    </div>
+
+    <!-- 模块一：待审新岗位 -->
+    <section class="block n1">
+      <div class="block-head">
+        <span class="block-title">待审新岗位</span>
+        <span class="block-cnt">2 条</span>
+        <span class="block-more">查看全部 →</span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>position_name</th><th class="num">jd_count</th><th>created_at</th><th style="text-align:right">action</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="cell-main">智能体工程师</div>
+              <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
+            </td>
+            <td class="num">3</td>
+            <td>08-31 09:12</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">通过</button>
+                <button class="row-btn row-btn-danger">拒绝</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="cell-main">AI Agent 开发工程师</div>
+              <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
+            </td>
+            <td class="num">5</td>
+            <td>08-30 17:40</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">通过</button>
+                <button class="row-btn row-btn-danger">拒绝</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 模块二：岗位清单 -->
+    <section class="block n2">
+      <div class="block-head">
+        <span class="block-title">岗位清单</span>
+        <span class="block-cnt">3 个岗位</span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>position_name</th><th>status</th><th class="num">jd_count</th><th>model_version</th><th style="text-align:right">action</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="cell-main">后端开发</span></td>
+            <td><span class="tag tag-solid">ACTIVE</span></td>
+            <td class="num">12</td>
+            <td><span class="tag">v2 · confirmed</span></td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">详情</button>
+                <button class="row-btn row-btn-solid">模型审核</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="cell-main">AI Agent 开发工程师</span></td>
+            <td><span class="tag tag-solid">ACTIVE</span></td>
+            <td class="num">30</td>
+            <td><span class="tag tag-red">STALLED</span></td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">详情</button>
+                <button class="row-btn row-btn-solid">模型审核</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="cell-main">后端开发工程师（高级）</span></td>
+            <td><span class="tag">待审核</span></td>
+            <td class="num">8</td>
+            <td><span class="tag">—</span></td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">详情</button>
+                <button class="row-btn" disabled style="opacity:.4; cursor:not-allowed">模型审核</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+<script>
+/* 雾团轨迹：80% 确定性 Lissajous/organic + 15% 低频噪声 + 5% 平滑微扰
+   连续时间（不归零），全程平滑正弦，无跳变、无突加减速；大周期 ≈ 55s */
+(function () {
+  var els = Array.prototype.slice.call(document.querySelectorAll('.blob'));
+  var T = 55, vw = window.innerWidth, vh = window.innerHeight;
+  var ANCHOR = [[.20,.26,.30,.16],[.52,.42,.27,.19],[.32,.64,.29,.15],[.66,.28,.26,.18]];
+  var cfg = els.map(function (_, i) {
+    var d = ANCHOR[i];
+    var r = function (a, b) { return a + Math.random() * (b - a); };
+    return {
+      cx: vw * d[0], cy: vh * d[1], ax: vw * d[2], ay: vh * d[3],
+      kx: [1.00, 2.07, 2.91], ky: [1.00, 1.63, 2.47],   /* 略偏离整数倍 → 不对称 */
+      wx: [0.68, 0.20, 0.12], wy: [0.66, 0.22, 0.12],
+      px: [r(0, 6.28), r(0, 6.28), r(0, 6.28)],
+      py: [r(0, 6.28), r(0, 6.28), r(0, 6.28)],
+      nf: [1 / 1.9, 1 / 3.1],                            /* 噪声：周期 ~104s / ~170s */
+      np: [r(0, 6.28), r(0, 6.28), r(0, 6.28), r(0, 6.28)],
+      jx: 0, jy: 0, jtx: r(-1, 1), jty: r(-1, 1), jtt: 0, jtk: r(0, 1.4)
+    };
+  });
+  window.addEventListener('resize', function () {
+    vw = window.innerWidth; vh = window.innerHeight;
+    cfg.forEach(function (c, i) {
+      var d = ANCHOR[i];
+      c.cx = vw * d[0]; c.cy = vh * d[1]; c.ax = vw * d[2]; c.ay = vh * d[3];
+    });
+  });
+  var t0 = null, last = 0;
+  function frame(ts) {
+    if (t0 === null) { t0 = ts; last = ts; }
+    var dt = Math.min((ts - last) / 1000, 0.1);
+    last = ts;
+    var t = (ts - t0) / 1000;
+    var th = 2 * Math.PI * t / T;
+    for (var i = 0; i < els.length; i++) {
+      var c = cfg[i];
+      /* 微小随机扰动：慢速重定向 + 指数平滑（≈5%） */
+      c.jtt += dt;
+      if (c.jtt > c.jtk) { c.jtx = Math.random() * 2 - 1; c.jty = Math.random() * 2 - 1; c.jtt = 0; c.jtk = 0.8 + Math.random() * 1.2; }
+      var sm = 1 - Math.exp(-dt * 1.6);
+      c.jx += (c.jtx - c.jx) * sm;
+      c.jy += (c.jty - c.jy) * sm;
+      /* 确定性主轨迹（≈80%） */
+      var mx = 0, my = 0;
+      for (var k = 0; k < 3; k++) {
+        mx += c.wx[k] * Math.sin(c.kx[k] * th + c.px[k]);
+        my += c.wy[k] * Math.sin(c.ky[k] * th + c.py[k]);
+      }
+      /* 低频噪声（≈15%） */
+      var no  = 0.6 * Math.sin(2 * Math.PI * t * c.nf[0] / T + c.np[0]) + 0.4 * Math.sin(2 * Math.PI * t * c.nf[1] / T + c.np[1]);
+      var noy = 0.6 * Math.sin(2 * Math.PI * t * c.nf[1] / T + c.np[2]) + 0.4 * Math.sin(2 * Math.PI * t * c.nf[0] / T + c.np[3]);
+      var x = c.cx + c.ax * (mx + 0.15 * no  + 0.05 * c.jx);
+      var y = c.cy + c.ay * (my + 0.15 * noy + 0.05 * c.jy);
+      els[i].style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

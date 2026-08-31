@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对话测评 · Notion 测评端</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="candidate">
+
+<div class="cand">
+  <!-- 通栏头 -->
+  <header class="cand-head">
+    <div class="cand-brand">
+      <div class="cand-mark">测</div>
+      <span class="cand-name">胜任力测评</span>
+    </div>
+    <div class="cand-divider"></div>
+    <div class="cand-crumb">测评端 / <b>后端开发</b> <span class="tag tag-grey" style="margin-left:8px">模型 v2</span></div>
+    <div class="cand-actions">
+      <span class="cand-user">张同学</span>
+      <button class="btn">退出测评</button>
+    </div>
+  </header>
+
+  <div class="cand-body">
+    <!-- 中栏聊天 -->
+    <main class="chat">
+      <div class="chat-box">
+        <!-- AI 提问 -->
+        <div class="row row-assistant">
+          <div class="bubble-wrap">
+            <div class="qmeta">
+              <span class="tag tag-amber">硬技能</span>
+              <span class="tag tag-grey">中等</span>
+            </div>
+            <div class="bubble bubble-assistant">请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。</div>
+          </div>
+        </div>
+
+        <!-- 候选人回答 -->
+        <div class="row row-user">
+          <div class="bubble-wrap">
+            <div class="bubble bubble-user">去年负责一个线上订单服务，上线后经常出现超时报警。我先看监控面板，发现是数据库连接池被打满，慢查询集中在订单表的联表统计……我加了索引并拆出独立统计库，问题就解决了。</div>
+          </div>
+        </div>
+
+        <!-- AI 追问 + 测评思路 -->
+        <div class="row row-assistant">
+          <div class="bubble-wrap">
+            <div class="decision">
+              <div class="decision-title">▸ 测评思路 · 追问</div>
+              <div class="decision-body">
+                回答给出定位路径与处理动作，但缺少"对照验证"。<span class="score">过程判分 4 / 5</span>
+              </div>
+            </div>
+            <div class="bubble bubble-assistant">很好。那你怎么判断问题根源是连接池配置，而不是应用代码本身的逻辑缺陷？有没有做过对照实验来排除干扰因素？</div>
+          </div>
+        </div>
+
+        <!-- 输入区 -->
+        <div class="row row-user">
+          <div class="bubble-wrap">
+            <div class="bubble bubble-user">我让流量先绕过一个节点做 AB 对比……</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-bar">
+        <textarea placeholder="请输入回答，Enter 发送（Shift+Enter 换行）"></textarea>
+        <button class="btn btn-primary send">发送</button>
+      </div>
+    </main>
+
+    <!-- 右栏上下文 -->
+    <aside class="rail">
+      <div class="rr-card">
+        <div class="rr-title">完成进度</div>
+        <div class="progress-num"><span class="num-big">3</span><span class="num-total">/ 10</span></div>
+        <div class="bar"><i></i></div>
+        <div class="progress-sub">已作答 / 总题量</div>
+      </div>
+
+      <div class="rr-card">
+        <div class="rr-title">当前题目</div>
+        <div class="qmeta">
+          <span class="tag tag-amber">硬技能</span>
+          <span class="tag tag-grey">中等</span>
+        </div>
+        <div class="cur-q-stem">请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。</div>
+      </div>
+
+      <div class="callout callout-grey">
+        <div class="callout-top"><span class="callout-label">作答提示</span></div>
+        <div class="callout-foot">结合真实经历作答，AI 会基于回答追问或推进下一题。</div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="cand-foot">
+    <span>CF · 测评端</span>
+    <span class="ok">● 会话进行中</span>
+    <div class="f-right"><span>候选人 · 张同学</span></div>
+  </footer>
+</div>
+
+</body>
+</html>

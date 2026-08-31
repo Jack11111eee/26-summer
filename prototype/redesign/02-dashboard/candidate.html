@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对话测评 · 沉浸测评端</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="candidate">
+
+<div class="cand">
+  <!-- 顶栏 -->
+  <header class="cand-head">
+    <div class="cand-brand">
+      <div class="cand-mark">测</div>
+      <span class="cand-name">胜任力测评</span>
+    </div>
+    <div class="cand-crumb">/ 后端开发 · 模型 v2</div>
+    <div class="cand-actions">
+      <span class="cand-user">张同学</span>
+      <button class="btn">退出</button>
+    </div>
+  </header>
+
+  <!-- 进度窄条 -->
+  <div class="progress-top">
+    <span class="progress-label">第 3 题 / 共 10 题</span>
+    <div class="progress-track"><i></i></div>
+    <span class="live"><span class="live-dot"></span>面试官在线</span>
+  </div>
+
+  <!-- 居中聊天卡片 -->
+  <main class="chat">
+    <div class="chat-head">
+      <div class="interviewer">AI<span class="dot"></span></div>
+      <div>
+        <div class="interviewer-name">智能面试官</div>
+        <div class="interviewer-sub">后端开发 · 动态多轮测评</div>
+      </div>
+      <div class="chat-head-tags">
+        <span class="tag tag-grey">硬技能</span>
+        <span class="tag tag-green">中等</span>
+      </div>
+    </div>
+
+    <div class="chat-body">
+      <div class="row row-assistant">
+        <div class="avatar-sm">AI</div>
+        <div class="bubble-wrap">
+          <div class="bubble bubble-assistant">请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。</div>
+        </div>
+      </div>
+
+      <div class="row row-user">
+        <div class="bubble-wrap">
+          <div class="bubble bubble-user">去年负责一个线上订单服务，上线后经常出现超时报警。我先看监控面板，发现是数据库连接池被打满，慢查询集中在订单表的联表统计……我加了索引并拆出独立统计库，问题就解决了。</div>
+        </div>
+      </div>
+
+      <div class="row row-assistant">
+        <div class="avatar-sm">AI</div>
+        <div class="bubble-wrap">
+          <div class="decision">
+            <div class="decision-title">▸ 测评思路 · 追问</div>
+            <div class="decision-body">回答给出定位路径与处理动作，但缺少"对照验证"。<span class="score">过程判分 4 / 5</span></div>
+          </div>
+          <div class="bubble bubble-assistant">很好。那你怎么判断问题根源是连接池配置，而不是应用代码本身的逻辑缺陷？有没有做过对照实验来排除干扰因素？</div>
+        </div>
+      </div>
+
+      <div class="row row-user">
+        <div class="bubble-wrap">
+          <div class="bubble bubble-user">我让流量先绕过一个节点做 AB 对比……</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-bar">
+      <textarea placeholder="请输入回答，Enter 发送（Shift+Enter 换行）"></textarea>
+      <button class="btn send">发送</button>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

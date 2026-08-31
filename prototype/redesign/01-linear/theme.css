@@ -1,0 +1,258 @@
+/* ============================================================
+   配对① Linear × Notion（视觉原型）
+   Admin：Linear 雾面极简 —— 纯白高密度、单一靛蓝、hover 浮现操作
+   Candidate：Notion 温暖阅读 —— 米白纸底、深墨、粉彩标签
+   均为浅色。body.admin / body.candidate 切换两端。
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  font-size: 13px; -webkit-font-smoothing: antialiased;
+}
+a { text-decoration: none; color: inherit; }
+button { font-family: inherit; cursor: pointer; }
+
+/* ============================================================
+   ADMIN · Linear
+   ============================================================ */
+body.admin {
+  --deck: #f7f8f9;
+  --panel: #ffffff;
+  --panel-2: #f7f8f9;
+  --line: #eceded;
+  --indigo: #5e6ad2;
+  --indigo-soft: #f0f1fb;
+  --ink-1: #0f1419;
+  --ink-2: #62666d;
+  --ink-3: #8a8f98;
+  --green: #4cb782;
+  --amber: #d9a400;
+  --red: #eb5757;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--ink-1);
+  background: var(--deck);
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ---- 侧边栏 ---- */
+.admin .sidebar {
+  width: 224px; background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 18px 12px; flex-shrink: 0;
+  position: sticky; top: 0; height: 100vh;
+}
+.admin .side-brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; border-bottom: 1px solid var(--line); }
+.admin .side-mark {
+  width: 26px; height: 26px; border-radius: 6px; background: var(--indigo);
+  color: #fff; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.admin .side-name { font-size: 13px; font-weight: 600; }
+.admin .side-name small { display: block; font-size: 11px; color: var(--ink-3); font-weight: 400; margin-top: 1px; }
+
+.admin .nav-group { font-size: 11px; font-weight: 500; color: var(--ink-3); padding: 16px 8px 6px; text-transform: uppercase; letter-spacing: .06em; }
+.admin .nav-item {
+  display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 6px;
+  color: var(--ink-2); font-size: 13px; margin-bottom: 1px; position: relative;
+}
+.admin .nav-item:hover { background: var(--panel-2); color: var(--ink-1); }
+.admin .nav-item.active { background: var(--indigo-soft); color: var(--indigo); font-weight: 500; }
+.admin .nav-item .nav-badge { margin-left: auto; font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
+.admin .nav-item.active .nav-badge { color: var(--indigo); }
+
+.admin .side-foot { margin-top: auto; border-top: 1px solid var(--line); padding: 14px 8px 4px; display: flex; align-items: center; gap: 9px; }
+.admin .avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--indigo); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+.admin .side-user-name { font-size: 12px; font-weight: 500; }
+.admin .side-user-role { font-size: 11px; color: var(--ink-3); }
+
+/* ---- 主区 ---- */
+.admin .main { flex: 1; min-width: 0; padding: 22px 26px 40px; }
+.admin .topbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+}
+.admin .topbar-title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.admin .topbar-meta { font-size: 12px; color: var(--ink-3); font-family: var(--mono); margin-left: 8px; }
+.admin .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+
+.admin .btn {
+  height: 30px; padding: 0 12px; border-radius: 6px; font-size: 13px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-2);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.admin .btn:hover { border-color: var(--ink-3); color: var(--ink-1); }
+.admin .btn-primary { background: var(--indigo); border-color: var(--indigo); color: #fff; font-weight: 500; }
+.admin .btn-primary:hover { background: #4c58c7; border-color: #4c58c7; color: #fff; }
+
+/* ---- KPI 条 ---- */
+.admin .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+.admin .stat {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; box-shadow: 0 1px 2px rgba(15,20,25,.04);
+}
+.admin .stat-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.admin .dot { width: 8px; height: 8px; border-radius: 3px; }
+.admin .stat-num { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 6px; }
+.admin .stat-foot { font-size: 11px; color: var(--ink-3); margin-top: 2px; font-family: var(--mono); }
+.admin .stat.hot { border-color: var(--indigo); box-shadow: 0 0 0 1px var(--indigo); }
+.admin .stat.hot .stat-num { color: var(--indigo); }
+
+/* ---- 表格面板 ---- */
+.admin .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 1px 2px rgba(15,20,25,.04); overflow: hidden; }
+.admin .panel + .panel { margin-top: 18px; }
+.admin .panel-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 12px; }
+.admin .panel-title { font-size: 13px; font-weight: 600; }
+.admin .panel-cnt { font-size: 12px; color: var(--ink-3); font-family: var(--mono); }
+.admin .panel-more { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.admin .panel-more:hover { color: var(--indigo); }
+
+.admin table { width: 100%; border-collapse: collapse; }
+.admin th {
+  text-align: left; font-size: 11px; font-weight: 500; color: var(--ink-3);
+  padding: 8px 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  background: var(--panel-2); text-transform: uppercase; letter-spacing: .04em;
+}
+.admin td { padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
+.admin tbody tr:last-child td { border-bottom: none; }
+.admin tbody tr:hover td { background: var(--panel-2); }
+.admin .cell-main { font-weight: 500; }
+.admin .cell-sub { font-size: 12px; color: var(--ink-3); margin-top: 1px; }
+.admin .num { font-variant-numeric: tabular-nums; }
+.admin .mono { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+
+/* 状态标签 */
+.admin .tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+.admin .tag-green { background: #e6f6ee; color: #23835a; }
+.admin .tag-red { background: #fdecec; color: #d33; }
+.admin .tag-amber { background: #fdf5e1; color: #a37a00; }
+.admin .tag-grey { background: var(--panel-2); color: var(--ink-2); }
+
+/* 行内操作：默认透明，行 hover 浮现（Linear 特色） */
+.admin .row-actions { display: flex; gap: 6px; }
+.admin .row-btn {
+  height: 24px; padding: 0 9px; border-radius: 5px; font-size: 12px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-2);
+  opacity: 0; transition: opacity .12s ease;
+}
+.admin tbody tr:hover .row-btn { opacity: 1; }
+.admin .row-btn:hover { border-color: var(--ink-3); color: var(--ink-1); }
+.admin .row-btn-primary { color: var(--indigo); border-color: var(--indigo-soft); background: var(--indigo-soft); }
+.admin .row-btn-primary:hover { background: var(--indigo); border-color: var(--indigo); color: #fff; }
+.admin .row-btn-danger { color: var(--red); }
+.admin .row-btn-danger:hover { border-color: var(--red); }
+
+/* ============================================================
+   CANDIDATE · Notion
+   ============================================================ */
+body.candidate {
+  --deck: #f7f6f3;
+  --panel: #ffffff;
+  --panel-2: #f7f6f3;
+  --line: #e9e9e7;
+  --ink-1: #37352f;
+  --ink-2: #6f6e69;
+  --ink-3: #9b9a97;
+  --red: #e16259;   --red-bg: #fdebec;
+  --amber: #cb912f; --amber-bg: #fbf3db;
+  --green: #448361; --green-bg: #edf3ec;
+  --blue: #337ea9;  --blue-bg: #e7f3f8;
+  --grey-bg: #f1f1ef;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--ink-1);
+  background: var(--deck);
+}
+
+.cand { display: flex; flex-direction: column; height: 100vh; }
+.cand-head {
+  height: 50px; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; padding: 0 18px; gap: 14px; flex-shrink: 0;
+}
+.cand-brand { display: flex; align-items: center; gap: 9px; }
+.cand-mark {
+  width: 26px; height: 26px; border-radius: 5px; background: var(--ink-1);
+  color: #fff; font-size: 12px; display: flex; align-items: center; justify-content: center;
+}
+.cand-name { font-weight: 600; font-size: 14px; }
+.cand-divider { width: 1px; height: 20px; background: var(--line); }
+.cand-crumb { font-size: 13px; color: var(--ink-2); }
+.cand-crumb b { color: var(--ink-1); font-weight: 600; }
+.cand-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.cand-user { font-size: 12px; color: var(--ink-2); }
+
+.cand-body { flex: 1; display: flex; min-height: 0; }
+
+.cand .tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+.cand .tag-grey { background: var(--grey-bg); color: var(--ink-2); }
+.cand .tag-amber { background: var(--amber-bg); color: var(--amber); }
+.cand .tag-green { background: var(--green-bg); color: var(--green); }
+
+.cand .btn {
+  height: 28px; padding: 0 10px; border-radius: 5px; font-size: 13px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-2);
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.cand .btn:hover { background: var(--panel-2); color: var(--ink-1); }
+.cand .btn-primary { background: var(--ink-1); border-color: var(--ink-1); color: #fff; font-weight: 500; }
+.cand .btn-primary:hover { background: #4c4a44; border-color: #4c4a44; color: #fff; }
+
+/* ---- 中栏聊天 ---- */
+.cand .chat { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 16px 20px 18px; }
+.cand .chat-box {
+  flex: 1; overflow-y: auto; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 20px 22px;
+}
+.cand .row { display: flex; margin-bottom: 16px; }
+.cand .row-user { justify-content: flex-end; }
+.cand .row-assistant { justify-content: flex-start; }
+.cand .bubble-wrap { max-width: 76%; }
+.cand .bubble { padding: 11px 15px; border-radius: 8px; line-height: 1.65; font-size: 14px; white-space: pre-wrap; }
+.cand .bubble-user { background: var(--blue-bg); color: var(--blue); border-bottom-right-radius: 3px; }
+.cand .bubble-assistant { background: var(--grey-bg); color: var(--ink-1); border-bottom-left-radius: 3px; }
+.cand .qmeta { display: flex; gap: 6px; margin-bottom: 6px; }
+
+/* 测评思路折叠（Notion 粉彩旁注） */
+.cand .decision { margin: 0 0 8px; }
+.cand .decision-title { font-size: 12px; color: var(--ink-3); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.cand .decision-title:hover { color: var(--ink-1); }
+.cand .decision-body {
+  font-size: 12px; color: var(--ink-2); background: var(--panel-2); border-radius: 8px;
+  padding: 9px 12px; margin-top: 6px; line-height: 1.6;
+}
+.cand .decision-body .score { margin-left: 8px; color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
+
+/* 输入区 */
+.cand .input-bar { display: flex; gap: 10px; align-items: flex-end; margin-top: 12px; }
+.cand textarea {
+  flex: 1; height: 66px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 14px; font-family: inherit; color: var(--ink-1); background: var(--panel); resize: none;
+  line-height: 1.6;
+}
+.cand textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(51,126,169,.15); }
+.cand textarea::placeholder { color: var(--ink-3); }
+.cand .send { height: 34px; padding: 0 18px; flex-shrink: 0; }
+
+/* ---- 右栏上下文 ---- */
+.cand .rail { width: 264px; flex-shrink: 0; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 10px; border-left: 1px solid var(--line); background: var(--deck); }
+.cand .rr-title { font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: 8px; }
+.cand .rr-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 13px 14px; }
+.cand .callout { border-radius: 8px; padding: 12px 14px; }
+.cand .callout-grey { background: var(--grey-bg); }
+.cand .callout-top { display: flex; align-items: center; gap: 8px; }
+.cand .callout-label { font-size: 13px; font-weight: 600; }
+.cand .callout-foot { font-size: 11px; color: var(--ink-2); margin-top: 3px; line-height: 1.6; }
+.cand .callout-num { font-size: 22px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+.cand .progress-num { margin: 2px 0 8px; }
+.cand .num-big { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cand .num-total { font-size: 13px; color: var(--ink-3); }
+.cand .bar { height: 6px; background: var(--grey-bg); border-radius: 3px; overflow: hidden; }
+.cand .bar i { display: block; height: 100%; background: var(--green); border-radius: 3px; width: 30%; }
+.cand .progress-sub { font-size: 11px; color: var(--ink-3); margin-top: 6px; }
+.cand .cur-q-stem { margin-top: 8px; font-size: 12px; color: var(--ink-2); line-height: 1.6; }
+
+.cand-foot {
+  height: 30px; background: var(--ink-1); color: rgba(255,255,255,.65);
+  display: flex; align-items: center; padding: 0 18px; gap: 16px;
+  font-family: var(--mono); font-size: 10px; flex-shrink: 0;
+}
+.cand-foot .f-right { margin-left: auto; }
+.cand-foot .ok { color: #9fd4b4; }

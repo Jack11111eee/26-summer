@@ -1,0 +1,199 @@
+/* ============================================================
+   视觉世界 G：Notion 风 · 文档工作台
+   THESIS: 把每个岗位当一页文档——温暖米白底、大标题、圆润柔和标签，
+          证据像引用块、LLM 理由像灰色旁注，阅读感最强。
+   OWN-WORLD: 米白纸底(#ffffff/#f7f6f3)、深墨文字(#37352f)、
+          柔和粉彩标签、callout 提示条、引用块证据。
+   ============================================================ */
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f7f6f3;
+  --line: #e9e9e7;
+  --ink-1: #37352f;
+  --ink-2: #6f6e69;
+  --ink-3: #9b9a97;
+  --red: #e16259;
+  --red-bg: #fdebec;
+  --amber: #cb912f;
+  --amber-bg: #fbf3db;
+  --green: #448361;
+  --green-bg: #edf3ec;
+  --blue: #337ea9;
+  --blue-bg: #e7f3f8;
+  --grey-bg: #f1f1ef;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  font-size: 14px; color: var(--ink-1); background: var(--bg);
+  -webkit-font-smoothing: antialiased; line-height: 1.5;
+}
+a { text-decoration: none; color: inherit; }
+.layout { display: flex; min-height: 100vh; }
+
+/* ============ 侧边栏（文档目录树） ============ */
+.sidebar {
+  width: 220px; background: var(--bg-soft);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh; flex-shrink: 0;
+}
+.side-brand {
+  padding: 14px 14px 10px; display: flex; align-items: center; gap: 8px;
+}
+.brand-mark {
+  width: 24px; height: 24px; border-radius: 5px;
+  background: var(--ink-1); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; flex-shrink: 0;
+}
+.brand-name { font-size: 14px; font-weight: 600; }
+.brand-sub { font-size: 11px; color: var(--ink-3); }
+.side-section {
+  padding: 14px 14px 4px; font-size: 11px; font-weight: 600; color: var(--ink-3);
+}
+.side-nav { padding: 2px 8px; }
+.nav-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 8px; border-radius: 5px; color: var(--ink-2);
+  margin-bottom: 1px; font-size: 14px;
+}
+.nav-item:hover { background: rgba(0,0,0,.045); color: var(--ink-1); }
+.nav-item.active { background: rgba(0,0,0,.055); color: var(--ink-1); font-weight: 500; }
+.nav-item .icon { width: 18px; text-align: center; font-size: 14px; }
+.nav-badge {
+  margin-left: auto; font-size: 11px; color: var(--ink-3); font-family: var(--mono);
+}
+.side-user {
+  margin-top: auto; padding: 12px 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.avatar {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--red);
+  color: #fff; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+.user-name { font-size: 13px; }
+.user-role { font-size: 11px; color: var(--ink-3); }
+.logout { margin-left: auto; color: var(--ink-3); font-size: 12px; cursor: pointer; }
+.logout:hover { color: var(--ink-1); }
+
+/* ============ 内容区（文档页） ============ */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  height: 44px; display: flex; align-items: center; padding: 0 24px; gap: 8px;
+}
+.crumb { font-size: 14px; color: var(--ink-2); }
+.crumb a { color: var(--ink-3); }
+.crumb a:hover { color: var(--ink-1); }
+.crumb .sep { color: var(--ink-3); margin: 0 4px; }
+.top-actions { margin-left: auto; display: flex; gap: 6px; }
+.content { padding: 12px 48px 48px; max-width: 1100px; width: 100%; margin: 0 auto; }
+.page-head { margin-bottom: 20px; }
+.page-title { font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
+.page-meta {
+  margin-top: 6px; font-size: 12px; color: var(--ink-3);
+  display: flex; gap: 14px; font-family: var(--mono);
+}
+
+/* ============ 区块标题（文档分节） ============ */
+.section-head { display: flex; align-items: baseline; gap: 8px; margin: 26px 0 10px; }
+.section-title { font-size: 16px; font-weight: 600; }
+.section-count { font-size: 12px; color: var(--ink-3); font-family: var(--mono); }
+.section-head .more { margin-left: auto; font-size: 12px; color: var(--ink-3); cursor: pointer; }
+.section-head .more:hover { color: var(--ink-1); }
+
+/* ============ 按钮（文档工具感） ============ */
+.btn {
+  height: 28px; padding: 0 10px; border-radius: 5px; font-size: 13px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink-2);
+  cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px;
+}
+.btn:hover { background: var(--bg-soft); color: var(--ink-1); }
+.btn-primary { background: var(--ink-1); border-color: var(--ink-1); color: #fff; font-weight: 500; }
+.btn-primary:hover { background: #4f4d47; border-color: #4f4d47; color: #fff; }
+.btn-success-ghost { color: var(--green); border-color: transparent; background: transparent; }
+.btn-success-ghost:hover { background: var(--green-bg); color: var(--green); }
+.btn-danger-ghost { color: var(--red); border-color: transparent; background: transparent; }
+.btn-danger-ghost:hover { background: var(--red-bg); color: var(--red); }
+.btn-sm { height: 24px; padding: 0 8px; font-size: 12px; }
+.btn[disabled] { opacity: .35; cursor: not-allowed; }
+
+/* ============ callout 待办条（Notion callout 块） ============ */
+.callout-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0 6px; }
+.callout {
+  border-radius: 8px; padding: 14px 16px; cursor: pointer;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.callout.amber { background: var(--amber-bg); }
+.callout.red { background: var(--red-bg); }
+.callout.grey { background: var(--grey-bg); }
+.callout-icon { font-size: 18px; line-height: 1.2; }
+.callout-label { font-size: 13px; font-weight: 600; }
+.callout-num { font-size: 24px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.callout-foot { font-size: 11px; color: var(--ink-2); margin-top: 2px; font-family: var(--mono); }
+
+/* ============ 表格（文档内嵌数据库感） ============ */
+.table-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; padding: 8px 14px; font-size: 12px; font-weight: 500;
+  color: var(--ink-2); background: var(--bg-soft); border-bottom: 1px solid var(--line);
+}
+td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--bg-soft); }
+.cell-main { font-weight: 500; }
+.cell-sub { font-size: 12px; color: var(--ink-3); margin-top: 1px; }
+.mono { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ============ 标签（Notion select 标签，圆润粉彩） ============ */
+.tag {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+  border-radius: 10px; font-size: 12px; font-weight: 500;
+}
+.tag-green { background: var(--green-bg); color: var(--green); }
+.tag-amber { background: var(--amber-bg); color: var(--amber); }
+.tag-red { background: var(--red-bg); color: var(--red); }
+.tag-blue { background: var(--blue-bg); color: var(--blue); }
+.tag-grey { background: var(--grey-bg); color: var(--ink-2); }
+
+/* ============ 表单 ============ */
+.input, .select, textarea.input {
+  height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px;
+  font-size: 13px; font-family: inherit; color: var(--ink-1); background: var(--bg); width: 100%;
+}
+.input:focus, .select:focus, textarea.input:focus {
+  outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(51,126,169,.15);
+}
+.input::placeholder { color: var(--ink-3); }
+
+/* ============ 引用块（证据） ============ */
+.quote {
+  border-left: 1.5px solid var(--ink-1); padding: 4px 0 4px 14px;
+  margin: 8px 0; font-size: 14px; color: var(--ink-1); line-height: 1.7;
+}
+.aside-note { font-size: 12px; color: var(--ink-3); line-height: 1.6; }
+
+/* ============ 提示条（callout 样式） ============ */
+.alert {
+  border-radius: 8px; padding: 12px 14px; font-size: 13px;
+  margin-bottom: 14px; display: flex; align-items: flex-start; gap: 10px; line-height: 1.6;
+}
+.alert-red { background: var(--red-bg); }
+.alert-red strong { color: var(--red); }
+.alert-amber { background: var(--amber-bg); }
+.alert-blue { background: var(--blue-bg); }
+
+/* ============ Σ 读数条 ============ */
+.sigma {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 8px; margin-bottom: 14px;
+  background: var(--grey-bg); font-size: 13px;
+}
+.sigma .bar { flex: 1; height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.sigma .bar i { display: block; height: 100%; background: var(--green); border-radius: 3px; }
+.sigma.bad .bar i { background: var(--red); }
+.sigma .val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sigma .lbl { color: var(--ink-3); font-size: 12px; }

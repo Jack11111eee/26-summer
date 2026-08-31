@@ -1,0 +1,235 @@
+/* ============================================================
+   视觉世界 K：Holy Grail 骨架 × Linear 色彩
+   THESIS: 圣杯三栏结构（通栏头/脚 + 左中右栏体、右栏常驻上下文），
+          穿 Linear 的衣：纯白/雾面灰、靛蓝(#5e6ad2)单信号、
+          13px 高密度、小圆点状态、hover 浮现操作。
+   OWN-WORLD: 灰白台底(#f7f8f9)/白栏体、深墨文字(#0f1419)、
+          靛蓝主色、柔和绿#4cb782/琥珀#f2c94c/红#eb5757。
+   ============================================================ */
+:root {
+  --deck: #f7f8f9;
+  --panel: #ffffff;
+  --panel-2: #f7f8f9;
+  --line: #eceded;
+  --indigo: #5e6ad2;
+  --indigo-soft: #f0f1fb;
+  --ink-1: #0f1419;
+  --ink-2: #62666d;
+  --ink-3: #8a8f98;
+  --green: #4cb782;
+  --amber: #f2c94c;
+  --red: #eb5757;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  font-size: 13px; color: var(--ink-1); background: var(--deck);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+a { text-decoration: none; color: inherit; }
+
+/* ============ 圣杯骨架 ============ */
+.grail { display: flex; flex-direction: column; height: 100vh; }
+.grail-head {
+  height: 46px; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0;
+}
+.grail-body { flex: 1; display: flex; min-height: 0; }
+.grail-foot {
+  height: 28px; background: #1c1d21; color: rgba(255,255,255,.55);
+  display: flex; align-items: center; padding: 0 16px; gap: 16px;
+  font-family: var(--mono); font-size: 10px; flex-shrink: 0;
+}
+.grail-foot .f-right { margin-left: auto; display: flex; gap: 16px; }
+.grail-foot .ok { color: #7fe0b4; }
+
+/* ============ 通栏头 ============ */
+.gh-brand { display: flex; align-items: center; gap: 9px; }
+.gh-mark {
+  width: 24px; height: 24px; border-radius: 5px; background: var(--indigo);
+  color: #fff; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.gh-name { font-weight: 600; font-size: 13px; }
+.gh-divider { width: 1px; height: 18px; background: var(--line); }
+.gh-crumb { font-size: 12px; color: var(--ink-2); }
+.gh-crumb b { color: var(--ink-1); font-weight: 600; }
+.gh-actions { margin-left: auto; display: flex; gap: 6px; }
+
+/* ============ 左栏：导航 ============ */
+.rail-left {
+  width: 196px; background: var(--panel); border-right: 1px solid var(--line);
+  flex-shrink: 0; overflow-y: auto; padding: 10px 8px;
+  display: flex; flex-direction: column;
+}
+.rl-section {
+  padding: 10px 8px 4px; font-size: 10px; font-weight: 600;
+  color: var(--ink-3);
+}
+.nav-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 5px; color: var(--ink-2);
+  margin-bottom: 1px; font-size: 13px;
+}
+.nav-item:hover { background: rgba(0,0,0,.04); color: var(--ink-1); }
+.nav-item.active { background: var(--indigo-soft); color: var(--indigo); font-weight: 500; }
+.nav-item .icon { width: 16px; text-align: center; font-size: 12px; }
+.nav-badge {
+  margin-left: auto; font-size: 10px; font-weight: 500; font-family: var(--mono);
+  color: var(--ink-3);
+}
+.nav-item.active .nav-badge { color: var(--indigo); }
+.rl-user {
+  margin-top: auto; padding: 10px 8px 2px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px;
+}
+.avatar {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--indigo);
+  color: #fff; font-size: 11px; font-weight: 500;
+  display: flex; align-items: center; justify-content: center;
+}
+.user-name { font-size: 12px; font-weight: 500; }
+.user-role { font-size: 10px; color: var(--ink-3); }
+
+/* ============ 中栏：数据主栏 ============ */
+.rail-center {
+  flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px 24px;
+}
+.rc-head { margin-bottom: 14px; }
+.rc-title { font-size: 18px; font-weight: 600; }
+.rc-meta { font-size: 11px; color: var(--ink-3); margin-top: 2px; font-family: var(--mono); }
+.rc-section {
+  font-size: 13px; font-weight: 600; color: var(--ink-2);
+  margin: 18px 0 8px; display: flex; align-items: baseline; gap: 8px;
+}
+.rc-section .cnt { font-size: 11px; color: var(--ink-3); font-family: var(--mono); font-weight: 400; }
+.rc-section .more { margin-left: auto; font-size: 11px; color: var(--ink-3); cursor: pointer; font-weight: 400; }
+.rc-section .more:hover { color: var(--ink-1); }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+  overflow: hidden;
+}
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; padding: 7px 12px; font-size: 11px; font-weight: 500;
+  color: var(--ink-3); background: var(--panel-2); border-bottom: 1px solid var(--line);
+}
+td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--panel-2); }
+.cell-main { font-weight: 500; }
+.cell-sub { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
+.mono { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.num { font-variant-numeric: tabular-nums; font-weight: 500; }
+.row-actions { opacity: .35; transition: opacity .1s; white-space: nowrap; }
+tr:hover .row-actions { opacity: 1; }
+
+/* ============ 右栏：常驻上下文 ============ */
+.rail-right {
+  width: 256px; flex-shrink: 0; overflow-y: auto; padding: 16px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rr-title {
+  font-size: 10px; font-weight: 600; color: var(--ink-3);
+  margin-bottom: 8px; letter-spacing: .3px;
+}
+.rr-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+  padding: 11px 12px;
+}
+/* 待办读数（Linear 大数字） */
+.rr-stat {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 0; cursor: pointer;
+}
+.rr-stat:hover .rr-stat-label { color: var(--ink-1); }
+.rr-stat-num {
+  font-family: var(--mono); font-size: 20px; font-weight: 600;
+  min-width: 22px; font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
+}
+.rr-stat-num.amber { color: var(--amber); }
+.rr-stat-num.red { color: var(--red); }
+.rr-stat-num.grey { color: var(--ink-3); }
+.rr-stat-label { font-size: 12px; color: var(--ink-2); }
+.rr-stat-arrow { margin-left: auto; color: var(--ink-3); font-size: 11px; }
+
+/* stalled 告警 */
+.rr-alert {
+  background: rgba(235,87,87,.06); border: 1px solid rgba(235,87,87,.18);
+  border-radius: 7px; padding: 10px 12px; font-size: 12px; line-height: 1.55;
+}
+.rr-alert strong { color: var(--red); }
+.rr-alert .a-act { color: var(--indigo); font-weight: 500; cursor: pointer; white-space: nowrap; }
+
+/* sparkline / 图例 */
+.spark-wrap { display: flex; align-items: flex-end; gap: 8px; }
+.spark-num { font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: -0.5px; }
+.spark-sub { font-size: 11px; color: var(--ink-3); padding-bottom: 2px; }
+.legend { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.legend-item { display: flex; align-items: center; gap: 7px; }
+.legend-note { margin-left: auto; color: var(--ink-3); font-family: var(--mono); font-size: 10px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot.green { background: var(--green); }
+.dot.amber { background: var(--amber); }
+.dot.red { background: var(--red); }
+.dot.grey { background: var(--ink-3); }
+.dot.indigo { background: var(--indigo); }
+
+/* ============ 按钮（Linear 風） ============ */
+.btn {
+  height: 27px; padding: 0 10px; border-radius: 5px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-2);
+  cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px;
+}
+.btn:hover { background: var(--panel-2); color: var(--ink-1); }
+.btn-primary { background: var(--indigo); border-color: var(--indigo); color: #fff; }
+.btn-primary:hover { background: #4f5ac4; border-color: #4f5ac4; color: #fff; }
+.btn-danger-ghost { border-color: transparent; color: var(--red); background: transparent; }
+.btn-danger-ghost:hover { background: rgba(235,87,87,.08); color: var(--red); }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-ghost:hover { background: var(--panel-2); }
+.btn-sm { height: 23px; padding: 0 7px; font-size: 12px; }
+.btn[disabled] { opacity: .35; cursor: not-allowed; }
+
+/* ============ 状态（小圆点 + 文字） ============ */
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
+.status .dot { width: 7px; height: 7px; }
+.status.red { color: var(--red); font-weight: 600; }
+.tag-plain {
+  display: inline-flex; align-items: center; height: 19px; padding: 0 7px;
+  border-radius: 4px; font-size: 11px; font-weight: 500;
+  background: var(--panel-2); color: var(--ink-2); border: 1px solid var(--line);
+}
+
+/* ============ 表单 ============ */
+.input, .select, textarea.input {
+  height: 25px; padding: 0 8px; border: 1px solid var(--line); border-radius: 5px;
+  font-size: 12px; font-family: inherit; color: var(--ink-1); background: var(--panel); width: 100%;
+}
+.input:focus, .select:focus, textarea.input:focus {
+  outline: none; border-color: var(--indigo); box-shadow: 0 0 0 2px rgba(94,106,210,.15);
+}
+.input::placeholder { color: var(--ink-3); }
+
+/* ============ 引用块 / 旁注（证据区用） ============ */
+.quote {
+  border-left: 1.5px solid var(--ink-3); padding: 3px 0 3px 11px;
+  margin: 6px 0; font-size: 12px; color: var(--ink-2); line-height: 1.7;
+}
+.aside-note { font-size: 11px; color: var(--ink-3); line-height: 1.6; }
+
+/* ============ Σ 读数条 ============ */
+.sigma {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 6px; margin-bottom: 12px;
+  background: var(--panel); border: 1px solid var(--line); font-size: 12px;
+}
+.sigma .bar { flex: 1; height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
+.sigma .bar i { display: block; height: 100%; background: var(--green); border-radius: 2px; }
+.sigma.bad .bar i { background: var(--red); }
+.sigma .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.sigma .lbl { color: var(--ink-3); font-size: 11px; }
