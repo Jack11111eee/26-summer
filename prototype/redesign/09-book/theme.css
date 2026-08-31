@@ -1,0 +1,190 @@
+/* ============================================================
+   配对⑨ 书卷 × 编年（视觉原型）
+   Admin：一本工具书 —— 目录页、章节§、页码、红书签
+   Candidate：编年纪事 —— 纵向时间轴、逐日记事、墨色
+   中性 + 唯一红书签。body.admin / body.candidate 切换两端。
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+a { text-decoration: none; color: inherit; }
+button { font-family: inherit; cursor: pointer; }
+
+/* ============================================================
+   ADMIN · 工具书
+   ============================================================ */
+body.admin {
+  --paper: #f8f6f1;
+  --leaf: #fffdf8;
+  --ink-1: #282623;
+  --ink-2: #6d6a60;
+  --ink-3: #a39f92;
+  --line: #ddd9cd;
+  --red: #b23a2e;
+  --serif: 'Songti SC', 'STSong', 'SimSun', Georgia, serif;
+  --mono: 'Courier New', 'SF Mono', Menlo, monospace;
+  color: var(--ink-1);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 14px;
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ---- 目录页（书页侧栏） ---- */
+.admin .sidebar {
+  width: 220px; background: var(--leaf); border-right: 1px solid var(--line); flex-shrink: 0;
+  display: flex; flex-direction: column; padding: 0;
+  position: sticky; top: 0; height: 100vh; overflow: hidden;
+}
+/* 红书签 */
+.admin .sidebar::before {
+  content: ""; position: absolute; top: 0; right: 0; width: 0; height: 0;
+  border-top: 46px solid var(--red); border-left: 20px solid transparent;
+}
+.admin .side-head { padding: 26px 22px 16px; border-bottom: 1px solid var(--line); }
+.admin .side-kicker { font-size: 11px; letter-spacing: .18em; color: var(--ink-3); font-family: var(--mono); }
+.admin .side-name { font-size: 21px; font-weight: 700; margin-top: 5px; letter-spacing: .1em; }
+.admin .side-name em { font-style: normal; color: var(--red); }
+
+.admin .nav { padding: 16px 10px; overflow-y: auto; }
+.admin .nav-group { font-size: 11px; color: var(--ink-3); padding: 8px 14px 6px; letter-spacing: .18em; font-family: var(--mono); }
+.admin .nav-item { display: block; padding: 8px 14px 8px 26px; font-size: 14px; color: var(--ink-2); position: relative; }
+.admin .nav-item .sec { position: absolute; left: 10px; color: var(--ink-3); font-family: var(--mono); font-size: 12px; }
+.admin .nav-item:hover { color: var(--ink-1); }
+.admin .nav-item.active { color: var(--ink-1); font-weight: 600; }
+.admin .nav-item.active .sec { color: var(--red); }
+
+.admin .side-foot { margin-top: auto; padding: 14px 22px; border-top: 1px solid var(--line); }
+.admin .side-user { font-size: 13px; font-weight: 600; }
+.admin .side-role { font-size: 11px; color: var(--ink-3); margin-top: 2px; font-family: var(--mono); }
+
+/* ---- 正文 ---- */
+.admin .main { flex: 1; min-width: 0; padding: 30px 36px 60px; }
+
+.admin .book-head { border-bottom: 2px solid var(--ink-1); padding-bottom: 16px; margin-bottom: 22px; }
+.admin .book-title { font-size: 28px; font-weight: 700; letter-spacing: .06em; }
+.admin .book-title em { font-style: normal; color: var(--red); }
+.admin .book-meta { font-size: 11px; color: var(--ink-3); font-family: var(--mono); margin-top: 6px; letter-spacing: .06em; }
+
+.admin .btn {
+  height: 30px; padding: 0 14px; font-size: 13px; letter-spacing: .05em;
+  border: 1px solid var(--ink-1); background: transparent; color: var(--ink-1); font-family: var(--serif);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.admin .btn:hover { background: var(--ink-1); color: var(--leaf); }
+.admin .btn-primary { background: var(--ink-1); color: var(--leaf); }
+
+/* 章节 */
+.admin .section { margin-bottom: 24px; }
+.admin .sec-head { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; }
+.admin .sec-no { font-family: var(--mono); font-size: 13px; color: var(--red); font-weight: 700; }
+.admin .sec-title { font-size: 16px; font-weight: 700; letter-spacing: .06em; }
+.admin .sec-meta { margin-left: auto; font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
+
+/* KPI：提要卡 */
+.admin .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px; }
+.admin .stat { background: var(--leaf); border: 1px solid var(--line); padding: 14px 16px; }
+.admin .stat-label { font-size: 12px; color: var(--ink-2); letter-spacing: .06em; }
+.admin .stat-num { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 8px; font-family: var(--serif); }
+.admin .stat-foot { font-size: 11px; color: var(--ink-3); font-family: var(--mono); margin-top: 4px; }
+.admin .stat.hot { border-color: var(--red); }
+.admin .stat.hot .stat-num { color: var(--red); }
+
+/* 表格 */
+.admin .panel { background: var(--leaf); border: 1px solid var(--line); margin-bottom: 20px; }
+.admin table { width: 100%; border-collapse: collapse; }
+.admin th {
+  text-align: left; font-size: 12px; font-weight: 400; color: var(--ink-3);
+  padding: 9px 18px; border-bottom: 1px solid var(--line); letter-spacing: .08em; font-family: var(--mono);
+}
+.admin th.num, .admin td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin td { padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
+.admin tbody tr:last-child td { border-bottom: none; }
+.admin tbody tr:hover td { background: #faf7ef; }
+.admin .cell-main { font-weight: 600; }
+.admin .cell-sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.admin .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+
+.admin .tag { display: inline-block; padding: 2px 9px; font-size: 12px; border: 1px solid var(--line); color: var(--ink-2); font-family: var(--serif); }
+.admin .tag-solid { border-color: var(--ink-1); color: var(--ink-1); font-weight: 600; }
+.admin .tag-red { border-color: var(--red); color: var(--red); }
+
+.admin .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.admin .row-btn {
+  height: 26px; padding: 0 12px; font-size: 13px; font-family: var(--serif);
+  border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+  opacity: 0; transition: opacity .12s ease;
+}
+.admin tbody tr:hover .row-btn { opacity: 1; }
+.admin .row-btn:hover { border-color: var(--ink-1); color: var(--ink-1); }
+.admin .row-btn-primary { border-color: var(--ink-1); color: var(--ink-1); font-weight: 600; }
+.admin .row-btn-primary:hover { background: var(--ink-1); color: var(--leaf); }
+.admin .row-btn-danger { color: var(--red); }
+.admin .row-btn-danger:hover { border-color: var(--red); }
+
+/* 页脚页码 */
+.admin .page-foot { margin-top: 20px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: .1em; }
+
+/* ============================================================
+   CANDIDATE · 编年纪事
+   ============================================================ */
+body.candidate {
+  --paper: #fcfbf6;
+  --ink-1: #2c2923;
+  --ink-2: #6d685a;
+  --ink-3: #a49e8c;
+  --line: #e2dccc;
+  --red: #a9342a;
+  --serif: 'Songti SC', 'STSong', 'SimSun', Georgia, serif;
+  --mono: 'Courier New', 'SF Mono', monospace;
+  color: var(--ink-1);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 15px;
+}
+
+.cand { display: flex; flex-direction: column; min-height: 100vh; max-width: 920px; margin: 0 auto; padding: 0 26px; }
+.cand-head { display: flex; align-items: baseline; gap: 14px; padding: 30px 0 10px; }
+.cand-brand { display: flex; align-items: baseline; gap: 12px; }
+.cand-name { font-size: 20px; font-weight: 700; letter-spacing: .1em; }
+.cand-name em { font-style: normal; color: var(--red); }
+.cand-kicker { font-size: 11px; color: var(--ink-3); letter-spacing: .18em; }
+.cand-actions { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+.cand-user { font-size: 13px; color: var(--ink-2); }
+.cand .btn { height: 28px; padding: 0 16px; font-size: 13px; font-family: var(--serif); letter-spacing: .06em; border: 1px solid var(--ink-1); background: transparent; color: var(--ink-1); }
+.cand .btn:hover { background: var(--ink-1); color: var(--paper); }
+
+/* 时间轴 */
+.cand .chrono { flex: 1; display: flex; min-height: 0; }
+.cand .spine { width: 34px; position: relative; }
+.cand .spine .line { position: absolute; left: 10px; top: 8px; bottom: 8px; border-left: 1px solid var(--ink-3); }
+.cand .spine .node { position: absolute; left: 4px; width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--ink-1); background: var(--paper); }
+.cand .spine .node.done { background: var(--ink-1); }
+.cand .spine .node.cur { background: var(--red); border-color: var(--red); }
+
+.cand .records { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 0 12px; }
+.cand .rec { padding-left: 22px; position: relative; margin-bottom: 34px; }
+.cand .rec::before { content: ""; position: absolute; left: 0; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); }
+.cand .rec-head { font-size: 11px; color: var(--ink-3); letter-spacing: .16em; margin-bottom: 9px; font-family: var(--mono); }
+.cand .rec-head .no b { color: var(--ink-1); }
+.cand .rec-head .tag { border: 1px solid var(--line); padding: 1px 7px; margin-left: 6px; font-size: 10px; letter-spacing: .1em; }
+.cand .q { font-size: 20px; line-height: 1.8; font-weight: 700; letter-spacing: .02em; }
+.cand .a { margin-top: 12px; font-size: 15px; line-height: 2; color: var(--ink-2); }
+.cand .a .a-who { display: block; font-size: 10px; color: var(--ink-3); letter-spacing: .16em; margin-bottom: 4px; font-family: var(--mono); }
+.cand .a .a-who b { color: var(--ink-1); }
+.cand .note { margin-top: 12px; font-size: 13px; color: var(--ink-3); line-height: 1.8; }
+.cand .note b { color: var(--red); font-weight: 600; }
+
+/* 记事输入 */
+.cand .compose { padding: 18px 0 30px; border-top: 1px solid var(--line); margin-top: 6px; }
+.cand .compose-label { font-size: 11px; color: var(--ink-3); letter-spacing: .16em; margin-bottom: 12px; font-family: var(--mono); }
+.cand .compose-label b { color: var(--red); }
+.cand textarea {
+  width: 100%; min-height: 92px; padding: 8px 2px; border: none; border-bottom: 1px solid var(--ink-1);
+  background: transparent; font-family: var(--serif); font-size: 16px; line-height: 1.9; color: var(--ink-1); resize: none;
+}
+.cand textarea:focus { outline: none; }
+.cand textarea::placeholder { color: var(--ink-3); }
+.cand .compose-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+.cand .compose .send { height: 32px; padding: 0 26px; }
+.cand-foot { padding: 12px 0 22px; font-size: 11px; color: var(--ink-3); letter-spacing: .16em; display: flex; gap: 16px; font-family: var(--mono); }
+.cand-foot .f-right { margin-left: auto; }

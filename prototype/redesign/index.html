@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>前端风格原型 · 挑选</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+    background: #f2f3f5; color: #1f2329; padding: 40px 24px;
+  }
+  h1 { font-size: 24px; margin-bottom: 6px; }
+  .sub { color: #86909c; font-size: 14px; margin-bottom: 10px; }
+  .pick { color: #b25a00; font-size: 14px; margin-bottom: 28px; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 1280px; margin: 0 auto; }
+  .card {
+    background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    display: flex; flex-direction: column;
+  }
+  .card.keep { outline: 3px solid #e6a23c; outline-offset: 2px; }
+  .card .keep-tag {
+    position: absolute; top: -12px; right: 14px; background: #e6a23c; color: #fff;
+    font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+  }
+  .card { position: relative; }
+  .card h2 { font-size: 17px; margin-bottom: 2px; }
+  .card .dir { font-size: 12px; color: #86909c; margin-bottom: 14px; }
+  .card .swatch { display: flex; gap: 8px; margin-bottom: 16px; }
+  .card .swatch i { width: 34px; height: 22px; border-radius: 6px; border: 1px solid rgba(0,0,0,.08); }
+  .card .pair { font-size: 13px; line-height: 1.7; margin-bottom: 16px; color: #4e5969; }
+  .card .pair b { color: #1f2329; }
+  .links { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+  .links a {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 11px 14px; border-radius: 9px; text-decoration: none; font-size: 14px; font-weight: 500;
+    color: #fff;
+  }
+  .links a span { opacity: .75; font-weight: 400; font-size: 12px; }
+  .links .admin { background: #5e6ad2; }
+  .links .cand { background: #337ea9; }
+  .card.dash .links .admin { background: #1e293b; }
+  .card.dash .links .admin span { color: #94a3b8; }
+  .card.dash .links .cand { background: #12a08e; }
+  .card.print .links .admin { background: #111; }
+  .card.print .links .cand { background: #c40233; }
+  .card.term .links .admin { background: #0b0f14; color: #3fb950; }
+  .card.term .links .admin span { color: #556170; }
+  .card.term .links .cand { background: #d97706; }
+  .card.archive .links .admin { background: #2a2925; }
+  .card.archive .links .cand { background: #b23a2e; }
+  .card.mem .links .admin { background: #111; }
+  .card.mem .links .cand { background: #a93624; }
+  .card.exam .links .admin { background: #2f2c27; }
+  .card.exam .links .cand { background: #c22f23; }
+  .card.blue .links .admin { background: #1d5fd6; }
+  .card.blue .links .cand { background: #2f6fb0; }
+  .card.book .links .admin { background: #282623; }
+  .card.book .links .cand { background: #a9342a; }
+  .card.blk .links .admin { background: #212531; }
+  .card.blk .links .cand { background: #101010; }
+  .card.blk .links .admin span, .card.blk .links .cand span { color: #a5b1c2; }
+  .note { max-width: 1280px; margin: 28px auto 0; font-size: 13px; color: #86909c; line-height: 1.8; }
+  .note code { background: #eef0f2; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+  <div style="max-width:1280px; margin:0 auto;">
+    <h1>前端风格原型 · 十对方向</h1>
+    <div class="sub">管理端「岗位库」 × 测评端「对话测评」——同一份内容，十种截然不同的气质。</div>
+    <div class="pick">⚠️ ③ 排印×杂志 已入选候选池（保留）。⑩ 为最新定做（已按反馈改素）：管理端素色动态色块 + 悬停弹出侧栏，测评端即 ③ 排印×杂志但答题对话描 1px 细线。</div>
+  </div>
+
+  <div class="grid">
+    <!-- 配对① -->
+    <div class="card">
+      <h2>① Linear × Notion</h2>
+      <div class="dir">管理端：雾面极简 / 测评端：温暖阅读</div>
+      <div class="swatch">
+        <i style="background:#fff"></i><i style="background:#5e6ad2"></i><i style="background:#f7f6f3"></i><i style="background:#448361"></i><i style="background:#e7f3f8"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 纯白高密度、单一靛蓝、hover 浮现操作。<br>
+        <b>测评端</b> 米白纸底、粉彩标签、圆润气泡。
+      </div>
+      <div class="links">
+        <a class="admin" href="01-linear/admin.html">打开管理端岗位库 <span>Linear</span></a>
+        <a class="cand" href="01-linear/candidate.html">打开测评端对话 <span>Notion</span></a>
+      </div>
+    </div>
+
+    <!-- 配对② -->
+    <div class="card dash">
+      <h2>② 驾驶舱 × 沉浸</h2>
+      <div class="dir">管理端：浅蓝仪表盘 / 测评端：浅色沉浸对谈</div>
+      <div class="swatch">
+        <i style="background:#0f172a"></i><i style="background:#2563eb"></i><i style="background:#fff"></i><i style="background:#12a08e"></i><i style="background:#e7f6f2"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 深蓝侧栏 + KPI 卡 + sparkline，数据调度中心。<br>
+        <b>测评端</b> 纯白居中聚焦列、绿色"面试官在线"。
+      </div>
+      <div class="links">
+        <a class="admin" href="02-dashboard/admin.html">打开管理端岗位库 <span>仪表盘</span></a>
+        <a class="cand" href="02-dashboard/candidate.html">打开测评端对话 <span>沉浸</span></a>
+      </div>
+    </div>
+
+    <!-- 配对③（已保留） -->
+    <div class="card print keep">
+      <span class="keep-tag">★ 已保留</span>
+      <h2>③ 排印 × 杂志</h2>
+      <div class="dir">管理端：瑞士排印 / 测评端：编辑杂志</div>
+      <div class="swatch">
+        <i style="background:#111"></i><i style="background:#fff"></i><i style="background:#fffef9"></i><i style="background:#c40233"></i><i style="background:#f6f4ec"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 严格栅格、黑白灰 + 唯一正红、全大写小标题。<br>
+        <b>测评端</b> 纸白底、衬线大标题、访谈体、"本场访谈"目次。
+      </div>
+      <div class="links">
+        <a class="admin" href="03-print/admin.html">打开管理端岗位库 <span>排印</span></a>
+        <a class="cand" href="03-print/candidate.html">打开测评端对话 <span>杂志</span></a>
+      </div>
+    </div>
+
+    <!-- 配对④（新） -->
+    <div class="card term">
+      <h2>④ 终端 × 录音室 <span style="font-size:11px;color:#86909c">(新)</span></h2>
+      <div class="dir">管理端：终端控制台 / 测评端：播客录音棚</div>
+      <div class="swatch">
+        <i style="background:#0b0f14"></i><i style="background:#3fb950"></i><i style="background:#faf4ea"></i><i style="background:#d97706"></i><i style="background:#fffdf7"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 等宽字体、$ 提示符、信号灯、ASCII 边框——像在操作一台机器。<br>
+        <b>测评端</b> 奶油暖色、波形走带、ON AIR——像一场被录制的访谈节目。
+      </div>
+      <div class="links">
+        <a class="admin" href="04-terminal/admin.html">打开管理端岗位库 <span>终端</span></a>
+        <a class="cand" href="04-terminal/candidate.html">打开测评端对话 <span>录音室</span></a>
+      </div>
+    </div>
+
+    <!-- 配对⑤（新） -->
+    <div class="card archive">
+      <h2>⑤ 档案 × 书信 <span style="font-size:11px;color:#86909c">(新)</span></h2>
+      <div class="dir">管理端：纸质档案室 / 测评端：书信往来</div>
+      <div class="swatch">
+        <i style="background:#faf6ec"></i><i style="background:#c0311f"></i><i style="background:#fffefa"></i><i style="background:#b23a2e"></i><i style="background:#fbf7eb"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 信纸底、登记簿、红色批复章——像人工审阅纸质档案。<br>
+        <b>测评端</b> 面试官来信 + 你回信、火漆印、日期抬头——像书信笔谈。
+      </div>
+      <div class="links">
+        <a class="admin" href="05-archive/admin.html">打开管理端岗位库 <span>档案</span></a>
+        <a class="cand" href="05-archive/candidate.html">打开测评端对话 <span>书信</span></a>
+      </div>
+    </div>
+
+    <!-- 配对⑥（新） -->
+    <div class="card mem">
+      <h2>⑥ 海报 × 水墨 <span style="font-size:11px;color:#86909c">(新)</span></h2>
+      <div class="dir">管理端：新粗野海报 / 测评端：禅意水墨</div>
+      <div class="swatch">
+        <i style="background:#f5b700"></i><i style="background:#e94f37"></i><i style="background:#149d86"></i><i style="background:#faf9f4"></i><i style="background:#a93624"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 粗黑描边、硬阴影、高饱和色块——大声量、强记忆点。<br>
+        <b>测评端</b> 大留白、一字一景、墨点进度、朱印一点——极致安静。
+      </div>
+      <div class="links">
+        <a class="admin" href="06-memphis/admin.html">打开管理端岗位库 <span>海报</span></a>
+        <a class="cand" href="06-memphis/candidate.html">打开测评端对话 <span>水墨</span></a>
+      </div>
+    </div>
+
+    <!-- 配对⑦（新·简朴） -->
+    <div class="card exam">
+      <h2>⑦ 阅卷 × 答卷 <span style="font-size:11px;color:#86909c">(新)</span></h2>
+      <div class="dir">管理端：批改台 / 测评端：考试答卷</div>
+      <div class="swatch">
+        <i style="background:#f3f2ee"></i><i style="background:#c22f23"></i><i style="background:#fffefa"></i><i style="background:#a9342a"></i><i style="background:#f7f6f2"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 桌面色、红笔旁注、成绩栏——像阅卷老师在批改。<br>
+        <b>测评端</b> A4 卷面、装订线、横线作答区、页码——像真实一场考试。
+      </div>
+      <div class="links">
+        <a class="admin" href="07-exam/admin.html">打开管理端岗位库 <span>阅卷</span></a>
+        <a class="cand" href="07-exam/candidate.html">打开测评端对话 <span>答卷</span></a>
+      </div>
+    </div>
+
+    <!-- 配对⑧（新·简朴） -->
+    <div class="card blue">
+      <h2>⑧ 蓝图 × 手账 <span style="font-size:11px;color:#86909c">(新)</span></h2>
+      <div class="dir">管理端：工程蓝图 / 测评端：野外手账</div>
+      <div class="swatch">
+        <i style="background:#f5f8fd"></i><i style="background:#1d5fd6"></i><i style="background:#fcfbf6"></i><i style="background:#2f6fb0"></i><i style="background:#eef3fa"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 浅蓝网格纸、图号标题栏、等宽注释——像画一张工程图。<br>
+        <b>测评端</b> 横线纸、足迹式进度、记日条目——像在野外记手账。
+      </div>
+      <div class="links">
+        <a class="admin" href="08-blueprint/admin.html">打开管理端岗位库 <span>蓝图</span></a>
+        <a class="cand" href="08-blueprint/candidate.html">打开测评端对话 <span>手账</span></a>
+      </div>
+    </div>
+
+    <!-- 配对⑨（新·简朴） -->
+    <div class="card book">
+      <h2>⑨ 书卷 × 编年 <span style="font-size:11px;color:#86909c">(新)</span></h2>
+      <div class="dir">管理端：工具书 / 测评端：编年纪事</div>
+      <div class="swatch">
+        <i style="background:#f8f6f1"></i><i style="background:#b23a2e"></i><i style="background:#fcfbf6"></i><i style="background:#a9342a"></i><i style="background:#f3f1ea"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 目录页、章节§、页码、红书签——像翻一本专业手册。<br>
+        <b>测评端</b> 纵向时间轴、逐问记事、墨色日期——像一部个人编年。
+      </div>
+      <div class="links">
+        <a class="admin" href="09-book/admin.html">打开管理端岗位库 <span>书卷</span></a>
+        <a class="cand" href="09-book/candidate.html">打开测评端对话 <span>编年</span></a>
+      </div>
+    </div>
+
+    <!-- 配对⑩（最新定做） -->
+    <div class="card blk">
+      <h2>⑩ 素色工作台 × 杂志·细描 <span style="font-size:11px;color:#86909c">(最新)</span></h2>
+      <div class="dir">管理端：素色动态色块 / 测评端：排印×杂志·答题描线</div>
+      <div class="swatch">
+        <i style="background:#f6f6f4"></i><i style="background:#ffffff"></i><i style="background:#f2f1ed"></i><i style="background:#eef0f3"></i><i style="background:#26262a"></i>
+      </div>
+      <div class="pair">
+        <b>管理端</b> 近无色浅晕动态背景 + 白/浅灰素色块分割模块（无分割线）<br>
+        + 左侧栏默认隐藏，鼠标贴左缘伸出、离开收回。<br>
+        <b>测评端</b> ③排印×杂志底子，仅「答题对话」描 1px 暗灰细线。
+      </div>
+      <div class="links">
+        <a class="admin" href="10-blocks/admin.html">打开管理端岗位库 <span>色块</span></a>
+        <a class="cand" href="10-blocks/candidate.html">打开测评端对话 <span>粗框</span></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    操作提示：纯静态 <code>HTML</code>，点开即可看。建议每套各开一个管理端 + 一个测评端分屏对比。
+    ①②③ 走"主流干净"路线，④⑤⑥ 走"有新意"路线（方向过艳已弃），⑦⑧⑨ 走"简朴干净 + 结构创意"路线，⑩ 为你最新定做（浅色动态色块管理端 + 粗框杂志测评端）。
+    管理端与测评端可任意自由组合（如"⑧ 管理端 + ③ 测评端"）。挑中后告诉我，进入 Vue 实现。
+  </div>
+</body>
+</html>

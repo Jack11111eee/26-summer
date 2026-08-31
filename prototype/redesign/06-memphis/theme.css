@@ -1,0 +1,207 @@
+/* ============================================================
+   配对⑥ 新粗野海报 × 禅意水墨（视觉原型）
+   Admin：孟菲斯 / 新粗野主义 —— 粗黑描边、硬阴影、高饱和色块、大声量
+   Candidate：禅意水墨 —— 大留白、一字一景、细线、朱红一点
+   均为浅色。body.admin / body.candidate 切换两端。
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+a { text-decoration: none; color: inherit; }
+button { font-family: inherit; cursor: pointer; }
+
+/* ============================================================
+   ADMIN · 新粗野海报
+   ============================================================ */
+body.admin {
+  --bg: #f1efe9;
+  --card: #ffffff;
+  --ink: #111;
+  --blue: #1f6feb;
+  --red: #e94f37;
+  --yellow: #f5b700;
+  --teal: #149d86;
+  --pink: #f26d85;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif;
+  display: flex;
+  min-height: 100vh;
+}
+
+.admin .sidebar {
+  width: 220px; background: var(--card); border-right: 3px solid var(--ink); flex-shrink: 0;
+  display: flex; flex-direction: column; padding: 0;
+  position: sticky; top: 0; height: 100vh;
+}
+.admin .side-head { padding: 20px 18px 16px; border-bottom: 3px solid var(--ink); }
+.admin .side-brand { font-size: 20px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; line-height: 1.1; }
+.admin .side-brand .sq { display: inline-block; width: 14px; height: 14px; background: var(--red); margin-right: 6px; border: 2px solid var(--ink); }
+.admin .side-name { font-size: 12px; font-weight: 700; color: var(--ink); margin-top: 8px; letter-spacing: .14em; }
+
+.admin .nav { padding: 14px 0; }
+.admin .nav-item {
+  display: block; margin: 4px 10px; padding: 10px 12px;
+  border: 2px solid var(--ink); background: var(--card);
+  font-size: 15px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.admin .nav-item:hover { transform: translate(-1px,-1px); box-shadow: 4px 4px 0 var(--ink); }
+.admin .nav-item.active { background: var(--yellow); }
+.admin .nav-item.active::after { content: " ◂"; }
+.admin .nav-item .nav-badge { font-family: var(--mono); font-size: 12px; }
+
+.admin .side-foot { margin-top: auto; border-top: 3px solid var(--ink); padding: 14px 18px; }
+.admin .side-user { font-size: 14px; font-weight: 800; }
+.admin .side-role { font-size: 11px; font-weight: 600; color: #555; margin-top: 2px; }
+
+/* ---- 主区 ---- */
+.admin .main { flex: 1; min-width: 0; padding: 26px 30px 48px; }
+.admin .topbar { display: flex; align-items: center; gap: 12px; border-bottom: 4px solid var(--ink); padding-bottom: 16px; margin-bottom: 22px; }
+.admin .topbar-title { font-size: 34px; font-weight: 900; letter-spacing: -.01em; text-transform: uppercase; line-height: 1; }
+.admin .topbar-title .hl { background: var(--yellow); padding: 0 6px; border: 2px solid var(--ink); }
+.admin .topbar-meta { font-size: 12px; font-weight: 700; color: #444; }
+.admin .topbar-actions { margin-left: auto; display: flex; gap: 10px; }
+
+.admin .btn {
+  height: 36px; padding: 0 16px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  border: 2px solid var(--ink); background: var(--card); color: var(--ink);
+  box-shadow: 3px 3px 0 var(--ink); display: inline-flex; align-items: center; gap: 6px;
+}
+.admin .btn:hover { transform: translate(-1px,-1px); box-shadow: 4px 4px 0 var(--ink); }
+.admin .btn-primary { background: var(--blue); color: #fff; }
+.admin .btn-yellow { background: var(--yellow); }
+
+/* ---- KPI：大声量卡片 ---- */
+.admin .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 24px; }
+.admin .stat {
+  border: 3px solid var(--ink); background: var(--card); box-shadow: 5px 5px 0 var(--ink);
+  padding: 16px 18px;
+}
+.admin .stat .stat-label { font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
+.admin .stat .color-block { width: 12px; height: 12px; border: 2px solid var(--ink); display: inline-block; }
+.admin .stat-num { font-size: 40px; font-weight: 900; margin-top: 8px; font-variant-numeric: tabular-nums; line-height: 1; }
+.admin .stat-foot { font-size: 11px; font-weight: 700; color: #555; margin-top: 8px; font-family: var(--mono); }
+.admin .stat.hot { background: var(--pink); }
+.admin .stat.hot .stat-num { color: #fff; }
+.admin .stat.hot .stat-foot { color: #fff; }
+
+/* ---- 面板 ---- */
+.admin .panel { border: 3px solid var(--ink); background: var(--card); box-shadow: 5px 5px 0 var(--ink); margin-bottom: 26px; }
+.admin .panel-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 3px solid var(--ink); background: var(--yellow); }
+.admin .panel-title { font-size: 15px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.admin .panel-cnt { font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.admin .panel-more { margin-left: auto; font-size: 12px; font-weight: 700; }
+.admin .panel-more:hover { text-decoration: underline; }
+
+.admin table { width: 100%; border-collapse: collapse; }
+.admin th {
+  text-align: left; padding: 10px 16px; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  color: #333; border-bottom: 2px solid var(--ink);
+}
+.admin td { padding: 13px 16px; border-bottom: 2px solid #eee; font-size: 14px; font-weight: 600; vertical-align: middle; }
+.admin tbody tr:last-child td { border-bottom: none; }
+.admin tbody tr:hover td { background: #fff7d6; }
+.admin .cell-main { font-weight: 800; font-size: 15px; }
+.admin .cell-sub { font-size: 12px; font-weight: 600; color: #777; margin-top: 2px; }
+.admin .num { font-variant-numeric: tabular-nums; font-family: var(--mono); font-weight: 700; }
+.admin .mono { font-family: var(--mono); font-size: 12px; color: #666; }
+
+/* 状态：色块章 */
+.admin .tag { display: inline-flex; align-items: center; height: 22px; padding: 0 10px; font-size: 11px; font-weight: 800; letter-spacing: .06em; border: 2px solid var(--ink); }
+.admin .tag-green { background: var(--teal); color: #fff; }
+.admin .tag-red { background: var(--red); color: #fff; }
+.admin .tag-amber { background: var(--yellow); }
+.admin .tag-grey { background: #e8e6de; }
+
+.admin .row-actions { display: flex; gap: 8px; }
+.admin .row-btn {
+  height: 28px; padding: 0 12px; font-size: 12px; font-weight: 800;
+  border: 2px solid var(--ink); background: var(--card); color: var(--ink);
+  opacity: 0; transition: opacity .12s ease;
+}
+.admin tbody tr:hover .row-btn { opacity: 1; }
+.admin .row-btn:hover { background: var(--ink); color: var(--card); }
+.admin .row-btn-primary { background: var(--blue); color: #fff; }
+.admin .row-btn-danger { color: var(--red); }
+.admin .row-btn-danger:hover { background: var(--red); border-color: var(--red); color: #fff; }
+
+/* ============================================================
+   CANDIDATE · 禅意水墨
+   ============================================================ */
+body.candidate {
+  --paper: #faf9f4;
+  --ink-1: #2b2620;
+  --ink-2: #6b6257;
+  --ink-3: #a69c8d;
+  --line: #e0dcd2;
+  --red: #a93624;
+  --serif: 'Songti SC', 'STSong', 'SimSun', 'Noto Serif SC', serif;
+  --mono: 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--ink-1);
+  background: var(--paper);
+  font-family: var(--serif);
+}
+
+.cand { display: flex; flex-direction: column; min-height: 100vh; max-width: 880px; margin: 0 auto; padding: 0 24px; }
+
+/* 页眉：极简 + 朱印 */
+.cand-head { display: flex; align-items: center; gap: 14px; padding: 30px 0 10px; }
+.cand-brand { display: flex; align-items: center; gap: 12px; }
+.cand-brush { width: 44px; height: 16px; }
+.cand-name { font-size: 20px; font-weight: 700; letter-spacing: .18em; }
+.cand-seal {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--red); color: #fff;
+  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.35);
+}
+.cand-kicker { font-size: 11px; color: var(--ink-3); letter-spacing: .2em; }
+.cand-actions { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+.cand-user { font-size: 13px; color: var(--ink-2); letter-spacing: .08em; }
+.cand .btn {
+  height: 30px; padding: 0 18px; font-size: 13px; letter-spacing: .12em;
+  border: 1px solid var(--ink-1); background: transparent; color: var(--ink-1); font-family: var(--serif);
+}
+.cand .btn:hover { background: var(--ink-1); color: var(--paper); }
+
+/* 进度：墨点 */
+.cand .prog { display: flex; align-items: center; gap: 18px; padding: 26px 0 30px; border-bottom: 1px solid var(--line); }
+.cand .dots { display: flex; gap: 10px; }
+.cand .dot {
+  width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--ink-1);
+}
+.cand .dot.fill { background: var(--ink-1); }
+.cand .dot.cur { background: var(--red); border-color: var(--red); }
+.cand .prog-text { font-size: 12px; color: var(--ink-3); letter-spacing: .14em; margin-left: auto; font-family: var(--mono); }
+
+/* 对话：一字一景 */
+.cand .chat { flex: 1; overflow-y: auto; padding: 34px 0 20px; }
+.cand .scene { margin-bottom: 52px; }
+.cand .scene-label { font-size: 11px; color: var(--ink-3); letter-spacing: .24em; margin-bottom: 18px; font-family: var(--mono); }
+.cand .scene-label .mark { color: var(--red); }
+.cand .q { font-size: 26px; line-height: 1.8; font-weight: 700; letter-spacing: .04em; max-width: 34em; }
+.cand .q-meta { display: flex; gap: 16px; margin-top: 16px; font-size: 12px; color: var(--ink-3); letter-spacing: .1em; }
+.cand .a {
+  margin-top: 22px; padding-left: 24px; border-left: 1px solid var(--ink-1);
+  font-size: 16px; line-height: 2; color: var(--ink-2); max-width: 40em;
+}
+.cand .a .a-who { display: block; font-size: 11px; color: var(--ink-3); letter-spacing: .2em; margin-bottom: 8px; }
+.cand .a .a-who b { color: var(--ink-1); }
+
+/* 测评思路：像页面注 */
+.cand .note { margin-top: 20px; font-size: 13px; color: var(--ink-3); line-height: 1.9; letter-spacing: .06em; }
+.cand .note b { color: var(--red); font-weight: 600; }
+
+/* 作答：一行书 */
+.cand .compose { padding: 26px 0 40px; border-top: 1px solid var(--line); }
+.cand .compose-label { font-size: 11px; color: var(--ink-3); letter-spacing: .2em; margin-bottom: 18px; }
+.cand .compose-label b { color: var(--red); }
+.cand textarea {
+  width: 100%; min-height: 88px; padding: 14px 4px; border: none; border-bottom: 1px solid var(--ink-1);
+  background: transparent; font-family: var(--serif); font-size: 17px; line-height: 2; color: var(--ink-1); resize: none;
+}
+.cand textarea:focus { outline: none; border-bottom-color: var(--red); }
+.cand textarea::placeholder { color: var(--ink-3); }
+.cand .compose-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+.cand-foot { padding: 14px 0 26px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 16px; font-size: 11px; color: var(--ink-3); letter-spacing: .18em; }
+.cand-foot .f-right { margin-left: auto; }

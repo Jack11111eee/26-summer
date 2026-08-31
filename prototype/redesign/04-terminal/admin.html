@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>岗位库 · 终端控制台</title>
+<link rel="stylesheet" href="theme.css">
+</head>
+<body class="admin">
+
+  <!-- 侧栏 -->
+  <aside class="sidebar">
+    <div class="side-head">
+      <div class="side-brand">胜任力测评<span class="blink">_</span></div>
+      <div class="side-ver">console v2.4 · sqlite3</div>
+    </div>
+
+    <nav class="nav">
+      <a class="nav-item active" href="#"><span class="marker">▶</span>岗位库<span class="nav-badge">3</span></a>
+      <a class="nav-item" href="#"><span class="marker">▸</span>能力词典</a>
+      <a class="nav-item" href="#"><span class="marker">▸</span>用户管理</a>
+      <a class="nav-item" href="#"><span class="marker">▸</span>测试中心</a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="side-user">● <span class="ok">admin</span> · 管理员</div>
+      <div class="side-role">last login: 08-31 10:21</div>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <main class="main">
+    <div class="topbar">
+      <span class="prompt">$</span>
+      <span class="topbar-path">./positions <span class="caret">·</span> 3 jobs <span class="caret">·</span> 53 jds</span>
+      <div class="topbar-actions">
+        <button class="btn">[ 刷新 ]</button>
+        <button class="btn btn-primary">[ + 导入 JD ]</button>
+      </div>
+    </div>
+
+    <!-- 计数器 -->
+    <div class="stats">
+      <div class="stat hot">
+        <div class="stat-head"><span class="led" style="background:var(--cyan)"></span>待审新岗位</div>
+        <div class="stat-num">02</div>
+        <div class="stat-foot">queue: pending_positions</div>
+      </div>
+      <div class="stat">
+        <div class="stat-head"><span class="led" style="background:var(--amber)"></span>stalled 模型</div>
+        <div class="stat-num">01</div>
+        <div class="stat-foot">target: ai-agent-engineer</div>
+      </div>
+      <div class="stat">
+        <div class="stat-head"><span class="led" style="background:var(--ink-3)"></span>待归属 JD</div>
+        <div class="stat-num">03</div>
+        <div class="stat-foot">queue: jds_orphan</div>
+      </div>
+    </div>
+
+    <!-- 待审新岗位 -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-title">待审新岗位</span>
+        <span class="panel-cnt">2 条</span>
+        <span class="panel-more">收起 ▴</span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>job_title</th><th>jd_count</th><th>created_at</th><th>action</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="cell-main">智能体工程师</div>
+              <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
+            </td>
+            <td>3</td>
+            <td class="mono">08-31 09:12</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">[通过]</button>
+                <button class="row-btn row-btn-danger">[拒绝]</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="cell-main">AI Agent 开发工程师</div>
+              <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
+            </td>
+            <td>5</td>
+            <td class="mono">08-30 17:40</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">[通过]</button>
+                <button class="row-btn row-btn-danger">[拒绝]</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 岗位列表 -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-title">岗位列表</span>
+        <span class="panel-cnt">3 条</span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>position_name</th><th>status</th><th>jd_count</th><th>model_version</th><th>action</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="cell-main">后端开发</span></td>
+            <td><span class="tag tag-green">[active]</span></td>
+            <td>12</td>
+            <td><span class="tag tag-grey">v2 · confirmed</span></td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">[详情]</button>
+                <button class="row-btn row-btn-primary">[审核]</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="cell-main">AI Agent 开发工程师</span></td>
+            <td><span class="tag tag-green">[active]</span></td>
+            <td>30</td>
+            <td><span class="tag tag-red">[stalled]</span></td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">[详情]</button>
+                <button class="row-btn row-btn-primary">[审核]</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="cell-main">后端开发工程师（高级）</span></td>
+            <td><span class="tag tag-amber">[待审核]</span></td>
+            <td>8</td>
+            <td class="mono" style="color:var(--ink-3)">—</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn">[详情]</button>
+                <button class="row-btn" disabled>[审核]</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</body>
+</html>
