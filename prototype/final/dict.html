@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>能力词典</title>
+<link rel="stylesheet" href="grail-notion.css">
+<style>
+  .pd-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .pd-title { font-size:22px; font-weight:700; letter-spacing:-0.2px; }
+  .pd-meta { font-size:12px; color:var(--ink-3); margin-top:4px; font-family:var(--mono); display:flex; gap:12px; }
+  .pd-actions { margin-left:auto; display:flex; gap:8px; }
+
+  /* 筛选栏 */
+  .filter-bar {
+    display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:10px 12px;
+  }
+  .filter-bar .input, .filter-bar .select { width:auto; }
+
+  /* 别名 / 排除项 mini tag */
+  .mini-tag {
+    display:inline-flex; align-items:center; height:19px; padding:0 7px;
+    border-radius:9px; font-size:11px; font-weight:400;
+    background:var(--grey-bg); color:var(--ink-2); margin:1px 3px 1px 0;
+  }
+  .mini-tag.excl { background:var(--red-bg); color:#a6352f; }
+  .muted { color:var(--ink-3); }
+
+  /* 弹窗（新增 / 编辑 / 合并共用） */
+  .ovl { position:fixed; inset:0; background:rgba(55,53,47,.36); display:none; align-items:center; justify-content:center; z-index:50; }
+  .ovl.open { display:flex; }
+  .modal { width:540px; max-width:92vw; background:var(--panel); border-radius:12px; border:1px solid var(--line); box-shadow:0 12px 40px rgba(55,53,47,.18); overflow:hidden; }
+  .modal.small { width:440px; }
+  .modal-head { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; font-size:14px; font-weight:600; }
+  .modal-x { margin-left:auto; color:var(--ink-3); cursor:pointer; font-size:16px; }
+  .modal-x:hover { color:var(--ink-1); }
+  .modal-body { padding:16px 18px; }
+  .modal-foot { padding:12px 18px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px; }
+  .form-row { margin-bottom:14px; }
+  .form-row label { display:block; font-size:12px; color:var(--ink-3); margin-bottom:5px; }
+  .form-row .input { width:100%; }
+  .merge-desc { font-size:13px; margin-bottom:12px; }
+  .merge-desc b { color:var(--blue); }
+  .merge-tip { font-size:12px; color:var(--ink-3); margin-top:10px; background:var(--grey-bg); border-radius:6px; padding:8px 10px; }
+  .multi-input { display:flex; flex-wrap:wrap; gap:5px; align-items:center; border:1px solid var(--line); border-radius:5px; padding:7px 8px; min-height:34px; }
+  .multi-input .mini-tag { margin:0; }
+  .multi-input input { border:none; outline:none; flex:1; min-width:80px; font-size:12px; font-family:inherit; color:var(--ink-1); padding:3px 4px; background:transparent; }
+</style>
+</head>
+<body>
+<div class="grail">
+
+  <header class="grail-head">
+    <div class="gh-brand">
+      <div class="gh-mark">测</div>
+      <span class="gh-name">胜任力测评</span>
+    </div>
+    <div class="gh-divider"></div>
+    <div class="gh-crumb">模块一 / <b>能力词典</b></div>
+    <div class="gh-actions">
+      <button class="btn">刷新</button>
+      <button class="btn btn-primary" onclick="document.getElementById('createOvl').classList.add('open')">+ 新增标准名</button>
+    </div>
+  </header>
+
+  <div class="grail-body">
+
+    <nav class="rail-left">
+      <div class="rl-section">模块一</div>
+      <a class="nav-item" href="index.html"><span class="icon">◼</span>岗位库<span class="nav-badge">2</span></a>
+      <a class="nav-item active" href="dict.html"><span class="icon">◻</span>能力词典</a>
+      <div class="rl-section">系统</div>
+      <a class="nav-item" href="users.html"><span class="icon">◉</span>用户管理</a>
+      <div class="rl-user">
+        <div class="avatar">A</div>
+        <div>
+          <div class="user-name">admin</div>
+          <div class="user-role">管理员</div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="rail-center">
+      <div class="pd-head">
+        <div>
+          <div class="pd-title">能力词典</div>
+          <div class="pd-meta">
+            <span>48 词条</span><span>LLM 待确认 3</span><span>已确认 45</span>
+          </div>
+        </div>
+        <div class="pd-actions">
+          <button class="btn btn-primary" onclick="document.getElementById('createOvl').classList.add('open')">+ 新增标准名</button>
+        </div>
+      </div>
+
+      <!-- 筛选栏 -->
+      <div class="filter-bar">
+        <select class="select" style="height:28px; font-size:12px;">
+          <option>类目：全部</option><option>硬技能</option><option>软技能</option><option>经验</option><option>门槛</option>
+        </select>
+        <select class="select" style="height:28px; font-size:12px;">
+          <option>来源：全部</option><option>LLM 待确认</option><option>已确认</option>
+        </select>
+        <select class="select" style="height:28px; font-size:12px;">
+          <option>状态：全部</option><option>启用</option><option>停用</option>
+        </select>
+        <input class="input" placeholder="搜索标准名 / 别名…" style="height:28px; font-size:12px; flex:1; min-width:180px">
+        <button class="btn btn-sm" style="height:28px">查询</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:120px">标准名</th>
+              <th style="width:90px">类目</th>
+              <th style="min-width:180px">定义</th>
+              <th style="min-width:140px">别名</th>
+              <th style="min-width:120px">排除项</th>
+              <th style="width:90px">来源</th>
+              <th style="width:80px">状态</th>
+              <th style="width:170px">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="cell-main">Python 开发</span></td>
+              <td><span class="tag tag-grey">硬技能</span></td>
+              <td><span class="muted" style="font-size:12px">Python 语法、标准库、常用框架的工程化使用</span></td>
+              <td><span class="mini-tag">Python</span><span class="mini-tag">python 编程</span></td>
+              <td><span class="mini-tag excl">Python 爬虫</span></td>
+              <td><span class="tag tag-amber">待确认</span></td>
+              <td><span class="tag tag-green">启用</span></td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost" onclick="document.getElementById('editOvl').classList.add('open')">编辑</button>
+                <button class="btn btn-sm btn-ghost" onclick="document.getElementById('mergeOvl').classList.add('open')">合并</button>
+                <button class="btn btn-sm btn-danger-ghost">删除</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">Spring Cloud</span></td>
+              <td><span class="tag tag-grey">硬技能</span></td>
+              <td><span class="muted" style="font-size:12px">Spring Cloud 微服务体系，含注册中心、配置中心、网关</span></td>
+              <td><span class="mini-tag">SpringCloud</span><span class="mini-tag">spring-cloud</span></td>
+              <td><span class="muted" style="font-size:12px">—</span></td>
+              <td><span class="tag tag-grey">已确认</span></td>
+              <td><span class="tag tag-green">启用</span></td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">编辑</button>
+                <button class="btn btn-sm btn-ghost">合并</button>
+                <button class="btn btn-sm btn-danger-ghost">删除</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">跨团队协作</span></td>
+              <td><span class="tag tag-grey">软技能</span></td>
+              <td><span class="muted" style="font-size:12px">跨部门协调资源、推动合作达成目标的能力</span></td>
+              <td><span class="mini-tag">跨部门沟通</span><span class="mini-tag">团队协作</span></td>
+              <td><span class="muted" style="font-size:12px">—</span></td>
+              <td><span class="tag tag-grey">已确认</span></td>
+              <td><span class="tag tag-green">启用</span></td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">编辑</button>
+                <button class="btn btn-sm btn-ghost">合并</button>
+                <button class="btn btn-sm btn-danger-ghost">删除</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">RAG 系统设计</span></td>
+              <td><span class="tag tag-grey">硬技能</span></td>
+              <td><span class="muted" style="font-size:12px">检索增强生成全链路：文档切分、向量索引、召回、重排、评测</span></td>
+              <td><span class="mini-tag">RAG</span><span class="mini-tag">检索增强生成</span></td>
+              <td><span class="mini-tag excl">Embedding 模型训练</span></td>
+              <td><span class="tag tag-amber">待确认</span></td>
+              <td><span class="tag tag-green">启用</span></td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">编辑</button>
+                <button class="btn btn-sm btn-ghost">合并</button>
+                <button class="btn btn-sm btn-danger-ghost">删除</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">Elasticsearch</span></td>
+              <td><span class="tag tag-grey">硬技能</span></td>
+              <td><span class="muted" style="font-size:12px">ES 集群、索引设计、查询 DSL 调优</span></td>
+              <td><span class="mini-tag">ES</span></td>
+              <td><span class="muted" style="font-size:12px">—</span></td>
+              <td><span class="tag tag-grey">已确认</span></td>
+              <td><span class="tag tag-grey">停用</span></td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">编辑</button>
+                <button class="btn btn-sm btn-ghost">合并</button>
+                <button class="btn btn-sm btn-danger-ghost">删除</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <aside class="rail-right">
+      <div class="rr-card">
+        <div class="rr-title">词典健康度</div>
+        <div class="legend">
+          <div class="legend-item">LLM 待确认<span class="legend-note">3</span></div>
+          <div class="legend-item">已确认<span class="legend-note">45</span></div>
+          <div class="legend-item">停用<span class="legend-note">2</span></div>
+        </div>
+      </div>
+
+      <div class="rr-alert">
+        有 <strong>3 条 LLM 推断的标准名</strong>等待人工确认——「编辑」即视为确认。
+      </div>
+
+      <div class="rr-card">
+        <div class="rr-title">类目分布</div>
+        <div class="legend">
+          <div class="legend-item">硬技能<span class="legend-note">31</span></div>
+          <div class="legend-item">软技能<span class="legend-note">9</span></div>
+          <div class="legend-item">经验<span class="legend-note">5</span></div>
+          <div class="legend-item">门槛<span class="legend-note">3</span></div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <footer class="grail-foot">
+    <span>CF-01 · 模块一建模台</span>
+    <span class="ok">● API 正常</span>
+    <span>/admin/dict · /admin/dict/merge</span>
+    <div class="f-right">
+      <span>v0.3.2</span>
+      <span>2026-08-29 15:01</span>
+    </div>
+  </footer>
+
+</div>
+
+<!-- 新增标准名弹窗 -->
+<div class="ovl" id="createOvl">
+  <div class="modal">
+    <div class="modal-head">
+      新增标准名
+      <span class="modal-x" onclick="closeOvl('createOvl')">✕</span>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>标准名 *</label>
+        <input class="input" placeholder="如：Python 开发">
+      </div>
+      <div class="form-row">
+        <label>类目 *</label>
+        <select class="select">
+          <option>硬技能</option><option>软技能</option><option>经验</option><option>门槛</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>定义</label>
+        <textarea class="input" rows="3" placeholder="该能力的含义与边界"></textarea>
+      </div>
+      <div class="form-row">
+        <label>别名（回车添加）</label>
+        <div class="multi-input">
+          <span class="mini-tag">Python</span>
+          <span class="mini-tag">python 编程</span>
+          <input placeholder="继续输入…">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>排除项（回车添加）</label>
+        <div class="multi-input">
+          <span class="mini-tag excl">Python 爬虫</span>
+          <input placeholder="继续输入…">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeOvl('createOvl')">取消</button>
+      <button class="btn btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑抽屉（用 modal 代替抽屉以保持原型简洁） -->
+<div class="ovl" id="editOvl">
+  <div class="modal">
+    <div class="modal-head">
+      编辑 · Python 开发
+      <span class="modal-x" onclick="closeOvl('editOvl')">✕</span>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>定义</label>
+        <textarea class="input" rows="3" style="font-size:12px">Python 语法、标准库、常用框架的工程化使用</textarea>
+      </div>
+      <div class="form-row">
+        <label>别名</label>
+        <div class="multi-input">
+          <span class="mini-tag">Python</span>
+          <span class="mini-tag">python 编程</span>
+          <input placeholder="继续输入…">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>排除项</label>
+        <div class="multi-input">
+          <span class="mini-tag excl">Python 爬虫</span>
+          <input placeholder="继续输入…">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeOvl('editOvl')">取消</button>
+      <button class="btn btn-primary">保存（编辑即确认）</button>
+    </div>
+  </div>
+</div>
+
+<!-- 合并弹窗 -->
+<div class="ovl" id="mergeOvl">
+  <div class="modal small">
+    <div class="modal-head">
+      合并词条
+      <span class="modal-x" onclick="closeOvl('mergeOvl')">✕</span>
+    </div>
+    <div class="modal-body">
+      <div class="merge-desc">将「<b>Python 开发</b>」合并到：</div>
+      <select class="select">
+        <option>Python 工程化（硬技能）</option>
+        <option>Spring Cloud（硬技能）</option>
+        <option>跨团队协作（软技能）</option>
+        <option>RAG 系统设计（硬技能）</option>
+      </select>
+      <div class="merge-tip">「Python 开发」将成为目标条目的别名，历史 JD 引用将自动迁移。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeOvl('mergeOvl')">取消</button>
+      <button class="btn btn-primary">确认合并</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openOvl(id) { document.getElementById(id).classList.add('open'); }
+  function closeOvl(id) { document.getElementById(id).classList.remove('open'); }
+  ['createOvl','editOvl','mergeOvl'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', e => { if (e.target.id === id) closeOvl(id); });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>岗位库 · Holy Grail 版</title>
+<link rel="stylesheet" href="grail.css">
+</head>
+<body>
+<div class="grail">
+
+  <!-- 通栏头 -->
+  <header class="grail-head">
+    <div class="gh-brand">
+      <div class="gh-mark">测</div>
+      <span class="gh-name">胜任力测评</span>
+    </div>
+    <div class="gh-divider"></div>
+    <div class="gh-crumb">模块一 / <b>岗位库</b></div>
+    <div class="gh-actions">
+      <button class="btn">刷新</button>
+      <button class="btn btn-primary">+ 导入 JD</button>
+    </div>
+  </header>
+
+  <!-- 三栏体 -->
+  <div class="grail-body">
+
+    <!-- 左栏：导航 -->
+    <nav class="rail-left">
+      <div class="rl-section">模块一</div>
+      <a class="nav-item active"><span class="icon">▦</span>岗位库<span class="nav-badge">2</span></a>
+      <a class="nav-item"><span class="icon">◈</span>能力词典</a>
+      <div class="rl-section">系统</div>
+      <a class="nav-item"><span class="icon">◉</span>用户管理</a>
+      <div class="rl-user">
+        <div class="avatar">A</div>
+        <div>
+          <div class="user-name">admin</div>
+          <div class="user-role">管理员</div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- 中栏：数据主栏 -->
+    <main class="rail-center">
+      <div class="rc-head">
+        <div class="rc-title">岗位库</div>
+        <div class="rc-meta">3 个岗位 · 53 份 JD · 更新于 2026-08-29 15:01</div>
+      </div>
+
+      <!-- 待审新岗位 -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="dot amber"></span>
+          <span class="panel-title">待审新岗位</span>
+          <span class="panel-count">2</span>
+          <span class="more">收起 ▴</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>岗位名称</th><th style="width:60px">JD</th><th style="width:150px">创建时间</th><th style="width:160px">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="cell-main">智能体工程师</div>
+                <div class="cell-sub">job_title 归岗未命中 · LLM 判定为全新岗位</div>
+              </td>
+              <td class="num">3</td>
+              <td class="mono">08-29 14:32</td>
+              <td class="row-actions">
+                <button class="btn btn-sm">通过</button>
+                <button class="btn btn-sm btn-danger-ghost">拒绝</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="cell-main">AI Agent 开发工程师</div>
+                <div class="cell-sub">job_title 归岗未命中 · LLM 判定为全新岗位</div>
+              </td>
+              <td class="num">5</td>
+              <td class="mono">08-29 11:08</td>
+              <td class="row-actions">
+                <button class="btn btn-sm">通过</button>
+                <button class="btn btn-sm btn-danger-ghost">拒绝</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 待归属 JD -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="dot grey"></span>
+          <span class="panel-title">待归属 JD</span>
+          <span class="panel-count">3</span>
+          <span class="more">收起 ▴</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>岗位名称</th><th style="width:70px">来源</th><th style="width:130px">导入时间</th><th style="width:230px">改归到岗位</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="cell-main" style="color:var(--ink-3)">（未解析）</span></td>
+              <td><span class="tag-plain">粘贴</span></td>
+              <td class="mono">08-29 15:01</td>
+              <td class="row-actions">
+                <select class="select" style="width:120px; height:24px; display:inline-block; margin-right:6px;">
+                  <option>选择岗位</option><option>后端开发</option><option>AI Agent 开发工程师</option>
+                </select>
+                <button class="btn btn-sm btn-primary">改归</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">Golang 服务端</span></td>
+              <td><span class="tag-plain">文件</span></td>
+              <td class="mono">08-29 13:20</td>
+              <td class="row-actions">
+                <select class="select" style="width:120px; height:24px; display:inline-block; margin-right:6px;">
+                  <option>选择岗位</option><option>后端开发</option><option>AI Agent 开发工程师</option>
+                </select>
+                <button class="btn btn-sm btn-primary">改归</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 岗位列表 -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">岗位列表</span>
+          <span class="panel-count">3</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>岗位名称</th><th style="width:110px">状态</th><th style="width:60px">JD</th><th style="width:130px">模型版本</th><th style="width:180px">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="cell-main">后端开发</span></td>
+              <td><span class="status"><span class="dot green"></span>active</span></td>
+              <td class="num">12</td>
+              <td><span class="tag-plain">v2 · 已确认</span></td>
+              <td class="row-actions">
+                <a class="btn btn-sm btn-ghost" href="#">详情</a>
+                <a class="btn btn-sm btn-primary" href="#">模型审核</a>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">AI Agent 开发工程师</span></td>
+              <td><span class="status"><span class="dot green"></span>active</span></td>
+              <td class="num">30</td>
+              <td><span class="status red"><span class="dot red"></span>stalled</span></td>
+              <td class="row-actions">
+                <a class="btn btn-sm btn-ghost" href="#">详情</a>
+                <a class="btn btn-sm btn-primary" href="#">模型审核</a>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">后端开发工程师（高级）</span></td>
+              <td><span class="status"><span class="dot amber"></span>待审核</span></td>
+              <td class="num">8</td>
+              <td><span class="cell-sub">—</span></td>
+              <td class="row-actions">
+                <a class="btn btn-sm btn-ghost" href="#">详情</a>
+                <button class="btn btn-sm" disabled>模型审核</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- 右栏：常驻上下文 -->
+    <aside class="rail-right">
+      <div class="rr-card">
+        <div class="rr-title">待办</div>
+        <div class="rr-stat">
+          <span class="rr-stat-num amber">2</span>
+          <span class="rr-stat-label">待审新岗位</span>
+          <span class="rr-stat-arrow">→</span>
+        </div>
+        <div class="rr-stat">
+          <span class="rr-stat-num red">1</span>
+          <span class="rr-stat-label">stalled 模型</span>
+          <span class="rr-stat-arrow">→</span>
+        </div>
+        <div class="rr-stat">
+          <span class="rr-stat-num" style="color:var(--ink-3)">3</span>
+          <span class="rr-stat-label">待归属 JD</span>
+          <span class="rr-stat-arrow">→</span>
+        </div>
+      </div>
+
+      <div class="rr-alert">
+        <strong>stalled：</strong>AI Agent 开发工程师聚合中断，第 3/30 份 JD 解析失败。
+        <span class="a-act">去处理 →</span>
+      </div>
+
+      <div class="rr-card">
+        <div class="rr-title">本周建模吞吐</div>
+        <div class="spark-wrap">
+          <div>
+            <div class="spark-num">32</div>
+            <div class="spark-sub">JD 已解析 / 53</div>
+          </div>
+          <svg width="110" height="34" viewBox="0 0 110 34" style="margin-left:auto">
+            <polyline points="2,28 18,24 34,26 50,18 66,20 82,10 98,12 108,6"
+              fill="none" stroke="#4f46e5" stroke-width="1.5"/>
+            <polyline points="2,28 18,24 34,26 50,18 66,20 82,10 98,12 108,6 108,34 2,34"
+              fill="rgba(79,70,229,.08)" stroke="none"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="rr-card">
+        <div class="rr-title">状态图例</div>
+        <div class="legend">
+          <div class="legend-item"><span class="dot green"></span>active · 模型已确认<span class="legend-note">2</span></div>
+          <div class="legend-item"><span class="dot amber"></span>待审核 · 新岗位<span class="legend-note">1</span></div>
+          <div class="legend-item"><span class="dot red"></span>stalled · 聚合中断<span class="legend-note">1</span></div>
+          <div class="legend-item"><span class="dot grey"></span>待归属 JD<span class="legend-note">3</span></div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- 通栏脚 -->
+  <footer class="grail-foot">
+    <span>CF-01 · 模块一建模台</span>
+    <span class="ok">● API 正常</span>
+    <span>SQLite · 3 次 LLM 调用/JD</span>
+    <div class="f-right">
+      <span>v0.3.2</span>
+      <span>2026-08-29 15:01</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

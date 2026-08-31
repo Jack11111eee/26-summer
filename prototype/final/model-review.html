@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Agent 开发工程师 · 模型审核</title>
+<link rel="stylesheet" href="grail-notion.css">
+<style>
+  .pd-back { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-3); cursor:pointer; margin-bottom:10px; }
+  .pd-back:hover { color:var(--ink-1); }
+  .pd-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .pd-title { font-size:22px; font-weight:700; letter-spacing:-0.2px; }
+  .pd-title .ver { font-size:14px; color:var(--ink-3); font-weight:400; margin-left:6px; }
+  .pd-meta { font-size:12px; color:var(--ink-3); margin-top:4px; font-family:var(--mono); display:flex; gap:12px; }
+  .pd-actions { margin-left:auto; display:flex; gap:8px; }
+
+  /* stalled 警示条（callout 大条） */
+  .stalled-bar {
+    background:var(--red-bg); border-radius:8px; padding:12px 16px;
+    display:flex; align-items:center; gap:12px; font-size:13px; line-height:1.6;
+    margin-bottom:16px;
+  }
+  .stalled-bar strong { color:var(--red); }
+  .stalled-bar .sb-actions { margin-left:auto; display:flex; gap:8px; }
+
+  /* 审核双栏 */
+  .review-cols { display:flex; gap:14px; align-items:flex-start; }
+  .ev-rail { flex:0 0 340px; min-width:0; }
+  .model-rail { flex:1; min-width:0; }
+
+  /* 证据面板 */
+  .ev-card {
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:14px 16px;
+  }
+  .ev-head-row { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .ev-name { font-size:14px; font-weight:600; }
+  .ev-occ { display:flex; gap:6px; margin:8px 0 12px; flex-wrap:wrap; }
+  .occ-tag {
+    display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:10px;
+    font-size:11px; font-weight:500; background:var(--blue-bg); color:var(--blue); font-family:var(--mono);
+  }
+  .reason-block {
+    background:var(--grey-bg); border-radius:8px; padding:10px 12px; margin-bottom:12px;
+  }
+  .reason-label { font-size:11px; color:var(--ink-3); margin-bottom:4px; }
+  .reason-text { font-size:12px; color:var(--ink-2); line-height:1.7; }
+  .ev-item {
+    border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px;
+    background:var(--panel);
+  }
+  .ev-item-hd { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+  .ev-jd { font-family:var(--mono); font-size:11px; color:var(--ink-3); }
+  .ev-lv { height:18px; padding:0 7px; border-radius:9px; font-size:10px; font-weight:600;
+    background:var(--grey-bg); color:var(--ink-2); display:inline-flex; align-items:center; }
+  .ev-text { font-size:13px; color:var(--ink-2); line-height:1.7; }
+  .ev-text mark { background:var(--amber-bg); color:inherit; padding:0 1px; border-radius:2px; }
+  .ev-empty { text-align:center; color:var(--ink-3); font-size:13px; padding:40px 0; }
+
+  /* 模型树（分类组） */
+  .cat-gp { margin-bottom:14px; }
+  .cat-hd {
+    font-size:12px; font-weight:600; color:var(--ink-2);
+    margin-bottom:8px; display:flex; align-items:baseline; gap:8px;
+  }
+  .cat-hd .cnt { color:var(--ink-3); font-family:var(--mono); font-weight:400; font-size:11px; }
+
+  .item-card {
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:11px 12px; margin-bottom:8px; cursor:pointer;
+  }
+  .item-card:hover { border-color:var(--ink-3); }
+  .item-card.active { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue) inset; }
+  .item-row { display:flex; align-items:center; gap:8px; }
+  .item-row + .item-row { margin-top:9px; }
+  .item-name {
+    flex:1; min-width:0; height:26px; padding:0 9px; border:1px solid transparent;
+    border-radius:5px; font-size:13px; font-family:inherit; color:var(--ink-1); background:transparent;
+    width:100%;
+  }
+  .item-name:hover { background:var(--panel-2); }
+  .item-name:focus { outline:none; border-color:var(--line); background:var(--panel); }
+  .item-del {
+    width:22px; height:22px; border-radius:5px; border:none; background:transparent;
+    color:var(--ink-3); cursor:pointer; font-size:13px; flex-shrink:0;
+  }
+  .item-del:hover { background:var(--red-bg); color:var(--red); }
+  .meta-lbl { font-size:11px; color:var(--ink-3); flex-shrink:0; }
+  .mini-sel, .mini-num {
+    height:24px; padding:0 7px; border:1px solid var(--line); border-radius:5px;
+    font-size:12px; font-family:inherit; color:var(--ink-1); background:var(--panel);
+  }
+  .mini-num { width:64px; font-family:var(--mono); text-align:right; }
+  .mini-sel:focus, .mini-num:focus { outline:none; border-color:var(--blue); }
+  .gate-tag2 {
+    display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:10px;
+    font-size:11px; font-weight:500; background:var(--amber-bg); color:var(--amber);
+  }
+  .add-item-btn {
+    width:100%; height:36px; border:1.5px dashed var(--line); border-radius:8px;
+    background:transparent; color:var(--ink-3); font-size:13px; cursor:pointer; font-family:inherit;
+  }
+  .add-item-btn:hover { border-color:var(--ink-3); color:var(--ink-1); background:var(--panel-2); }
+
+  /* 确认条 */
+  .confirm-bar {
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:12px 14px; display:flex; align-items:center; gap:10px; font-size:12px;
+    margin-bottom:14px; color:var(--ink-2);
+  }
+  .confirm-bar strong { color:var(--ink-1); }
+</style>
+</head>
+<body>
+<div class="grail">
+
+  <header class="grail-head">
+    <div class="gh-brand">
+      <div class="gh-mark">测</div>
+      <span class="gh-name">胜任力测评</span>
+    </div>
+    <div class="gh-divider"></div>
+    <div class="gh-crumb">模块一 / 岗位库 / <b>AI Agent 开发工程师</b> / 模型审核</div>
+    <div class="gh-actions">
+      <button class="btn">重新聚合</button>
+      <button class="btn btn-primary">保存草稿</button>
+    </div>
+  </header>
+
+  <div class="grail-body">
+
+    <nav class="rail-left">
+      <div class="rl-section">模块一</div>
+      <a class="nav-item active" href="index.html"><span class="icon">◼</span>岗位库<span class="nav-badge">2</span></a>
+      <a class="nav-item" href="dict.html"><span class="icon">◻</span>能力词典</a>
+      <div class="rl-section">系统</div>
+      <a class="nav-item" href="users.html"><span class="icon">◉</span>用户管理</a>
+      <div class="rl-user">
+        <div class="avatar">A</div>
+        <div>
+          <div class="user-name">admin</div>
+          <div class="user-role">管理员</div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="rail-center">
+      <a class="pd-back" href="position-detail.html">← 返回岗位详情</a>
+      <div class="pd-head">
+        <div>
+          <div class="pd-title">AI Agent 开发工程师<span class="ver">v1 草稿</span> <span class="tag tag-red" style="vertical-align:3px; margin-left:4px">stalled 滞留</span></div>
+          <div class="pd-meta">
+            <span>30 份 JD 聚合</span><span>11 项能力</span><span>聚合于 2026-08-29 11:08</span>
+          </div>
+        </div>
+        <div class="pd-actions">
+          <button class="btn">重新聚合</button>
+          <button class="btn">保存草稿</button>
+          <button class="btn btn-primary" disabled>确认模型</button>
+        </div>
+      </div>
+
+      <!-- stalled 警示 -->
+      <div class="stalled-bar">
+        <span><strong>等级裁决失败滞留：</strong>2 项能力的 Lv 等级由 LLM 裁决失败。可「重试 LLM」，或直接编辑各项等级后保存草稿。</span>
+        <div class="sb-actions">
+          <button class="btn btn-sm" style="border-color:rgba(225,98,89,.5); color:var(--red)">重试 LLM</button>
+        </div>
+      </div>
+
+      <!-- Σ 校验 -->
+      <div class="sigma bad">
+        <span class="lbl">权重合计</span>
+        <div class="bar"><i style="width:97.5%"></i></div>
+        <span class="val">Σ = 97.5%</span>
+        <span class="lbl">需 100% ±0.5</span>
+      </div>
+
+      <!-- 左右双栏 -->
+      <div class="review-cols">
+        <!-- 左：证据 -->
+        <div class="ev-rail">
+          <div class="ev-card">
+            <div class="ev-head-row">
+              <span class="ev-name">证据 · RAG 系统设计</span>
+            </div>
+            <div class="ev-occ">
+              <span class="occ-tag">r 87%</span>
+              <span class="occ-tag">req 73%</span>
+            </div>
+            <div class="reason-block">
+              <div class="reason-label">LLM 定级理由</div>
+              <div class="reason-text">多数 JD 要求"独立设计 Rag 全链路"或"主导知识库架构"，含索引构建、召回优化、重排策略等深度要求；少量实习岗仅要求"了解"。结合 req 率 73%，建议 Lv4。</div>
+            </div>
+            <div class="ev-item">
+              <div class="ev-item-hd">
+                <span class="ev-jd">jd_0312 · 智能体工程师（字节）</span>
+                <span class="ev-lv">Lv4</span>
+              </div>
+              <div class="ev-text">负责 <mark>RAG 系统设计</mark>，包含文档切分、向量索引、混合召回与重排策略，主导企业知识库全链路架构，要求有百万级文档量的落地经验。</div>
+            </div>
+            <div class="ev-item">
+              <div class="ev-item-hd">
+                <span class="ev-jd">jd_0298 · AI Agent 开发（初创）</span>
+                <span class="ev-lv">Lv4</span>
+              </div>
+              <div class="ev-text">主导 Agent 知识库模块，要求熟练掌握 <mark>RAG 系统设计</mark>：多路召回、Query 改写、Rerank 调优，能独立设计评测方案。</div>
+            </div>
+            <div class="ev-item">
+              <div class="ev-item-hd">
+                <span class="ev-jd">jd_0331 · AI 应用实习生</span>
+                <span class="ev-lv">Lv2</span>
+              </div>
+              <div class="ev-text">了解 <mark>RAG 系统设计</mark>基本概念，能在指导下完成 LangChain 知识库接入与简单调优。</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右：模型树 -->
+        <div class="model-rail">
+
+          <!-- 硬技能 -->
+          <div class="cat-gp">
+            <div class="cat-hd">硬技能<span class="cnt">5 项 · 65%</span></div>
+
+            <div class="item-card active">
+              <div class="item-row">
+                <input class="item-name" value="RAG 系统设计">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">等级</span>
+                <select class="mini-sel">
+                  <option>Lv1</option><option>Lv2</option><option>Lv3</option>
+                  <option selected>Lv4</option><option>Lv5</option>
+                </select>
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option selected>必备</option><option>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="20.0">
+              </div>
+            </div>
+
+            <div class="item-card">
+              <div class="item-row">
+                <input class="item-name" value="Agent 应用开发（LangGraph/AutoGen）">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">等级</span>
+                <select class="mini-sel">
+                  <option>Lv1</option><option>Lv2</option><option selected>Lv3</option><option>Lv4</option><option>Lv5</option>
+                </select>
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option selected>必备</option><option>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="18.0">
+              </div>
+            </div>
+
+            <div class="item-card" style="border-color:rgba(225,98,89,.4)">
+              <div class="item-row">
+                <input class="item-name" value="Prompt Engineering">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">等级</span>
+                <select class="mini-sel" style="border-color:var(--red); color:var(--red)">
+                  <option selected>待裁决…</option><option>Lv1</option><option>Lv2</option><option>Lv3</option><option>Lv4</option><option>Lv5</option>
+                </select>
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option selected>必备</option><option>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="12.0">
+                <span class="tag tag-red" style="height:20px">stalled</span>
+              </div>
+            </div>
+
+            <div class="item-card">
+              <div class="item-row">
+                <input class="item-name" value="Python 工程化">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">等级</span>
+                <select class="mini-sel">
+                  <option>Lv1</option><option>Lv2</option><option>Lv3</option><option selected>Lv4</option><option>Lv5</option>
+                </select>
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option selected>必备</option><option>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="10.0">
+              </div>
+            </div>
+
+            <div class="item-card" style="border-color:rgba(225,98,89,.4)">
+              <div class="item-row">
+                <input class="item-name" value="向量数据库（Milvus/Qdrant）">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">等级</span>
+                <select class="mini-sel" style="border-color:var(--red); color:var(--red)">
+                  <option selected>待裁决…</option><option>Lv1</option><option>Lv2</option><option>Lv3</option><option>Lv4</option><option>Lv5</option>
+                </select>
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option>必备</option><option selected>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="5.0">
+                <span class="tag tag-red" style="height:20px">stalled</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 软技能 -->
+          <div class="cat-gp">
+            <div class="cat-hd">软技能<span class="cnt">2 项 · 20%</span></div>
+
+            <div class="item-card">
+              <div class="item-row">
+                <input class="item-name" value="跨团队协作">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">等级</span>
+                <select class="mini-sel">
+                  <option>Lv1</option><option>Lv2</option><option selected>Lv3</option><option>Lv4</option><option>Lv5</option>
+                </select>
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option selected>必备</option><option>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="12.0">
+              </div>
+            </div>
+
+            <div class="item-card">
+              <div class="item-row">
+                <input class="item-name" value="技术方案撰写">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">等级</span>
+                <select class="mini-sel">
+                  <option>Lv1</option><option>Lv2</option><option selected>Lv3</option><option>Lv4</option><option>Lv5</option>
+                </select>
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option>必备</option><option selected>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="8.0">
+              </div>
+            </div>
+          </div>
+
+          <!-- 经验 -->
+          <div class="cat-gp">
+            <div class="cat-hd">经验<span class="cnt">2 项 · 12.5%</span></div>
+
+            <div class="item-card">
+              <div class="item-row">
+                <input class="item-name" value="AI Agent 项目经验">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">年限</span>
+                <input class="mini-num" value="2" style="width:56px">
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option selected>必备</option><option>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="7.5">
+              </div>
+            </div>
+
+            <div class="item-card">
+              <div class="item-row">
+                <input class="item-name" value="大模型应用落地经验">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="meta-lbl">年限</span>
+                <input class="mini-num" value="1" style="width:56px">
+                <span class="meta-lbl">重要性</span>
+                <select class="mini-sel">
+                  <option>必备</option><option selected>优先</option><option>加分</option>
+                </select>
+                <span class="meta-lbl">权重%</span>
+                <input class="mini-num" value="5.0">
+              </div>
+            </div>
+          </div>
+
+          <!-- 门槛 -->
+          <div class="cat-gp">
+            <div class="cat-hd">门槛<span class="cnt">2 项 · 门槛项不参与权重</span></div>
+
+            <div class="item-card">
+              <div class="item-row">
+                <input class="item-name" value="本科及以上学历">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="gate-tag2">门槛项 · 二值判定</span>
+                <span class="meta-lbl" style="margin-left:auto">r 100%</span>
+              </div>
+            </div>
+
+            <div class="item-card">
+              <div class="item-row">
+                <input class="item-name" value="计算机相关专业">
+                <button class="item-del">✕</button>
+              </div>
+              <div class="item-row">
+                <span class="gate-tag2">门槛项 · 二值判定</span>
+                <span class="meta-lbl" style="margin-left:auto">r 90%</span>
+              </div>
+            </div>
+          </div>
+
+          <button class="add-item-btn">+ 添加能力项</button>
+
+        </div>
+      </div>
+    </main>
+
+    <aside class="rail-right">
+      <div class="rr-card">
+        <div class="rr-title">审核进度</div>
+        <div class="legend">
+          <div class="legend-item">硬技能 5 项<span class="legend-note">65%</span></div>
+          <div class="legend-item">软技能 2 项<span class="legend-note">20%</span></div>
+          <div class="legend-item">经验 2 项<span class="legend-note">12.5%</span></div>
+          <div class="legend-item">门槛 2 项<span class="legend-note">—</span></div>
+        </div>
+      </div>
+
+      <div class="rr-alert">
+        <strong>Σ 不足：</strong>当前 97.5%，调整权重至 100% ±0.5% 后才能保存 / 确认。
+      </div>
+
+      <div class="rr-card">
+        <div class="rr-title">操作步骤</div>
+        <div class="legend">
+          <div class="legend-item">1. 修复 stalled 项（重试 / 手编）</div>
+          <div class="legend-item">2. 校准 Σ 至 100%</div>
+          <div class="legend-item">3. 保存草稿 或 确认</div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <footer class="grail-foot">
+    <span>CF-01 · 模块一建模台</span>
+    <span class="ok">● API 正常</span>
+    <span>/admin/positions/{id}/model</span>
+    <div class="f-right">
+      <span>v0.3.2</span>
+      <span>2026-08-29 15:01</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

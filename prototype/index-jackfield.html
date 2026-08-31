@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>岗位库 · 配线架版</title>
+<link rel="stylesheet" href="jackfield.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="side-brand">
+      <div class="brand-plate">CF-01</div>
+      <div class="brand-name">胜任力测评</div>
+      <div class="brand-sub">JACKFIELD / 建模工作台</div>
+    </div>
+    <div class="side-section">LANES</div>
+    <nav class="side-nav">
+      <a class="nav-item active"><span class="lane-num">01</span>岗位库<span class="nav-badge">2</span></a>
+      <a class="nav-item"><span class="lane-num">02</span>能力词典</a>
+      <a class="nav-item"><span class="lane-num">03</span>用户管理</a>
+    </nav>
+    <div class="side-user">
+      <span class="uname">admin</span>
+      <span class="urole">管理员</span>
+      <span class="logout">退出</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="crumb"><a>LANE 01</a><span class="sep">/</span>岗位库 <span class="sep">/</span> 全部岗位</div>
+      <div class="top-actions">
+        <button class="btn">REFRESH</button>
+        <button class="btn btn-primary">+ 导入 JD</button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- 待办读数 -->
+      <div class="section-head"><div class="section-title">QUEUE / 待办</div></div>
+      <div class="todo-row">
+        <div class="todo hot">
+          <div class="todo-num">02</div>
+          <div class="todo-label">待审新岗位</div>
+          <span class="lnk">
+            <svg width="46" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#ffb020" stroke-width="1.5"/><circle cx="43" cy="5" r="3" fill="none" stroke="#ffb020" stroke-width="1.5"/></svg>
+          </span>
+        </div>
+        <div class="todo hot-red">
+          <div class="todo-num">01</div>
+          <div class="todo-label">stalled 模型</div>
+          <span class="lnk">
+            <svg width="46" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke="#ff5340" stroke-width="1.5"/><line x1="18" y1="1" x2="26" y2="9" stroke="#ff5340" stroke-width="1.5"/><line x1="26" y1="1" x2="18" y2="9" stroke="#ff5340" stroke-width="1.5"/><line x1="30" y1="5" x2="46" y2="5" stroke="#ff5340" stroke-width="1.5"/></svg>
+          </span>
+        </div>
+        <div class="todo">
+          <div class="todo-num">03</div>
+          <div class="todo-label">待归属 JD</div>
+          <span class="lnk">
+            <svg width="46" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke="#6b5a34" stroke-width="1.5"/><line x1="14" y1="5" x2="30" y2="5" stroke="#6b5a34" stroke-width="1.5" stroke-dasharray="3 4"/><line x1="30" y1="5" x2="46" y2="5" stroke="#6b5a34" stroke-width="1.5"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <!-- 待审新岗位 -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-lane">Q-01</span>
+          <span class="panel-title">待审新岗位</span>
+          <span class="panel-count">×2</span>
+          <span class="more">收起 ↑</span>
+        </div>
+        <div class="panel-body">
+        <table>
+          <thead>
+            <tr><th>岗位名称</th><th style="width:80px">JD</th><th style="width:170px">创建时间</th><th style="width:130px">链路</th><th style="width:150px">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="cell-main">智能体工程师</div>
+                <div class="cell-sub">job_title 归岗未命中 · LLM 判定为全新岗位</div>
+              </td>
+              <td class="num">3</td>
+              <td class="mono">2026-08-29 14:32</td>
+              <td>
+                <svg width="60" height="10"><line x1="0" y1="5" x2="54" y2="5" stroke="#ffb020" stroke-width="1.5"/><circle cx="57" cy="5" r="3" fill="none" stroke="#ffb020" stroke-width="1.5"/></svg>
+              </td>
+              <td>
+                <button class="btn btn-sm">通过</button>
+                <button class="btn btn-sm btn-danger">拒绝</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="cell-main">AI Agent 开发工程师</div>
+                <div class="cell-sub">job_title 归岗未命中 · LLM 判定为全新岗位</div>
+              </td>
+              <td class="num">5</td>
+              <td class="mono">2026-08-29 11:08</td>
+              <td>
+                <svg width="60" height="10"><line x1="0" y1="5" x2="54" y2="5" stroke="#ffb020" stroke-width="1.5"/><circle cx="57" cy="5" r="3" fill="none" stroke="#ffb020" stroke-width="1.5"/></svg>
+              </td>
+              <td>
+                <button class="btn btn-sm">通过</button>
+                <button class="btn btn-sm btn-danger">拒绝</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <!-- 岗位列表 -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-lane">L-01</span>
+          <span class="panel-title">岗位列表</span>
+          <span class="panel-count">×3</span>
+        </div>
+        <div class="panel-body">
+        <table>
+          <thead>
+            <tr><th>岗位名称</th><th style="width:110px">状态</th><th style="width:80px">JD</th><th style="width:130px">模型版本</th><th style="width:130px">链路</th><th style="width:190px">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="cell-main">后端开发</span></td>
+              <td><span class="tag tag-amber">active</span></td>
+              <td class="num">12</td>
+              <td><span class="tag tag-grey">v2 · 已确认</span></td>
+              <td>
+                <svg width="60" height="10"><line x1="0" y1="5" x2="60" y2="5" stroke="#ffb020" stroke-width="1.5"/></svg>
+              </td>
+              <td>
+                <button class="btn btn-sm">详情</button>
+                <button class="btn btn-sm btn-primary">模型审核</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">AI Agent 开发工程师</span></td>
+              <td><span class="tag tag-amber">active</span></td>
+              <td class="num">30</td>
+              <td><span class="tag tag-red">stalled</span></td>
+              <td>
+                <svg width="60" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#ff5340" stroke-width="1.5"/><line x1="24" y1="1" x2="32" y2="9" stroke="#ff5340" stroke-width="1.5"/><line x1="32" y1="1" x2="24" y2="9" stroke="#ff5340" stroke-width="1.5"/><line x1="36" y1="5" x2="60" y2="5" stroke="#ff5340" stroke-width="1.5"/></svg>
+              </td>
+              <td>
+                <button class="btn btn-sm">详情</button>
+                <button class="btn btn-sm btn-primary">模型审核</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">后端开发工程师（高级）</span></td>
+              <td><span class="tag tag-ghost">待审核</span></td>
+              <td class="num">8</td>
+              <td><span class="cell-sub" style="font-family:var(--mono)">—</span></td>
+              <td>
+                <svg width="60" height="10"><line x1="0" y1="5" x2="60" y2="5" stroke="#6b5a34" stroke-width="1.5" stroke-dasharray="3 4"/></svg>
+              </td>
+              <td>
+                <button class="btn btn-sm">详情</button>
+                <button class="btn btn-sm" disabled>模型审核</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

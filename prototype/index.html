@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>岗位库 · 胜任力测评建模工作台</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div class="layout">
+  <div id="sidebar"></div>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="crumb">岗位库 <span class="sep">/</span> 全部岗位</div>
+      <div class="top-actions">
+        <button class="btn">刷新</button>
+        <button class="btn btn-primary">+ 导入 JD</button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- 待办仪表条 -->
+      <div class="section-head"><div class="section-title">待办 · 需要处理</div></div>
+      <div class="todo-row">
+        <div class="todo hot">
+          <div class="todo-num">02</div>
+          <div class="todo-label">待审新岗位</div>
+          <span class="lamp amber" style="margin-left:auto;"></span>
+        </div>
+        <div class="todo hot-red">
+          <div class="todo-num">01</div>
+          <div class="todo-label">stalled 模型</div>
+          <span class="lamp red" style="margin-left:auto;"></span>
+        </div>
+        <div class="todo">
+          <div class="todo-num">03</div>
+          <div class="todo-label">待归属 JD</div>
+          <span class="lamp" style="margin-left:auto;"></span>
+        </div>
+      </div>
+
+      <!-- 待审新岗位 -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-icon pi-amber">⏳</div>
+          <div class="panel-head-text">
+            <div class="panel-title-row">
+              <span class="panel-title">待审新岗位</span>
+              <span class="panel-count amber">2</span>
+            </div>
+          </div>
+          <span class="more">收起 ▴</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>岗位名称</th><th style="width:90px">JD 数</th><th style="width:180px">创建时间</th><th style="width:170px">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="cell-main">智能体工程师</div>
+                <div class="cell-sub">job_title 归岗未命中 · LLM 判定为全新岗位</div>
+              </td>
+              <td class="num">3</td>
+              <td class="mono">2026-08-29 14:32</td>
+              <td>
+                <button class="btn btn-sm btn-success-ghost">通过</button>
+                <button class="btn btn-sm btn-danger-ghost">拒绝</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="cell-main">AI Agent 开发工程师</div>
+                <div class="cell-sub">job_title 归岗未命中 · LLM 判定为全新岗位</div>
+              </td>
+              <td class="num">5</td>
+              <td class="mono">2026-08-29 11:08</td>
+              <td>
+                <button class="btn btn-sm btn-success-ghost">通过</button>
+                <button class="btn btn-sm btn-danger-ghost">拒绝</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 待归属 JD -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-icon pi-amber">⇄</div>
+          <div class="panel-head-text">
+            <div class="panel-title-row">
+              <span class="panel-title">待归属 JD</span>
+              <span class="panel-count amber">3</span>
+            </div>
+          </div>
+          <span class="more">收起 ▴</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>岗位名称</th><th>公司</th><th style="width:90px">来源</th><th style="width:170px">导入时间</th><th style="width:250px">改归到岗位</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="cell-main">（未解析）</span></td>
+              <td>—</td>
+              <td><span class="tag tag-ghost">粘贴</span></td>
+              <td class="mono">2026-08-29 15:01</td>
+              <td>
+                <select class="select" style="width:140px; height:28px; font-size:12px; display:inline-block; margin-right:8px;">
+                  <option>选择岗位</option><option>后端开发</option><option>AI Agent 开发工程师</option>
+                </select>
+                <button class="btn btn-sm btn-primary">改归</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">Golang 服务端</span></td>
+              <td>已脱敏</td>
+              <td><span class="tag tag-ghost">文件</span></td>
+              <td class="mono">2026-08-29 13:20</td>
+              <td>
+                <select class="select" style="width:140px; height:28px; font-size:12px; display:inline-block; margin-right:8px;">
+                  <option>选择岗位</option><option>后端开发</option><option>AI Agent 开发工程师</option>
+                </select>
+                <button class="btn btn-sm btn-primary">改归</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 岗位列表 -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-icon pi-blue">▦</div>
+          <div class="panel-head-text">
+            <div class="panel-title-row">
+              <span class="panel-title">岗位列表</span>
+              <span class="panel-count">3</span>
+            </div>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>岗位名称</th><th style="width:120px">状态</th><th style="width:90px">JD 数</th><th style="width:150px">模型版本</th><th style="width:210px">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="cell-main">后端开发</span></td>
+              <td><span class="tag tag-green"><span class="lamp green"></span>active</span></td>
+              <td class="num">12</td>
+              <td><span class="tag tag-grey">v2 · 已确认</span></td>
+              <td>
+                <a class="btn btn-sm" href="position-detail.html">详情</a>
+                <a class="btn btn-sm btn-primary" href="model-review.html">模型审核</a>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">AI Agent 开发工程师</span></td>
+              <td><span class="tag tag-green"><span class="lamp green"></span>active</span></td>
+              <td class="num">30</td>
+              <td><span class="tag tag-red"><span class="lamp red"></span>stalled 滞留</span></td>
+              <td>
+                <a class="btn btn-sm" href="position-detail.html">详情</a>
+                <a class="btn btn-sm btn-primary" href="model-review.html">模型审核</a>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="cell-main">后端开发工程师（高级）</span></td>
+              <td><span class="tag tag-amber"><span class="lamp amber"></span>待审核</span></td>
+              <td class="num">8</td>
+              <td><span class="cell-sub">—</span></td>
+              <td>
+                <a class="btn btn-sm" href="position-detail.html">详情</a>
+                <button class="btn btn-sm" disabled>模型审核</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="assets/sidebar.js"></script>
+<script>document.getElementById('sidebar').outerHTML = renderSidebar('positions');</script>
+</body>
+</html>

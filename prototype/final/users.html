@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用户管理</title>
+<link rel="stylesheet" href="grail-notion.css">
+<style>
+  .pd-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .pd-title { font-size:22px; font-weight:700; letter-spacing:-0.2px; }
+  .pd-meta { font-size:12px; color:var(--ink-3); margin-top:4px; font-family:var(--mono); display:flex; gap:12px; }
+  .pd-actions { margin-left:auto; display:flex; gap:8px; }
+
+  /* 头像 + 用户名 */
+  .user-cell { display:flex; align-items:center; gap:9px; }
+  .u-avatar {
+    width:26px; height:26px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:600; color:#fff; flex-shrink:0;
+  }
+  .u-name { font-weight:500; font-size:13px; }
+  .u-id { font-family:var(--mono); font-size:11px; color:var(--ink-3); margin-top:1px; }
+
+  /* 弹窗 */
+  .ovl { position:fixed; inset:0; background:rgba(55,53,47,.36); display:none; align-items:center; justify-content:center; z-index:50; }
+  .ovl.open { display:flex; }
+  .modal { width:460px; max-width:92vw; background:var(--panel); border-radius:12px; border:1px solid var(--line); box-shadow:0 12px 40px rgba(55,53,47,.18); overflow:hidden; }
+  .modal.small { width:380px; }
+  .modal-head { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; font-size:14px; font-weight:600; }
+  .modal-x { margin-left:auto; color:var(--ink-3); cursor:pointer; font-size:16px; }
+  .modal-x:hover { color:var(--ink-1); }
+  .modal-body { padding:16px 18px; }
+  .modal-foot { padding:12px 18px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px; }
+  .form-row { margin-bottom:14px; }
+  .form-row label { display:block; font-size:12px; color:var(--ink-3); margin-bottom:5px; }
+  .form-row .input { width:100%; }
+
+  /* radio 分组（Notion 式选项卡） */
+  .radio-group { display:flex; gap:6px; }
+  .radio-opt {
+    flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
+    cursor:pointer; font-size:13px; text-align:center;
+  }
+  .radio-opt:hover { background:var(--panel-2); }
+  .radio-opt.sel { border-color:var(--ink-1); background:var(--panel-2); }
+  .radio-opt .r-title { font-weight:600; margin-bottom:2px; }
+  .radio-opt .r-desc { font-size:11px; color:var(--ink-3); }
+</style>
+</head>
+<body>
+<div class="grail">
+
+  <header class="grail-head">
+    <div class="gh-brand">
+      <div class="gh-mark">测</div>
+      <span class="gh-name">胜任力测评</span>
+    </div>
+    <div class="gh-divider"></div>
+    <div class="gh-crumb">系统 / <b>用户管理</b></div>
+    <div class="gh-actions">
+      <button class="btn">刷新</button>
+      <button class="btn btn-primary" onclick="openOvl('createOvl')">+ 新建账号</button>
+    </div>
+  </header>
+
+  <div class="grail-body">
+
+    <nav class="rail-left">
+      <div class="rl-section">模块一</div>
+      <a class="nav-item" href="index.html"><span class="icon">◼</span>岗位库<span class="nav-badge">2</span></a>
+      <a class="nav-item" href="dict.html"><span class="icon">◻</span>能力词典</a>
+      <div class="rl-section">系统</div>
+      <a class="nav-item active" href="users.html"><span class="icon">◉</span>用户管理</a>
+      <div class="rl-user">
+        <div class="avatar">A</div>
+        <div>
+          <div class="user-name">admin</div>
+          <div class="user-role">管理员</div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="rail-center">
+      <div class="pd-head">
+        <div>
+          <div class="pd-title">用户管理</div>
+          <div class="pd-meta">
+            <span>6 个账号</span><span>管理员 2</span><span>候选人 4</span>
+          </div>
+        </div>
+        <div class="pd-actions">
+          <button class="btn btn-primary" onclick="openOvl('createOvl')">+ 新建账号</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>用户</th>
+              <th style="width:110px">角色</th>
+              <th style="width:100px">状态</th>
+              <th style="width:170px">创建时间</th>
+              <th style="width:190px">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="user-cell">
+                  <div class="u-avatar" style="background:var(--red)">A</div>
+                  <div>
+                    <div class="u-name">admin <span style="font-size:11px; color:var(--ink-3)">（当前账号）</span></div>
+                    <div class="u-id">usr_0001</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="tag tag-red">管理员</span></td>
+              <td><span class="tag tag-green">启用</span></td>
+              <td class="mono">2026-06-12 10:00</td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost" onclick="openOvl('resetOvl')">重置密码</button>
+                <button class="btn btn-sm" disabled title="不能停用当前账号">停用</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="user-cell">
+                  <div class="u-avatar" style="background:var(--amber)">W</div>
+                  <div>
+                    <div class="u-name">wang_hr</div>
+                    <div class="u-id">usr_0032</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="tag tag-amber">管理员</span></td>
+              <td><span class="tag tag-green">启用</span></td>
+              <td class="mono">2026-07-03 14:22</td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">重置密码</button>
+                <button class="btn btn-sm">停用</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="user-cell">
+                  <div class="u-avatar" style="background:var(--blue)">L</div>
+                  <div>
+                    <div class="u-name">li_candidate</div>
+                    <div class="u-id">usr_0078</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="tag tag-grey">候选人</span></td>
+              <td><span class="tag tag-green">启用</span></td>
+              <td class="mono">2026-08-15 09:40</td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">重置密码</button>
+                <button class="btn btn-sm">停用</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="user-cell">
+                  <div class="u-avatar" style="background:var(--green)">Z</div>
+                  <div>
+                    <div class="u-name">zhang_candidate</div>
+                    <div class="u-id">usr_0091</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="tag tag-grey">候选人</span></td>
+              <td><span class="tag tag-green">启用</span></td>
+              <td class="mono">2026-08-20 16:11</td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">重置密码</button>
+                <button class="btn btn-sm">停用</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="user-cell">
+                  <div class="u-avatar" style="background:var(--ink-3)">C</div>
+                  <div>
+                    <div class="u-name">chen_temp</div>
+                    <div class="u-id">usr_0102</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="tag tag-grey">候选人</span></td>
+              <td><span class="tag tag-grey">停用</span></td>
+              <td class="mono">2026-08-22 11:08</td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">重置密码</button>
+                <button class="btn btn-sm btn-success-ghost">启用</button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="user-cell">
+                  <div class="u-avatar" style="background:var(--ink-3)">S</div>
+                  <div>
+                    <div class="u-name">sun_candidate</div>
+                    <div class="u-id">usr_0110</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="tag tag-grey">候选人</span></td>
+              <td><span class="tag tag-grey">停用</span></td>
+              <td class="mono">2026-08-27 15:33</td>
+              <td class="row-actions">
+                <button class="btn btn-sm btn-ghost">重置密码</button>
+                <button class="btn btn-sm btn-success-ghost">启用</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <aside class="rail-right">
+      <div class="rr-card">
+        <div class="rr-title">账户概览</div>
+        <div class="legend">
+          <div class="legend-item">管理员<span class="legend-note">2</span></div>
+          <div class="legend-item">候选人<span class="legend-note">4</span></div>
+          <div class="legend-item">已停用<span class="legend-note">2</span></div>
+        </div>
+      </div>
+
+      <div class="rr-alert">
+        已停用的账号无法登录，其历史操作留档（创建/确认）全部保留。
+      </div>
+
+      <div class="rr-card">
+        <div class="rr-title">操作约束</div>
+        <div class="legend">
+          <div class="legend-item" style="color:var(--ink-3); font-size:12px">不能停用当前登录账号；重置密码立即生效。</div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <footer class="grail-foot">
+    <span>CF-01 · 模块一建模台</span>
+    <span class="ok">● API 正常</span>
+    <span>/admin/users</span>
+    <div class="f-right">
+      <span>v0.3.2</span>
+      <span>2026-08-29 15:01</span>
+    </div>
+  </footer>
+
+</div>
+
+<!-- 新建账号弹窗 -->
+<div class="ovl" id="createOvl">
+  <div class="modal">
+    <div class="modal-head">
+      新建账号
+      <span class="modal-x" onclick="closeOvl('createOvl')">✕</span>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>用户名 *</label>
+        <input class="input" placeholder="登录用户名">
+      </div>
+      <div class="form-row">
+        <label>密码 *</label>
+        <input class="input" type="password" placeholder="至少 6 位">
+      </div>
+      <div class="form-row">
+        <label>角色</label>
+        <div class="radio-group">
+          <div class="radio-opt sel">
+            <div class="r-title">候选人</div>
+            <div class="r-desc">只读查看测评报告</div>
+          </div>
+          <div class="radio-opt">
+            <div class="r-title">管理员</div>
+            <div class="r-desc">全功能访问</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeOvl('createOvl')">取消</button>
+      <button class="btn btn-primary">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 重置密码弹窗 -->
+<div class="ovl" id="resetOvl">
+  <div class="modal small">
+    <div class="modal-head">
+      重置密码 · admin
+      <span class="modal-x" onclick="closeOvl('resetOvl')">✕</span>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>新密码 *</label>
+        <input class="input" type="password" placeholder="至少 6 位">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeOvl('resetOvl')">取消</button>
+      <button class="btn btn-primary">确定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openOvl(id) { document.getElementById(id).classList.add('open'); }
+  function closeOvl(id) { document.getElementById(id).classList.remove('open'); }
+  ['createOvl','resetOvl'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', e => { if (e.target.id === id) closeOvl(id); });
+  });
+</script>
+</body>
+</html>
