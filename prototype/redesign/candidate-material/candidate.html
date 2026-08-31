@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="岗位胜任力测评系统 · 对话测评材质主题原型">
+  <link rel="icon" href="data:,">
+  <title>对话测评 · 夜路与水面</title>
+  <link rel="stylesheet" href="candidate.css">
+</head>
+<body class="candidate">
+  <!--
+    THESIS: 一场长答测评应像在不同天气里读一篇访谈，而不是打开一张后台表单；拒绝把沉浸感做成噪音。
+    OWN-WORLD: 浅色是抽象江南水面，深色是无尽柏油夜路；衬线题面、细规则线和一枚克制的暖色信号构成双主题。
+    STORY: 候选人看见当前问题，写下真实经历，知道回答已保存并等待下一问；环境只随他们的注意力轻轻回应。
+    FIRST VIEWPORT: 左侧为可滚动的杂志式问答正文，右侧为本场访谈目录，底部常驻作答区；右上角切换日/夜材质。
+    FORM: 独立静态材质原型；光源与涟漪是唯一签名交互，内容和控件优先于效果。
+    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+  -->
+  <div class="scene" aria-hidden="true">
+    <div class="scene-grain"></div>
+    <div class="scene-surface"></div>
+    <div class="pointer-light"></div>
+    <div class="caret-light"></div>
+    <div class="ripple-layer"></div>
+  </div>
+
+  <div class="cand">
+    <header class="cand-head">
+      <div class="cand-brand">
+        <span class="cand-masthead">胜任力<em>·</em>测评</span>
+        <span class="cand-kicker">Interview · 后端开发 · 第 3 题</span>
+      </div>
+      <div class="cand-actions">
+        <span class="cand-status"><i></i><span class="status-text">测评进行中</span></span>
+        <span class="cand-user">受访者：张同学</span>
+        <button class="theme-toggle" type="button" aria-label="切换主题" aria-pressed="false">
+          <span class="theme-toggle-label">夜间</span>
+        </button>
+        <button class="btn" type="button">退出</button>
+      </div>
+    </header>
+
+    <main class="body">
+      <article class="article" aria-label="测评对话记录">
+        <div class="issue">
+          <div class="issue-title">后端开发 <em>岗位测评</em></div>
+          <div class="issue-meta">VOL.02 · 模型 V2 · 约 20 分钟</div>
+        </div>
+
+        <section class="question" aria-labelledby="q3-title">
+          <div class="q-kicker"><b>第三问</b> · 硬技能 · 中等</div>
+          <h1 id="q3-title" class="q-text">请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。</h1>
+          <div class="q-tags"><span class="q-tag">HARD SKILL</span><span class="q-tag accent">MEDIUM</span></div>
+        </section>
+
+        <section class="answer" aria-label="候选人对第三问的回答">
+          <div class="who"><b>受访者</b> · 作答 <time datetime="09:12">09:12</time></div>
+          去年负责一个线上订单服务，上线后经常出现超时报警。我先看监控面板，发现是数据库连接池被打满，慢查询集中在订单表的联表统计……我加了索引并拆出独立统计库，问题就解决了。
+        </section>
+
+        <section class="question followup" aria-labelledby="followup-title">
+          <div class="q-kicker"><b>追问</b> · 深入一点</div>
+          <h2 id="followup-title" class="q-text">很好。那你怎么判断问题根源是连接池配置，而不是应用代码本身的逻辑缺陷？有没有做过对照实验来排除干扰因素？</h2>
+          <div class="q-tags"><span class="q-tag">追问 1 / 2</span></div>
+        </section>
+
+        <aside class="gloss" aria-live="polite">
+          <div class="gloss-head">AI 状态 · <span class="live-word">正在听</span></div>
+          <p class="status-message">回答已保存。AI 会顺着你的思路继续追问。</p>
+        </aside>
+
+        <section class="answer answer-current" aria-label="当前作答">
+          <div class="who"><b>受访者</b> · 正在作答 <time class="answer-time" datetime="09:14">09:14</time></div>
+          <p class="answer-placeholder">你的回答会出现在这里……</p>
+        </section>
+
+        <form class="compose" novalidate>
+          <label class="compose-label" for="answer"><b>继续作答</b> · 当前追问</label>
+          <textarea id="answer" name="answer" rows="6" spellcheck="false" autocomplete="off" aria-describedby="compose-hint" placeholder="在此写下你的回答……"></textarea>
+          <div class="compose-foot">
+            <span id="compose-hint" class="compose-hint"><b>Enter</b> 发送 · <b>Shift+Enter</b> 换行</span>
+            <div class="compose-actions"><button class="btn send" type="submit">发送作答</button></div>
+          </div>
+        </form>
+      </article>
+
+      <aside class="toc" aria-label="本场访谈进度">
+        <div class="toc-title">本场访谈</div>
+        <div class="progress-copy"><strong>03</strong><span>/ 08 题</span></div>
+        <div class="progress-track" aria-hidden="true"><i></i></div>
+        <div class="toc-item done"><span class="no">01</span><span>自我介绍与经历</span><b>已完成</b></div>
+        <div class="toc-item done"><span class="no">02</span><span>项目中的分工协作</span><b>已完成</b></div>
+        <div class="toc-item current"><span class="no">03</span><span>棘手技术问题<br>· 定位与处理</span><b>进行中</b></div>
+        <div class="toc-item"><span class="no">04</span><span>方案权衡与验证</span></div>
+        <div class="toc-item"><span class="no">05</span><span>学习与迁移</span></div>
+        <div class="toc-item more"><span class="no">···</span><span>还有 3 题</span></div>
+        <div class="toc-foot">没有标准答案。请尽量讲述真实情境、你的行动和结果。</div>
+        <div class="theme-note"><span class="theme-note-mark"></span><span class="theme-note-text">移动鼠标，看看环境如何回应。</span></div>
+      </aside>
+    </main>
+
+    <footer class="cand-foot">
+      <span>Interview in progress</span>
+      <span class="footer-divider">/</span>
+      <span class="footer-state">发送后保存</span>
+      <div class="f-right">张同学 · 候选人</div>
+    </footer>
+  </div>
+  <script src="candidate.js"></script>
+</body>
+</html>
