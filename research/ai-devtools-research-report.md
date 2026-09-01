@@ -1378,6 +1378,225 @@ SWE-Bench+ 对 solution leakage 和弱测试的审计，以及 AgentLens 对 “
 
 ---
 
+## 12. `pi-ai + Apache Maka + Swarm` 组合评估
+
+### 12.1 先澄清：这不是一个官方集成产品
+
+截至 **2026-09-01**，没有找到一个由 Pi、Apache Maka 或 OpenAI 官方声明的、名为 `pi-ai + Maka + Swarm` 的 canonical integrated stack。这个说法实际上可能混合了三层不同的东西：
+
+| 层 | 实际项目 | 主要职责 |
+|---|---|---|
+| 模型层 | `@earendil-works/pi-ai`（历史包名 `@mariozechner/pi-ai`） | Provider、模型目录、认证、流式输出、跨 Provider wire format |
+| Agent loop 层 | Pi 的 `@earendil-works/pi-agent-core` 等包 | 有状态 tool-calling loop、工具并行、steering、abort、事件流 |
+| Runtime / workspace 层 | Apache Maka | Session、权限、沙箱、事件账本、Context 投影、UI/TUI/CLI、Agent Graph |
+| 编排层 | “Swarm” | 需要另行指定具体实现，不能默认视为 Pi 或 Maka 的内置能力 |
+
+> 注：上表中的包名应以当前仓库 package manifest 为准；Pi 生态经历了包名迁移，使用前必须锁定具体 npm 包和 commit。原始 `pi-ai` npm 名称并不是这个项目的正式包名，而是一个 placeholder/reserved name。
+
+### 12.2 `pi-ai` 与 Pi runtime
+
+Pi 生态的 `pi-ai` 提供统一的多 Provider LLM API，包含：
+
+- Provider-owned model catalog 和认证；
+- Anthropic Messages、OpenAI Responses、OpenAI Completions 等 wire implementation；
+- 跨 Provider handoff；
+- Context 序列化；
+- 支持 tool calling 的模型流式输出。
+
+Pi 的 Agent 包在其上实现 tool-calling loop，支持：
+
+- 同一 assistant 批次中的工具并行或顺序执行；
+- `transformContext`；
+- steering/follow-up；
+- abort；
+- 事件流；
+- 可插拔的 `streamFn`。
+
+主要来源：
+
+- [Pi monorepo](https://github.com/earendil-works/pi)
+- [Pi AI README](https://raw.githubusercontent.com/earendil-works/pi/main/packages/ai/README.md)
+- [Pi Agent README](https://raw.githubusercontent.com/earendil-works/pi/main/packages/agent/README.md)
+- [Pi releases](https://api.github.com/repos/earendil-works/pi/releases)
+
+它是一个**模型传输和 Agent loop 基础库**，不是完整的设计迁移治理系统。它本身不会自动产生：
+
+- 设计文档 semantic diff；
+- 需求到代码的 traceability matrix；
+- 依赖有序的迁移计划；
+- 独立验证门；
+- worktree/分支策略；
+- OS 级安全边界。
+
+### 12.3 Apache Maka 并不以 `pi-ai` 作为模型层
+
+Apache Maka 当前 runtime 的 package manifest 使用 Vercel AI SDK 及相关 Provider/MCP 依赖，没有发现官方的 `pi-ai` adapter 或 Pi/Maka 官方互操作声明。
+
+Maka 的架构是：
+
+```text
+Desktop / TUI / CLI / Bot
+        ↓
+Runtime Host
+        ↓
+SessionManager
+        ↓
+AgentRun / RuntimeKernel
+        ↓
+Model + Tool Runtime
+        ↓
+Append-only Runtime Event Log
+```
+
+它另外提供 SQLite 状态/控制面、权限和受限执行、Context pruning/compaction、Session 恢复以及实验性的 Agent Graph。历史 Runtime Event Log 是事实，发给 Provider 的 Context 是它的投影。
+
+主要来源：
+
+- [Apache Maka](https://github.com/apache/maka)
+- [Maka ARCHITECTURE.md](https://raw.githubusercontent.com/apache/maka/main/ARCHITECTURE.md)
+- [Maka packages](https://github.com/apache/maka/tree/main/packages)
+- [Maka SECURITY.md](https://raw.githubusercontent.com/apache/maka/main/SECURITY.md)
+- [Maka Agent Graph draft](https://raw.githubusercontent.com/apache/maka/main/docs/architecture/agent-graph-stream-scheduling-draft.md)
+
+这意味着直接把 `pi-ai` 接入 Maka 不是配置开关，而是一次架构适配工作，至少要自行处理：
+
+- Pi stream event 到 Maka runtime event 的映射；
+- Tool schema 和调用/结果生命周期；
+- auth、usage、错误和重试语义；
+- compaction/context projection；
+- permission/approval；
+- session resume 和中断恢复；
+- Provider 特性差异。
+
+在没有 adapter、契约测试和恢复测试之前，不能宣称这三者已经形成可靠的一体化栈。
+
+### 12.4 “Swarm”有三种容易混淆的含义
+
+#### A. OpenAI Swarm
+
+OpenAI 的 `openai/swarm` 官方 README 将其定位为 experimental/educational，并说明它已经被 OpenAI Agents SDK 替代。它基于 Chat Completions，状态持久化和编排主要由调用方负责，不能作为生产级的 Maka/Pi 集成基础。
+
+来源：
+
+- [OpenAI Swarm repository](https://github.com/openai/swarm)
+- [Swarm README](https://github.com/openai/swarm/blob/main/README.md)
+
+#### B. Pi 社区 Swarm 扩展
+
+例如 [pi-messenger-swarm](https://github.com/monotykamary/pi-messenger-swarm) 之类的第三方扩展可以提供 swarm-first 的消息或任务协调，但没有找到 Pi 官方或 Maka 官方的集成声明。应把它看成社区插件，并单独审查代码、权限、状态、并发和维护状况。
+
+#### C. Maka Agent Graph
+
+Maka 自身的 Agent Graph 是基于子 Session 的持久 DAG 调度机制，不等于 Pi agent loop，也不等于 OpenAI Swarm。它可以让不同 operator 并行，但同一个 child session 通常需要串行处理；root agent 负责 supervisor 角色。
+
+如果采用 Maka Agent Graph，应让它负责**唯一的任务编排层**；不要再在上面叠加另一套 Swarm loop。
+
+### 12.5 组合后的架构风险
+
+如果同时使用 Pi Agent、Maka Agent Graph 和额外 Swarm，容易出现三重控制循环：
+
+```text
+Swarm scheduler
+  → Maka Agent Graph / child Sessions
+    → Pi tool-calling loop
+      → model tool calls
+```
+
+风险包括：
+
+1. **状态重复**：Swarm、Maka SQLite、Pi session 各自维护任务状态；
+2. **事件重复或丢失**：三套事件模型对 turn、tool、abort 和 retry 的定义可能不同；
+3. **权限下沉**：父级只读策略不一定自动传递给另一个 loop 或第三方 extension；
+4. **并发写冲突**：多个 Writer 修改同一接口、迁移文件或 worktree；
+5. **停止条件不一致**：一个层认为任务完成，另一层仍然重试；
+6. **成本放大**：上下文、重试、子 Agent 和状态序列化重复发生；
+7. **恢复困难**：发生中断时无法判断哪个状态库是最后事实；
+8. **设计约束丢失**：新 child session 未重新载入 SSOT 和 acceptance criteria。
+
+### 12.6 对大规模设计重构的实际水平
+
+#### 优点
+
+- `pi-ai` 的 Provider 抽象使模型替换和多模型 Worker 更灵活；
+- Pi agent loop 的工具并行和可插拔流式接口适合构建定制 Worker；
+- Maka 的 append-only runtime event log 对审计和事后复盘很有价值；
+- Maka Agent Graph 理论上比简单的 fire-and-forget swarm 更适合持久任务；
+- 本地优先、SQLite、权限和 OS sandbox 方向适合敏感代码库；
+- 如果团队自己构建 adapter 和验证器，开放性高于封闭托管产品。
+
+#### 缺点
+
+- 三者不是官方集成，适配成本和责任由使用者承担；
+- `pi-ai`/Pi 解决的是模型与 loop，不解决设计语义差异和迁移治理；
+- Maka 仍处于 Incubating/nightly 阶段，没有正式 Apache release；
+- Provider、存储和 CLI 合同可能快速变化；
+- Swarm 的准确实现、状态模型和隔离能力必须单独核实；
+- 多重 loop 很容易把“并行”变成状态竞争、重复调用和成本放大；
+- 没有发现合格的、针对该组合执行大型设计文档重构的独立评测。
+
+#### 适配判断
+
+| 目标 | 评价 |
+|---|---|
+| 单一 Agent 完成小型修改 | 可行，但无需这套复杂组合 |
+| 多 Provider Worker | `pi-ai` 有价值 |
+| 可审计运行时 | Maka 的方向有吸引力 |
+| 多阶段设计迁移 | 需要额外 GSD Core 或自建 orchestrator |
+| 无人值守全仓库重构 | 不推荐 |
+| 定制化 Agent 平台研发 | 值得隔离试验 |
+
+### 12.7 推荐的安全组合方式
+
+不要先把三者全部接起来。建议按以下顺序验证：
+
+```text
+第一步：单独运行 Maka，确认 Runtime Event Log、权限和恢复
+第二步：单独运行 Pi agent，确认 tool loop、abort 和并行语义
+第三步：为 Maka 实现最小 pi-ai adapter
+第四步：为 adapter 编写 event/tool/auth/resume 契约测试
+第五步：只选择 Maka Agent Graph 或外部 Swarm 其中一个
+第六步：用只读设计影响分析任务试运行
+第七步：用一个 5–15 文件迁移切片做有人监督的实现
+第八步：再决定是否扩大并发和自治范围
+```
+
+在你的项目中，若使用这套组合，建议架构固定为：
+
+```text
+设计 SSOT：design/总设计文档.md
+执行规划：GSD Core 或自建 Markdown/DAG
+任务编排：Maka Agent Graph（二选一，不再叠加 Swarm）
+模型层：Maka 原生 Vercel AI SDK，或经过契约测试的 pi-ai adapter
+执行 Worker：Pi agent loop
+状态事实：Maka Runtime Event Log + SQLite
+代码隔离：Git worktree + 外部容器/VM
+验收：CI + 独立验证 Agent + 人工审查
+```
+
+### 12.8 最终定位
+
+> **`pi-ai + Apache Maka + Swarm` 不是现成的高可靠重构产品，而是一个有潜力但需要自行集成的 Agent 平台实验栈。**
+
+它的理论上限可能很高，尤其在 Provider 灵活性、运行时审计和自定义并行编排方面；但当前的工程下限也更低，因为任何 adapter、事件一致性、恢复策略、权限继承和并发治理问题都需要使用者自己解决。
+
+对于本项目的建议：
+
+- **不要**现在用它作为整项重构的主 Harness；
+- **可以**把 Maka 作为隔离试点，先验证其 Runtime Event Log 和 Agent Graph；
+- **可以**把 `pi-ai` 作为独立模型适配层实验；
+- **不要**同时启用 Maka Graph、Pi swarm 和另一个 Swarm scheduler；
+- 如果需要实际交付，仍优先使用 **GSD Core + Claude Code**，或用这套组合做独立 Worker/研究试验。
+
+### 12.9 补充来源
+
+- [`@earendill-works/pi-ai` package manifest](https://raw.githubusercontent.com/earendil-works/pi/main/packages/ai/package.json)
+- [Pi monorepo releases](https://api.github.com/repos/earendil-works/pi/releases)
+- [Apache Maka README](https://github.com/apache/maka/blob/main/README.md)
+- [Apache Incubator clutch record](https://incubator.apache.org/clutch.json)
+- [OpenAI Swarm README](https://github.com/openai/swarm/blob/main/README.md)
+
+---
+
 ## 最终结论
 
 对于本项目这种“设计文档大幅修改后，既有代码需要重新对齐”的情况：
