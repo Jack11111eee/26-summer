@@ -21,6 +21,8 @@
 9. [Bake-off 评测方案](#9-bake-off-评测方案)
 10. [证据边界与研究局限](#10-证据边界与研究局限)
 11. [来源索引](#11-来源索引)
+12. [`pi-ai + Apache Maka + Swarm` 组合评估](#12-pi-ai--apache-maka--swarm-组合评估)
+13. [最终结论](#最终结论)
 
 ---
 
@@ -1589,7 +1591,7 @@ Swarm scheduler
 
 ### 12.9 补充来源
 
-- [`@earendill-works/pi-ai` package manifest](https://raw.githubusercontent.com/earendil-works/pi/main/packages/ai/package.json)
+- [`@earendil-works/pi-ai` package manifest](https://raw.githubusercontent.com/earendil-works/pi/main/packages/ai/package.json)
 - [Pi monorepo releases](https://api.github.com/repos/earendil-works/pi/releases)
 - [Apache Maka README](https://github.com/apache/maka/blob/main/README.md)
 - [Apache Incubator clutch record](https://incubator.apache.org/clutch.json)
