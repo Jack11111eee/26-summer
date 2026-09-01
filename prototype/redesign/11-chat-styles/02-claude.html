@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="岗位胜任力测评系统 · 对话测评复刻原型 02 · Claude 式">
+  <link rel="icon" href="data:,">
+  <title>对话测评 · 02 Claude 式</title>
+  <style>
+    /* ============================================================
+       02 · Claude 式复刻 —— 岗位胜任力测评
+       心智来源：claude.ai 2025-2026
+       布局：左侧窄会话栏 + 居中宽对话流（无硬卡片，纸面感）
+       材质：暖米色背景（#f5f4ee 族）、衬线大标题、珊瑚色强调
+       消息：助手与候选人均纯文本流，用头像+对齐区分，无气泡
+       ============================================================ */
+
+    :root {
+      --bg: #f5f4ee;            /* claude.ai 暖米底 */
+      --bg-sidebar: #eeece4;
+      --paper: #faf9f5;
+      --ink-1: #262624;
+      --ink-2: #555552;
+      --ink-3: #7d7c78;
+      --line: #dedcd2;
+      --accent: #d97757;         /* Claude 珊瑚 */
+      --accent-soft: rgba(217, 119, 87, .12);
+      --chip-bg: #eae7dd;
+      --chip-amber-bg: #f3e5d1;
+      --chip-amber-ink: #8a5a00;
+      --hover: #e7e4d9;
+    }
+
+    html[data-theme="dark"] body.candidate {
+      --bg: #2b2926;
+      --bg-sidebar: #23211e;
+      --paper: #33312d;
+      --ink-1: #f0eee6;
+      --ink-2: #c0bdb3;
+      --ink-3: #8f8d86;
+      --line: #454239;
+      --accent: #d97757;
+      --accent-soft: rgba(217, 119, 87, .18);
+      --chip-bg: #3b3934;
+      --chip-amber-bg: #3d3221;
+      --chip-amber-ink: #dfa25a;
+      --hover: #3a3833;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+
+    body.candidate {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--ink-1);
+      font-size: 15.5px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .serif {
+      font-family: "Tiempos", "Copernicus", Georgia, "Songti SC",
+                   "Noto Serif SC", "Source Han Serif SC", serif;
+    }
+
+    /* ---------- 骨架 ---------- */
+    .app {
+      display: grid;
+      grid-template-columns: 216px 1fr;
+      height: 100vh;
+    }
+
+    /* ---------- 左栏 ---------- */
+    .sidebar {
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--line);
+      display: flex; flex-direction: column;
+      padding: 16px 10px;
+    }
+
+    .sb-logo {
+      width: 34px; height: 34px;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      display: grid; place-items: center;
+      font-weight: 700;
+      margin: 2px 8px 20px;
+    }
+
+    .sb-nav { display: flex; flex-direction: column; gap: 2px; }
+
+    .sb-item {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%;
+      padding: 9px 10px;
+      border: 0; border-radius: 10px;
+      background: transparent;
+      color: var(--ink-2);
+      font-size: 13.5px; font-family: inherit;
+      cursor: pointer; text-align: left;
+    }
+    .sb-item:hover { background: var(--hover); }
+    .sb-item.active { background: var(--hover); color: var(--ink-1); font-weight: 600; }
+
+    .sb-foot {
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      font-size: 11.5px;
+      color: var(--ink-3);
+      padding-left: 10px;
+    }
+
+    /* ---------- 主区 ---------- */
+    .main { display: flex; flex-direction: column; min-width: 0; height: 100vh; }
+
+    .topbar {
+      flex: none;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg);
+    }
+
+    .tb-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    .tb-sub { font-size: 12px; color: var(--ink-3); font-weight: 400; }
+
+    .tb-actions { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ink-2); }
+
+    .btn-ghost {
+      border: 1px solid var(--line);
+      background: var(--paper);
+      color: var(--ink-2);
+      font-size: 12.5px; font-family: inherit;
+      padding: 5px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn-ghost:hover { background: var(--hover); }
+
+    /* ---------- 对话流 ---------- */
+    .thread { flex: 1; overflow-y: auto; }
+    .thread-inner {
+      max-width: 740px;
+      margin: 0 auto;
+      padding: 36px 24px 24px;
+    }
+
+    /* 开场头（衬线大标题，Claude 新会话气质） */
+    .open-head { margin-bottom: 28px; }
+    .open-head .kicker {
+      font-size: 12px; letter-spacing: .12em;
+      color: var(--accent); font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .open-head h1 {
+      font-size: 30px; font-weight: 500; line-height: 1.3;
+      margin-bottom: 10px;
+    }
+    .open-head p { font-size: 14.5px; color: var(--ink-2); max-width: 60ch; }
+
+    .divider { border: 0; border-top: 1px solid var(--line); margin: 26px 0; }
+
+    /* 助手消息：头像 + 纯文本 */
+    .msg.ai { display: flex; gap: 14px; padding: 14px 0; }
+    .avatar.ai {
+      flex: none;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 700;
+      margin-top: 3px;
+    }
+    .msg-body { min-width: 0; }
+    .msg-meta {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--ink-3); margin-bottom: 5px;
+    }
+    .msg-meta b { color: var(--ink-2); }
+
+    .chip {
+      font-size: 11px; padding: 1.5px 8px;
+      border-radius: 999px;
+      background: var(--chip-bg); color: var(--ink-2);
+    }
+    .chip.amber { background: var(--chip-amber-bg); color: var(--chip-amber-ink); }
+
+    .msg-body .stem {
+      font-family: "Tiempos", "Copernicus", Georgia, "Songti SC", "Noto Serif SC", serif;
+      font-size: 18px; line-height: 1.65; font-weight: 500;
+    }
+    .msg-body p { font-size: 15.5px; }
+
+    /* 候选人消息：右对齐纯文本 + 细左边框引用感（沿用本项目「候选人回答唯一边框」语言） */
+    .msg.me { padding: 14px 0 14px 46px; display: flex; flex-direction: column; align-items: flex-end; }
+    .msg.me .who { font-size: 12px; color: var(--ink-3); margin-bottom: 4px; }
+    .msg.me .say {
+      max-width: 85%;
+      font-size: 15.5px;
+      border-left: 2px solid var(--accent);
+      padding-left: 14px;
+      color: var(--ink-1);
+      white-space: pre-line;
+    }
+    .msg.me.draft .say { color: var(--ink-2); border-left-color: var(--line); }
+
+    /* AI 状态（claude 的行内提示气质） */
+    .status {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12.5px; color: var(--ink-3);
+      padding: 10px 0 2px 46px;
+    }
+    .status .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+
+    /* ---------- composer：暖纸圆角盒 ---------- */
+    .composer-wrap { flex: none; padding: 10px 24px 18px; background: var(--bg); }
+    .composer {
+      max-width: 740px; margin: 0 auto;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 4px 10px 4px 16px;
+      box-shadow: 0 1px 6px rgba(60,50,30,.05);
+      transition: border-color .15s;
+    }
+    .composer:focus-within { border-color: var(--accent); }
+
+    .ta {
+      width: 100%;
+      border: 0; outline: 0; resize: none;
+      background: transparent; color: var(--ink-1);
+      font-family: inherit; font-size: 15px; line-height: 1.65;
+      min-height: 28px; max-height: 200px;
+      padding: 9px 0 6px;
+    }
+    .ta::placeholder { color: var(--ink-3); }
+
+    .composer-foot { display: flex; align-items: center; justify-content: space-between; }
+    .hint { font-size: 11.5px; color: var(--ink-3); }
+    .hint b { color: var(--ink-2); }
+
+    .send {
+      border: 0; border-radius: 10px;
+      background: var(--accent); color: #fff;
+      font-family: inherit; font-size: 13px; font-weight: 600;
+      padding: 7px 16px;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .send:hover { opacity: .88; }
+
+    .composer-note {
+      max-width: 740px; margin: 8px auto 0;
+      text-align: center; font-size: 11px; color: var(--ink-3);
+    }
+
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    @media (prefers-reduced-motion: reduce) { .status .dot { animation: none; } }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+    }
+  </style>
+</head>
+<body class="candidate">
+
+  <!--
+    REF: claude.ai 2025-2026 布局的测评化复刻
+    THESIS: Claude 的暖米纸面 + 衬线题面让「长答」显得被认真阅读；
+            珊瑚色只用于 AI 身份与关键动作，克制不闹。
+    ASSESS-DIFF: 开场为衬线大标题的「本场测评说明」，问题用衬线 stem；
+            候选人回答以右侧引用条呈现，呼应本项目既有语言。
+    NO-SCORE: 无任何过程评分；状态行只有「正在理解 / 准备下一问」。
+  -->
+
+  <div class="app">
+    <aside class="sidebar" aria-label="导航">
+      <div class="sb-logo">胜</div>
+      <nav class="sb-nav">
+        <button class="sb-item active" type="button">◈ 本次测评</button>
+        <button class="sb-item" type="button">▤ 我的测评</button>
+      </nav>
+      <div class="sb-foot">后端开发 · 模型 v2</div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="tb-title">胜任力测评 <span class="tb-sub">约 20 分钟 · 8 题</span></div>
+        <div class="tb-actions">
+          <span>张同学</span>
+          <button class="btn-ghost btn-theme" type="button" aria-pressed="false">夜间</button>
+          <button class="btn-ghost" type="button">退出</button>
+        </div>
+      </header>
+
+      <main class="thread" aria-label="测评对话">
+        <div class="thread-inner">
+
+          <div class="open-head serif">
+            <div class="kicker">ASSESSMENT · 后端开发</div>
+            <h1>请结合你的真实经历作答</h1>
+            <p>共 8 题，约 20 分钟。题目没有标准答案；我会根据你的回答追问，或推进下一题。回答发送后即保存，中途退出后可回来继续。</p>
+          </div>
+
+          <hr class="divider">
+
+          <div class="msg ai">
+            <div class="avatar ai">测</div>
+            <div class="msg-body">
+              <div class="msg-meta"><b>第三问</b> <span class="chip">硬技能</span> <span class="chip amber">中等</span></div>
+              <p class="stem serif">请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。</p>
+            </div>
+          </div>
+
+          <div class="msg me">
+            <div class="who">张同学 · 09:12</div>
+            <div class="say">去年负责一个线上订单服务，上线后经常出现超时报警。我先看监控面板，发现是数据库连接池被打满，慢查询集中在订单表的联表统计……我加了索引并拆出独立统计库，问题就解决了。</div>
+          </div>
+
+          <div class="msg ai">
+            <div class="avatar ai">测</div>
+            <div class="msg-body">
+              <div class="msg-meta"><b>追问</b> <span class="chip">追问 1 / 2</span></div>
+              <p class="stem serif">很好。那你怎么判断问题根源是连接池配置，而不是应用代码本身的逻辑缺陷？有没有做过对照实验来排除干扰因素？</p>
+            </div>
+          </div>
+
+          <div class="status" aria-live="polite">
+            <span class="dot"></span><span class="status-text">回答已保存 · AI 正在理解你的回答</span>
+          </div>
+
+          <div class="msg me draft">
+            <div class="who">张同学 · 正在作答</div>
+            <div class="say">我先做了小流量 AB 对比：让 5% 的请求绕过统计模块直连备库，观察超时率……</div>
+          </div>
+
+        </div>
+      </main>
+
+      <div class="composer-wrap">
+        <form class="composer" novalidate>
+          <textarea class="ta" rows="1" placeholder="在此写下你的回答……" aria-label="回答输入框"></textarea>
+          <div class="composer-foot">
+            <span class="hint"><b>Enter</b> 发送 · <b>Shift+Enter</b> 换行</span>
+            <button class="send" type="submit">发送作答</button>
+          </div>
+        </form>
+        <p class="composer-note">回答发送后保存 · 本场测评约 20 分钟</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+    var root = document.documentElement;
+    var KEY = 'chat-styles-02-theme';
+    var memory = null;
+
+    var ta = document.querySelector('.ta');
+    var toggle = document.querySelector('.btn-theme');
+    var threadInner = document.querySelector('.thread-inner');
+    var statusText = document.querySelector('.status-text');
+
+    function readTheme() {
+      try {
+        var q = new URLSearchParams(location.search).get('theme');
+        if (q === 'dark' || q === 'light') return q;
+      } catch (e) {}
+      var v = null;
+      try { v = localStorage.getItem(KEY); } catch (e) { v = memory; }
+      if (v === 'dark' || v === 'light') return v;
+      return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(t, persist) {
+      root.setAttribute('data-theme', t);
+      if (toggle) {
+        toggle.textContent = t === 'dark' ? '日间' : '夜间';
+        toggle.setAttribute('aria-pressed', t === 'dark' ? 'true' : 'false');
+      }
+      if (persist) {
+        memory = t;
+        try { localStorage.setItem(KEY, t); } catch (e) {}
+      }
+    }
+
+    applyTheme(readTheme(), false);
+
+    if (toggle) {
+      toggle.addEventListener('click', function () {
+        applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true);
+      });
+    }
+
+    function fit() {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    }
+    ta.addEventListener('input', fit);
+
+    var composing = false;
+    ta.addEventListener('compositionstart', function () { composing = true; });
+    ta.addEventListener('compositionend', function () { composing = false; });
+
+    var timers = [];
+    function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+    function nowTime() {
+      var d = new Date();
+      return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    }
+
+    function submit() {
+      var v = ta.value.trim();
+      if (!v || composing) return;
+
+      var row = document.createElement('div');
+      row.className = 'msg me';
+      var who = document.createElement('div');
+      who.className = 'who';
+      who.textContent = '张同学 · ' + nowTime();
+      var say = document.createElement('div');
+      say.className = 'say';
+      say.textContent = v;
+      row.appendChild(who);
+      row.appendChild(say);
+      threadInner.appendChild(row);
+
+      ta.value = '';
+      fit();
+      clearTimers();
+
+      if (statusText) statusText.textContent = '回答已保存 · AI 正在理解你的回答';
+      timers.push(setTimeout(function () {
+        if (statusText) statusText.textContent = 'AI 正在准备下一问';
+      }, 1400));
+      timers.push(setTimeout(function () {
+        if (statusText) statusText.textContent = '可以继续了 · 等待你的回答';
+      }, 3000));
+    }
+
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !composing) {
+        e.preventDefault();
+        submit();
+      }
+    });
+
+    document.querySelector('.composer').addEventListener('submit', function (e) {
+      e.preventDefault();
+      submit();
+    });
+  })();
+  </script>
+</body>
+</html>

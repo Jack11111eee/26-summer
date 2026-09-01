@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="岗位胜任力测评系统 · 对话测评复刻原型 03 · DeepSeek 式">
+  <link rel="icon" href="data:,">
+  <title>对话测评 · 03 DeepSeek 式</title>
+  <style>
+    /* ============================================================
+       03 · DeepSeek 式复刻 —— 岗位胜任力测评
+       心智来源：chat.deepseek.com 2025-2026
+       布局：左侧会话栏 + 居中对话流（卡片感弱、信息密度高）
+       标志：#4D6BFE 蓝、双方都有气泡（左灰右蓝）、思考过程折叠条
+       ASSESS-DIFF: 把 DeepSeek 的「深度思考」折叠迁移为「测评思路」
+            折叠（只披露追问逻辑，不披露评分）——本原型演示为默认收起。
+       NO-SCORE: 折叠里没有分数，只有一句中性的追问依据。
+       ============================================================ */
+
+    :root {
+      --bg: #ffffff;
+      --bg-sidebar: #f9fbff;
+      --bubble-ai: #f3f4f6;
+      --bubble-me: #4d6bfe;       /* DeepSeek 蓝 */
+      --bubble-me-ink: #ffffff;
+      --ink-1: #1c1e21;
+      --ink-2: #55575c;
+      --ink-3: #8a8c92;
+      --line: #e8eaee;
+      --accent: #4d6bfe;
+      --accent-soft: rgba(77, 107, 254, .09);
+      --chip-bg: #eef1fd;
+      --chip-ink: #4d6bfe;
+      --chip-amber-bg: #fdf3df;
+      --chip-amber-ink: #8a5a00;
+      --hover: #eef1fd;
+      --status-ink: #6b7280;
+    }
+
+    html[data-theme="dark"] body.candidate {
+      --bg: #1e1f22;
+      --bg-sidebar: #18191c;
+      --bubble-ai: #2a2c31;
+      --bubble-me: #4d6bfe;
+      --bubble-me-ink: #ffffff;
+      --ink-1: #eceef1;
+      --ink-2: #b4b7bd;
+      --ink-3: #85888e;
+      --line: #33363c;
+      --accent: #6d86ff;
+      --accent-soft: rgba(109, 134, 255, .14);
+      --chip-bg: #2a2d3a;
+      --chip-ink: #9fb0ff;
+      --chip-amber-bg: #332915;
+      --chip-amber-ink: #dfa25a;
+      --hover: #26282e;
+      --status-ink: #9a9da3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+
+    body.candidate {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--ink-1);
+      font-size: 15px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app { display: grid; grid-template-columns: 224px 1fr; height: 100vh; }
+
+    /* ---------- 左栏 ---------- */
+    .sidebar {
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--line);
+      display: flex; flex-direction: column;
+      padding: 14px 10px;
+    }
+
+    .sb-logo {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      display: grid; place-items: center;
+      font-weight: 700; font-size: 15px;
+      margin: 4px 8px 16px;
+    }
+
+    .sb-nav { display: flex; flex-direction: column; gap: 2px; }
+    .sb-item {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 9px 10px;
+      border: 0; border-radius: 8px;
+      background: transparent; color: var(--ink-2);
+      font-size: 13.5px; font-family: inherit;
+      cursor: pointer; text-align: left;
+    }
+    .sb-item:hover { background: var(--hover); }
+    .sb-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+    .sb-card {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: var(--bg);
+    }
+    .sb-card .t { font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--ink-2); }
+    .sb-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-3); padding: 2.5px 0; }
+    .sb-row b { color: var(--ink-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .sb-bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 8px; }
+    .sb-bar i { display: block; height: 100%; width: 37.5%; background: var(--accent); border-radius: 3px; }
+
+    .sb-foot {
+      margin-top: auto; padding: 10px 10px 0;
+      border-top: 1px solid var(--line);
+      font-size: 11.5px; color: var(--ink-3);
+    }
+
+    /* ---------- 主区 ---------- */
+    .main { display: flex; flex-direction: column; min-width: 0; height: 100vh; }
+
+    .topbar {
+      flex: none;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .tb-title { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .tb-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: var(--chip-bg); color: var(--chip-ink); }
+    .tb-actions { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ink-2); }
+
+    .btn-ghost {
+      border: 1px solid var(--line); background: transparent;
+      color: var(--ink-2); font-size: 12.5px; font-family: inherit;
+      padding: 5px 12px; border-radius: 8px; cursor: pointer;
+    }
+    .btn-ghost:hover { background: var(--hover); }
+
+    /* ---------- 对话流 ---------- */
+    .thread { flex: 1; overflow-y: auto; padding: 20px 0 8px; }
+    .thread-inner { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+
+    .row { display: flex; gap: 10px; margin-bottom: 16px; }
+    .row.me { justify-content: flex-end; }
+
+    .avatar {
+      flex: none;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 12px; font-weight: 700;
+      margin-top: 3px;
+    }
+    .avatar.ai { background: var(--accent); color: #fff; }
+    .avatar.me { background: var(--bubble-ai); color: var(--ink-2); border: 1px solid var(--line); }
+
+    .stack { min-width: 0; max-width: 78%; }
+
+    /* 「测评思路」折叠条：迁移自 DeepSeek 思考过程折叠 */
+    .think {
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      margin-bottom: 8px;
+      background: var(--bg);
+      overflow: hidden;
+    }
+    .think summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 7px 12px;
+      font-size: 12.5px;
+      color: var(--ink-3);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .think summary::-webkit-details-marker { display: none; }
+    .think summary .caret { transition: transform .15s; font-size: 10px; }
+    .think[open] summary .caret { transform: rotate(90deg); }
+    .think .body {
+      padding: 2px 12px 10px;
+      font-size: 13px; color: var(--ink-2); line-height: 1.65;
+    }
+
+    .msg-meta {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--ink-3); margin-bottom: 5px;
+    }
+    .msg-meta b { color: var(--ink-2); }
+
+    .chip { font-size: 11px; padding: 1.5px 8px; border-radius: 6px; background: var(--chip-bg); color: var(--chip-ink); }
+    .chip.amber { background: var(--chip-amber-bg); color: var(--chip-amber-ink); }
+
+    /* 双气泡 */
+    .bubble {
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-size: 15px;
+      white-space: pre-line;
+    }
+    .bubble.ai { background: var(--bubble-ai); color: var(--ink-1); border-bottom-left-radius: 4px; }
+    .bubble.me  { background: var(--bubble-me); color: var(--bubble-me-ink); border-bottom-right-radius: 4px; }
+    .bubble.ai .stem { font-size: 16px; font-weight: 500; }
+
+    /* 状态行 */
+    .statusline {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12.5px; color: var(--status-ink);
+      margin: 2px 0 14px 38px;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+
+    /* ---------- composer ---------- */
+    .composer-wrap { flex: none; padding: 6px 24px 14px; }
+    .composer {
+      max-width: 800px; margin: 0 auto;
+      border: 1.5px solid var(--line);
+      border-radius: 14px;
+      padding: 4px 8px 4px 14px;
+      background: var(--bg);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+    .ta {
+      width: 100%; border: 0; outline: 0; resize: none;
+      background: transparent; color: var(--ink-1);
+      font-family: inherit; font-size: 15px; line-height: 1.6;
+      min-height: 24px; max-height: 200px;
+      padding: 9px 0 6px;
+    }
+    .ta::placeholder { color: var(--ink-3); }
+
+    .composer-foot { display: flex; align-items: center; justify-content: space-between; }
+    .hint { font-size: 11.5px; color: var(--ink-3); }
+    .hint b { color: var(--ink-2); }
+
+    .send {
+      border: 0; border-radius: 8px;
+      background: var(--accent); color: #fff;
+      font-family: inherit; font-size: 13px; font-weight: 600;
+      padding: 7px 18px;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .send:hover { opacity: .88; }
+
+    .composer-note { max-width: 800px; margin: 7px auto 0; text-align: center; font-size: 11px; color: var(--ink-3); }
+
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+    }
+  </style>
+</head>
+<body class="candidate">
+
+  <!--
+    REF: chat.deepseek.com 2025-2026 布局的测评化复刻
+    标志迁移：#4D6BFE 蓝 + 双方气泡 + 「思考过程」折叠条。
+    ASSESS-DIFF: 折叠条改名为「测评思路」，内容只说明为何追问，
+            不给分数；左栏常驻进度卡（37.5% 进度条 + 已答/总数）。
+    NO-SCORE: 任何位置不出现数值评分。
+  -->
+
+  <div class="app">
+    <aside class="sidebar" aria-label="导航与进度">
+      <div class="sb-logo">胜</div>
+      <nav class="sb-nav">
+        <button class="sb-item active" type="button">◈ 本次测评</button>
+        <button class="sb-item" type="button">▤ 我的测评</button>
+      </nav>
+
+      <div class="sb-card">
+        <div class="t">本场进度</div>
+        <div class="sb-row"><span>已作答</span><b>3 / 8 题</b></div>
+        <div class="sb-row"><span>追问</span><b>1 / 2</b></div>
+        <div class="sb-bar" aria-hidden="true"><i></i></div>
+      </div>
+
+      <div class="sb-foot">后端开发 · 模型 v2</div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="tb-title">胜任力测评 <span class="tb-badge">后端开发</span> <span class="tb-badge" style="background:var(--chip-amber-bg);color:var(--chip-amber-ink)">进行中</span></div>
+        <div class="tb-actions">
+          <span>张同学</span>
+          <button class="btn-ghost btn-theme" type="button" aria-pressed="false">夜间</button>
+          <button class="btn-ghost" type="button">退出</button>
+        </div>
+      </header>
+
+      <main class="thread" aria-label="测评对话">
+        <div class="thread-inner">
+
+          <div class="row">
+            <div class="avatar ai">测</div>
+            <div class="stack">
+              <div class="msg-meta"><b>开场</b></div>
+              <div class="bubble ai">你好，张同学。本场是「后端开发」岗位的胜任力测评，共 8 题，约 20 分钟。题目没有标准答案，请结合你的真实经历作答；我会根据你的回答追问或推进下一题。</div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="avatar ai">测</div>
+            <div class="stack">
+              <div class="msg-meta"><b>第三问</b> <span class="chip">硬技能</span> <span class="chip amber">中等</span></div>
+              <div class="bubble ai"><span class="stem">请分享一次你在项目中解决棘手技术问题的经历，具体讲讲你是如何定位问题、又是如何处理的。</span></div>
+            </div>
+          </div>
+
+          <div class="row me">
+            <div class="stack" style="display:flex;flex-direction:column;align-items:flex-end;">
+              <div class="msg-meta"><b>张同学</b> · 09:12</div>
+              <div class="bubble me">去年负责一个线上订单服务，上线后经常出现超时报警。我先看监控面板，发现是数据库连接池被打满，慢查询集中在订单表的联表统计……我加了索引并拆出独立统计库，问题就解决了。</div>
+            </div>
+            <div class="avatar me">张</div>
+          </div>
+
+          <div class="row">
+            <div class="avatar ai">测</div>
+            <div class="stack">
+              <details class="think">
+                <summary><span class="caret">▶</span> 测评思路 · 为什么追问</summary>
+                <div class="body">回答给出了定位路径与处理动作，但尚未说明如何排除「应用代码逻辑缺陷」这一干扰因素，故追问对照验证的方法。</div>
+              </details>
+              <div class="msg-meta"><b>追问</b> <span class="chip">追问 1 / 2</span></div>
+              <div class="bubble ai"><span class="stem">很好。那你怎么判断问题根源是连接池配置，而不是应用代码本身的逻辑缺陷？有没有做过对照实验来排除干扰因素？</span></div>
+            </div>
+          </div>
+
+          <div class="statusline" aria-live="polite">
+            <span class="dot"></span><span class="status-text">回答已保存 · AI 正在理解你的回答</span>
+          </div>
+
+        </div>
+      </main>
+
+      <div class="composer-wrap">
+        <form class="composer" novalidate>
+          <textarea class="ta" rows="1" placeholder="在此写下你的回答……" aria-label="回答输入框"></textarea>
+          <div class="composer-foot">
+            <span class="hint"><b>Enter</b> 发送 · <b>Shift+Enter</b> 换行</span>
+            <button class="send" type="submit">发送作答</button>
+          </div>
+        </form>
+        <p class="composer-note">回答发送后保存 · 本场测评约 20 分钟</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+    var root = document.documentElement;
+    var KEY = 'chat-styles-03-theme';
+    var memory = null;
+
+    var ta = document.querySelector('.ta');
+    var toggle = document.querySelector('.btn-theme');
+    var threadInner = document.querySelector('.thread-inner');
+    var statusText = document.querySelector('.status-text');
+
+    function readTheme() {
+      try {
+        var q = new URLSearchParams(location.search).get('theme');
+        if (q === 'dark' || q === 'light') return q;
+      } catch (e) {}
+      var v = null;
+      try { v = localStorage.getItem(KEY); } catch (e) { v = memory; }
+      if (v === 'dark' || v === 'light') return v;
+      return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(t, persist) {
+      root.setAttribute('data-theme', t);
+      if (toggle) {
+        toggle.textContent = t === 'dark' ? '日间' : '夜间';
+        toggle.setAttribute('aria-pressed', t === 'dark' ? 'true' : 'false');
+      }
+      if (persist) {
+        memory = t;
+        try { localStorage.setItem(KEY, t); } catch (e) {}
+      }
+    }
+
+    applyTheme(readTheme(), false);
+
+    if (toggle) {
+      toggle.addEventListener('click', function () {
+        applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true);
+      });
+    }
+
+    function fit() {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    }
+    ta.addEventListener('input', fit);
+
+    var composing = false;
+    ta.addEventListener('compositionstart', function () { composing = true; });
+    ta.addEventListener('compositionend', function () { composing = false; });
+
+    var timers = [];
+    function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+    function nowTime() {
+      var d = new Date();
+      return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    }
+
+    function submit() {
+      var v = ta.value.trim();
+      if (!v || composing) return;
+
+      var row = document.createElement('div');
+      row.className = 'row me';
+      var stack = document.createElement('div');
+      stack.className = 'stack';
+      stack.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end;';
+      var meta = document.createElement('div');
+      meta.className = 'msg-meta';
+      meta.innerHTML = '<b>张同学</b> · ' + nowTime();
+      var bubble = document.createElement('div');
+      bubble.className = 'bubble me';
+      bubble.textContent = v;
+      stack.appendChild(meta);
+      stack.appendChild(bubble);
+      var av = document.createElement('div');
+      av.className = 'avatar me';
+      av.textContent = '张';
+      row.appendChild(stack);
+      row.appendChild(av);
+      threadInner.appendChild(row);
+
+      ta.value = '';
+      fit();
+      clearTimers();
+
+      if (statusText) statusText.textContent = '回答已保存 · AI 正在理解你的回答';
+      timers.push(setTimeout(function () {
+        if (statusText) statusText.textContent = 'AI 正在准备下一问';
+      }, 1400));
+      timers.push(setTimeout(function () {
+        if (statusText) statusText.textContent = '可以继续了 · 等待你的回答';
+      }, 3000));
+    }
+
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !composing) {
+        e.preventDefault();
+        submit();
+      }
+    });
+
+    document.querySelector('.composer').addEventListener('submit', function (e) {
+      e.preventDefault();
+      submit();
+    });
+  })();
+  </script>
+</body>
+</html>

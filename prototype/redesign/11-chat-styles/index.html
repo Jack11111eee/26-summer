@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="对话测评 · AI 平台风格复刻与融合方案索引">
+  <link rel="icon" href="data:,">
+  <title>对话测评 · 风格方案索引</title>
+  <style>
+    :root {
+      --bg: #faf9f5;
+      --paper: #ffffff;
+      --ink-1: #262624;
+      --ink-2: #555552;
+      --ink-3: #807e78;
+      --line: #e2dfd4;
+      --accent: #b4552d;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      background: var(--bg); color: var(--ink-1);
+      padding: 48px 24px; line-height: 1.7;
+    }
+    .wrap { max-width: 860px; margin: 0 auto; }
+    h1 { font-size: 26px; font-weight: 600; margin-bottom: 6px; }
+    .sub { color: var(--ink-2); font-size: 14px; margin-bottom: 32px; }
+    .card {
+      display: block; text-decoration: none;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px 22px;
+      margin-bottom: 14px;
+      color: inherit;
+      transition: border-color .15s, transform .15s;
+    }
+    .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .card .no { font-size: 12px; color: var(--accent); font-weight: 700; letter-spacing: .08em; margin-bottom: 4px; }
+    .card .t { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+    .card .d { font-size: 13.5px; color: var(--ink-2); }
+    .card .rec {
+      display: inline-block; font-size: 11px; font-weight: 600;
+      color: var(--accent); border: 1px solid var(--accent);
+      border-radius: 999px; padding: 1px 9px; margin-left: 8px; vertical-align: 2px;
+    }
+    .back { margin-top: 28px; font-size: 13px; }
+    .back a { color: var(--ink-3); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>对话测评 · 风格方案</h1>
+    <p class="sub">同一测评场景（第 3 问 + 追问 + 草稿）的四种视觉/交互方案。均支持深浅主题切换、Enter 发送、发送即存语义演示。</p>
+
+    <a class="card" href="01-chatgpt.html">
+      <div class="no">01 · 复刻</div>
+      <div class="t">ChatGPT 式</div>
+      <div class="d">左会话栏 + 居中窄栏；助手无气泡纯文本、候选人右侧浅灰气泡；黑底圆形发送钮的胶囊 composer。心智零成本。</div>
+    </a>
+
+    <a class="card" href="02-claude.html">
+      <div class="no">02 · 复刻</div>
+      <div class="t">Claude 式</div>
+      <div class="d">暖米纸底 + 珊瑚色强调 + 衬线题面；双方均无气泡，候选人回答为右侧引用条。长答像被认真阅读。</div>
+    </a>
+
+    <a class="card" href="03-deepseek.html">
+      <div class="no">03 · 复刻</div>
+      <div class="t">DeepSeek 式</div>
+      <div class="d">#4D6BFE 蓝 + 双方气泡（左灰右蓝）+「测评思路」折叠条（迁移自深度思考）；左栏常驻进度卡。</div>
+    </a>
+
+    <a class="card" href="04-hybrid.html">
+      <div class="no">04 · 融合优化</div>
+      <div class="t">融合方案<span class="rec">推荐</span></div>
+      <div class="d">取 ChatGPT 的交互心智 + Claude 的暖纸衬线 + DeepSeek 的思路折叠，加本项目特有的右栏「本场访谈」进度与「只显状态」纪律。</div>
+    </a>
+
+    <p class="back"><a href="../index.html">← 返回原型总索引</a></p>
+  </div>
+</body>
+</html>
