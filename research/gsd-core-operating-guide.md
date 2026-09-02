@@ -245,14 +245,26 @@ precedence 数值越小优先级越高：总设计文档 0（唯一权威），�
 /gsd-ingest-docs design/ --manifest .planning/ingest-manifest.yaml --mode new --resolve auto
 ```
 
-- `--mode new`：当前无 `.planning/`（首次摄取）；后续如有设计增量，用 `--mode merge`。
+**状态说明（2026-09-02 更新）：** 命令本身不变，但执行时的状态与初稿写作时不同——`.planning/` 已存在（map-codebase 产物：`codebase/` 7 份地图 + config.json），而 GSD 的 auto-detect 规则是"`.planning/` 存在 → merge"。为什么仍然显式传 `--mode new`：
+
+1. merge 路线是**增量合并**——它 load 现有 ROADMAP/PROJECT/REQUIREMENTS 并 append；但这些文件从未存在过（跳过了 `/gsd-new-project`，只有地图），merge 的合并目标为空，行为退化；
+2. new-project-from-ingest 路线会调 gsd-roadmapper **生成全套 PROJECT/REQUIREMENTS/ROADMAP/STATE 初稿**——这正是不存在时的需要；它**不写** `codebase/` 与 `config.json`，地图不受影响；
+3. `.planning/` 存在时传 `--mode new` 会触发覆盖警告 + AskUserQuestion 确认（ingest-docs.md:65）——**选 Approve**：警告防的是误覆盖已有项目文件，而本仓库恰好没有那些文件。
+
+防御性备份（`.planning/` 目前未被 git 跟踪）：
+
+```bash
+cp -r .planning /tmp/planning-backup-$(date +%s)
+```
+
 - `--resolve auto`：v1 只支持 auto；LOCKED-vs-LOCKED 硬冲突会自动阻断并列出，不会静默选择。
+- **SCAN_PATH 用 `design/` 不是 `design/final-design/`**：manifest 提供权威路径（每个 entry 自带仓库相对路径，含 final-design 之外的上游需求文档），目录扫描在 manifest 存在时被跳过；SCAN_PATH 只在 manifest 校验失败回退时兜底，范围大一点是保险不是错误。
 
 产物检查：
 
 ```bash
 find .planning -maxdepth 2 -type f | sort
-# 重点：PROJECT.md / REQUIREMENTS.md / ROADMAP.md / STATE.md / INGEST-CONFLICTS.md
+# 重点：PROJECT.md / REQUIREMENTS.md / ROADMAP.md / STATE.md / INGEST-CONFLICTS.md / intel/
 ```
 
 注意：`--mode new` 会走 `new-project-from-ingest` 路线，自动生成 ROADMAP（gsd-roadmapper 代理）。**生成的 ROADMAP 是机器初稿**，第 4 步你必须人工重排（它不知道 §28 的优先级）。分模块文档与总文档的重复内容由 synthesizer 按 precedence 去重，LOCKED 冲突进 `INGEST-CONFLICTS.md`。
