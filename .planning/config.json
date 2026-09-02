@@ -33,7 +33,8 @@
     "tdd_mode": false,
     "ui_review": true,
     "use_worktrees": true,
-    "pattern_mapper": true
+    "pattern_mapper": true,
+    "_auto_chain_active": false
   },
   "ship": {
     "pr_body_sections": []
