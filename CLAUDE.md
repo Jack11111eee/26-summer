@@ -75,6 +75,5 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 本目录是「AI 驱动的岗位胜任力测评与人才画像系统」的 git 仓库根。
 - **唯一 SSOT：`design/final-design/总设计文档.md`（v2.0，2026-09-02 起生效）**，四份分模块设计文档（`design/final-design/模块一~四设计`）为其分块摘录。任何设计变更、范围调整、接口改动，**先更新《design/final-design/总设计文档.md》（正文 + §14 变更日志），再动代码**。
 - 其余文档只有三种身份：从属模块稿（final-design/ 分模块文档）/ 临时讨论稿（design/ 临时讨论稿-*）/ 历史档案（`design/final-design/历史档案/` 及 design/ 原 04/05/06），均不作为实施依据；与 SSOT 冲突处以 SSOT 为准。要求文档（《需求文档-胜任力测评与人才画像系统》《技术方案概述》）为上游需求输入。
-- 实施按里程碑推进，状态用四维口径记录（implemented / contract_complete / verified / production_ready）：M1~M3（模块一）已完成；M5~M7 主体代码已落地但 contract_complete=false，后续按 SSOT §28 修复与重构待办推进（P0：资源所有权校验、score→report 串行、开考检查、状态事件表）。M4（黄金集、插件）本期保留不做。Prompt 模块单独讨论（SSOT §26 已登记扩展点，实施时保留可替换接口）。
 - **SSOT 修改须授权**：SSOT 的任何修改须先经用户明确授权，agent 仅可起草，未经确认不得写入；SSOT 权威路径只能按既定文档治理规则以原子 commit 变更。
 - checkpoint 快照（`design/checkpoint-*.md`）与各轮临时讨论稿只是上下文记录，不构成实施、修改文档或修改代码的授权。
