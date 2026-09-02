@@ -83,7 +83,7 @@
 | 5.7 | §20.3 总分=Σ(item.weight×normalized)×100；大类 7:3 已在 item.weight 不二次乘 | 聚合公式 `weight × (actual/5) × 100` 形式合规；**但 weight 本身来自旧 55/20/20/5 口径**（config CATEGORY_RATIO={5.5,2.0,2.0,0.5}，归一后即 55/20/20/5） | `aggregation.py:121`（合规）；`config.py:25-31`（**违约·N1**）；`aggregate.py:38-40`（仅出现类目参与配比，§8.2 允许大类归一） | 公式合规 / 权重口径违约 |
 | 5.8 | §21 五段式报告 | 已实现五段（总分+gate/雷达/明细/优劣文字/逐题回顾），雷达 required vs actual 合规 | `report.py:89-153` | **[合规]** |
 | 5.9 | §21.1 报告状态机（GENERATING→PROVISIONAL/READY→PUBLISHED/FAILED；review_status；发布一致性七项校验；人工明确点击发布） | **完全缺失**：报告生成即最终态，无状态机、无复核、无发布动作、无七项校验；重复生成直接 DELETE 覆盖（§28“报告版本化”所指） | `report.py:144-152`（DELETE+INSERT 覆盖） | **[违约·P0]** |
-| 5.10 | §21.1 score→report 串行（服务端执行，不依赖浏览器补调） | 前端两步调用（score 后再调 report 接口）；后端 report 接口不自动触发评分 | `api/assessment.py:233-269`；`web/src/api/index.js` | **[违约·P0]**（串行缺服务端串联） |
+| 5.10 | §21.1 score→report 串行（服务端执行，不依赖浏览器补调） | **实测（交叉核验后加重）：前端从未调用 POST /score**——api/index.js 无 score 方法（仅 `:50` generateReport）；Chat.vue finish 分支直接 `router.push` 跳报告页（:247-249）；Report.vue bootstrap 只调 generateReport（:394）。后端 report 也不触发评分。即“两步”实为**零步**：真实 UI 流程下 question_score 恒空 → 报告聚合全部 no_data。测试通过仅因 test_m6_backend.py:164 在 Python 层直调 score_session | `web/src/api/index.js:50`；`Chat.vue:247-249`；`Report.vue:394`；`api/assessment.py:233-246`（score 端点，前端无人调用） | **[违约·P0·加重]**（前端链路断裂，非仅缺服务端串联） |
 | 5.11 | §23 双分背离→bad case 候选自动创建 | eval.py 有触发入口，但差值候选自动创建逻辑依赖新表结构 | `server/api/admin/eval.py:44-60` | 待评分链重构后补 |
 
 ## 6. 越权与安全（SSOT §25）
@@ -131,6 +131,7 @@
 | 8.5 | **模型 items 为空不阻断开考**：create_session 不校验 items 数 | `api/assessment.py:69-94` | 并入开考检查 3.5 |
 | 8.6 | **mock interviewer 主观题固定 3 分**：测试可能掩盖评分链问题 | `interview.py:66-80` | 重构测试时处理，非独立 phase |
 | 8.7 | **llm_trace ref_id 单字段弱关联**：无 entity_type 语义，trace_link 缺失时审计链断裂 | `db.py:93` | trace_link 落地时一并处理 |
+| 8.8 | **eval 脚本无独立数据库**（交叉核验盲区 B9 发现并已核实）：`eval/consistency_test.py`、`eval/virtual_candidates.py` 均直接 `from server.db import get_conn` 操作**业务库**（data/app.db），无临时库/独立库设置——直接违反 SSOT §23“eval 必须使用独立/临时数据库，不污染业务库” | `eval/consistency_test.py:18`（get_conn）；`eval/virtual_candidates.py:19`；admin/eval.py 后台任务同进程同库 | 并入 Phase 8 eval 隔离任务（§28 第 6 组“eval 隔离”的文件级定位） |
 
 ## 9. 统计与结论
 
@@ -143,12 +144,34 @@
 
 P0 四项全部确认存在且已定位：
   1.1 所有权校验 → api/assessment.py 6 处路由
-  5.10 score→report 串行 → api/assessment.py + 前端
+  5.10 score→report 串行 → 前端零步断裂（api/index.js 无 score 调用）+ 后端无串联
   3.5 开考检查 → api/assessment.py:create_session
   1.5/2.2 状态事件表 → db.py
 
 结构性大项（表结构演进 2.5-2.10）：6 张表全部需要演进或新建；
   迁移策略必须先定（Phase 8 前置决策：schema_version 体系）。
+```
+
+### 9.1 交叉核验记录（2026-09-02，map-codebase 产物对照）
+
+按指南的交叉核验 prompt 执行，结果：
+
+- **地图覆盖**：无缺失，矩阵引用的全部文件地图均有覆盖；地图内部小瑕疵（INTEGRATIONS.md 表数 19 vs 实际 18，矩阵 2.1 正确）不影响使用；
+- **抽查 5 条 [违约] 行**：4 条准确；1 条（5.10）行号准确但**描述偏轻**——实测前端从未调用 POST /score（api/index.js 无该方法，Chat.vue 直接跳转，Report.vue 只调 generateReport），“两步调用”实为零步，真实 UI 流程下报告恒为 no_data 聚合。矩阵 5.10 已按实测更新并加重定性；测试通过仅因 test_m6_backend.py 在 Python 层直调 score_session，掩盖了链路断裂；
+- **盲区清单（B1-B11）**：B9（eval 脚本）已核实存在实质违约（eval 无独立数据库，违反 §23），补为矩阵 8.8；其余盲区分流结论见 §9.2。
+
+### 9.2 盲区分流结论（哪些不核、为什么）
+
+| 盲区 | 分流 | 理由 |
+|---|---|---|
+| B1 前端管理端页面 / B4 前端组件 | **不核**，留给对应 phase | 管理端 UI 重构是 Phase 6 范围；矩阵是后端契约审计，前端页面对契约的映射由 phase research 处理 |
+| B2 前端测评端其余页面 | **部分已核**（5.10 已含 Report.vue/Chat.vue 实测）；Positions/PositionAssess/Login/Register 留给 phase | 测评端主链路（Chat/Report）已入矩阵 |
+| B3 前端基础设施（router/store/css） | **不核** | 无契约语义；唯一相关点是 route guard（§7"不依赖前端 guard"），该契约由后端 1.1 兜底 |
+| B5 auth.py 路由 | **留待 Phase 1** | 6.1（Bearer vs cookie）已登记；注册/登录逻辑属 P0 权限 phase 的自然检查范围 |
+| B6 admin 非关键路由（dict/users/feedback） | **feedback 已核**（§7 对账表：feedback 表字段缺失）；dict/users 留给 phase | 均有 require_admin，越权风险低于候选人资源 |
+| B7 schemas.py | **不单列** | 4.7 已记录"接口层无 Pydantic"；schemas.py 已有鉴权模型的事实不影响 4.7 结论 |
+| B8 模块一流水线 | **声明性盲区，维持** | M1 回归测试（§24 硬前置）是更合适的核对手段 |
+| B10 seed_admin.py / B11 构建配置 | **不核** | 无契约映射 |
 
 新发现（§28 未登记）：8.1-8.5 五项实质问题（8.6/8.7 为顺带记录）。
 ```
