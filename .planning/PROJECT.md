@@ -9,6 +9,14 @@
 
 把非结构化 JD 文本转化为可测量的岗位胜任力模型（尺子），基于尺子对候选人做有界动态测评，产成立体人才画像报告（读数），并以测试闭环保证全链可审计、可回溯、有评测标准。端到端链路：JD 解析（模块一）→ 有界动态测评（模块二）→ 人才画像/评分（模块三）→ 测试闭环（模块四）。本仓库为课程考核项目，以个人形式完成核心功能开发与闭环演示。
 
+## Current Milestone: M1 修复/重构流（SSOT v2.0 对齐）
+
+**Goal:** 按 SSOT §28 六步实施顺序，把既有代码（M1–M7 implemented、contract_complete=false）重构演进到 v2.0 契约（contract_complete），并完成测试闭环验证。
+
+**Scope:** Phase 1–6（见 ROADMAP.md）：P0 安全与主链修复 → 动态选题与有界循环 → 表单/SSE/幂等/计时 → 题库版本绑定 → 证据链与报告契约 → 迁移体系与测试闭环收口。
+
+**Notes:** 本里程碑由 new-project-from-ingest 直接建立（未经 /gsd-new-milestone，无 MILESTONES.md 前置版本）；下一里程碑（Prompt 模块周期等）再走 /gsd-new-milestone 正常流程。
+
 ## Core Value
 
 端到端可演示（JD 解析→测评框架→交互测评→画像生成）+ 全链可审计（LLM trace 留痕、状态事件 append-only、报告可回溯）。任何权衡下，"代码是唯一状态机、LLM 只做结构化观察"与"一切留痕"不可让步。
