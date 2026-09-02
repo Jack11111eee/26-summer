@@ -180,19 +180,24 @@ git commit -m "chore: record pre-refactor baseline (SSOT v2.0 alignment)"
   /gsd-map-codebase --paths server,web/src
   ```
 
-映射完成后，让 CC 对照 SSOT 做覆盖性检查（只读，不改代码）：
+映射完成后，做**交叉核验**，不是重新找缺口——缺口已由 `research/ssot-code-gap-matrix.md`（2026-09-02 穷举核对，68 条契约带文件:行号证据）完成。给 CC 的 prompt：
 
 ```text
-请审查 .planning/codebase/ 下的代码库地图，对照 design/final-design/总设计文档.md，
-只输出缺口，不修改任何文件：
-1. §6 的 21 张表清单，代码里现有哪些、缺哪些（assessment_state_event/trace_link/form_instance）；
-2. §10 题量配额、§11.2 难度路径、§11.4 answer_state/score_state、§12 表结构演进，
-   在 server/services/question_selection.py、interview.py、scoring.py、db.py 中的现状；
-3. §7 所有权校验在 server/api/assessment.py 的现状；
-4. §21.1 报告发布契约在 server/services/report.py 的现状；
-5. §11.5 SSE 在 server/api/ 与 web/src/utils/sse.js 的现状；
-6. 代码存在但 SSOT 未覆盖的区域。
+背景：research/ssot-code-gap-matrix.md 是已完成的 SSOT v2.0 ↔ 代码逐条核对矩阵
+（68 条契约，标注 [缺失]/[违约]/[合规]，带文件:行号证据）。
+
+任务：交叉审查 .planning/codebase/ 地图与该矩阵，不重新做全量对照。
+
+1. 矩阵引用的每个文件，地图是否都覆盖了？列出地图缺失的文件；
+2. 地图中存在、但矩阵第 0 节"覆盖范围声明"之外的代码区域（矩阵盲区），列出区域名+路径；
+3. 抽查矩阵 5 条 [违约] 行（优先 P0 与结构性），打开对应文件验证行号引用是否准确；
+4. 以上三项之外不展开。
+
+只输出：地图缺失清单、矩阵盲区清单、抽查验证结果（准确/偏差+正确行号）。
+不修改任何文件。
 ```
+
+发现矩阵盲区时，人工决定：补进矩阵，还是留到对应 phase 的 research 步骤处理。
 
 ---
 
@@ -265,16 +270,22 @@ LOCKED-vs-LOCKED 不自动选择。不修改业务代码。
 
 理论上不应有真实冲突——分模块文档是总文档的分块摘录（SSOT 附录 C）。若出现，多半是摄取了非权威文档，检查 manifest。
 
-### 6.4 把 §28 摄进 REQUIREMENTS
+### 6.4 把 §28 + 差距矩阵摄进 REQUIREMENTS
 
 摄取的 ROADMAP 不会自动包含 §28 待办。补一步（在 CC 中说）：
 
 ```text
-请读取 design/final-design/总设计文档.md §27–§28 与 .planning/REQUIREMENTS.md。
-将 §28 的 6 组待办逐条转为带唯一 ID 的需求条目（REF-1 ~ REF-N），每条注明：
-SSOT 章节、差距类型（缺失/违约/保持）、涉及文件（对照 .planning/codebase/ 地图）、
-验收命令。不修改业务代码，只更新 .planning/REQUIREMENTS.md。
+请读取 design/final-design/总设计文档.md §27–§28、research/ssot-code-gap-matrix.md
+与 .planning/REQUIREMENTS.md。
+以差距矩阵为主源、§28 为顺序框架，生成带唯一 ID 的需求条目（REF-1 ~ REF-N）：
+- 矩阵每行 [缺失]/[违约] 项对应一个 REF（[合规] 行不生成 REF，只留档）；
+- 每个 REF 注明：SSOT 章节、差距类型、矩阵证据（文件:行号）、验收命令；
+- §28 第 6 组（迁移/测试/CI）在矩阵第 7 节有文件级对账，同样转 REF；
+- 矩阵第 8 节"新发现"5 项转 REF 时标注"SSOT §28 未登记，需先回写 SSOT"。
+不修改业务代码，只更新 .planning/REQUIREMENTS.md。
 ```
+
+注意矩阵第 8 节的 5 项新发现属于设计外发现——按项目治理规则，转 REF 前应先**回写 SSOT**（§14 变更日志 + 正文对应章节），保持"设计先行"不被执行顺序倒置。
 
 ---
 
