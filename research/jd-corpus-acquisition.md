@@ -7,15 +7,17 @@
 
 ## 0. 一句话结论
 
-在「禁止恶意爬取招聘网站」的硬约束下，本阶段 **只走现成公开数据集**（零抓取），先**广覆盖主流岗位铺底**、再尽量加深 **AI/大模型/Agent 方向**。数据集下载须在**本机**执行（本会话沙箱对 HuggingFace / GitHub 打包下载不通），本记录给出核验结论与逐源执行步骤。
+在「禁止恶意爬取招聘网站」的硬约束下，本阶段**不购买付费数据集、不走站点自动采集**：AI 岗补深取免费的 HuggingFace RocXuLi 集，广覆盖由**自身合规渠道（粘贴 / JSONL 上传）**按几十类主流岗位补齐（每类 10–30 条，课程/演示档几百条量级）。数据集下载须在**本机**执行（本会话沙箱对 HuggingFace / GitHub 打包下载不通），本记录给出核验结论与执行步骤。
 
 ## 1. 口径（来自 2026-09-02 讨论确认）
 
 | 项 | 决定 |
 |---|---|
-| 目标域 | **广覆盖 + AI 岗补深**（几十类主流岗位打底；AI/大模型/Agent 方向单独加深） |
-| 采集通道 | **仅现成数据集**（不走浏览器插件、不跑本地半自动站点工具、不抓官网） |
-| 节奏 | **先核许可再下载** |
+| 目标域 | 广覆盖收敛为**控制岗位数**（几十类主流岗位打底，每类 10–30 条即可）+ **AI 岗补深**（以免费数据集为主源） |
+| 采集通道 | **仅现成/免付费数据集**（不走浏览器插件、不跑本地半自动站点工具、不抓官网） |
+| 付费 | **IEEE Dataport 不购买**（用户 2026-09-02 确认：三分类 2014–2023 研究数据，对答辩性价比低）；广覆盖改由免付费源 + 自身合规渠道（粘贴/JSONL 上传）凑岗位覆盖 |
+| 规模 | 课程/演示档：几百条量级即可，不追求研究级大语料 |
+| 节奏 | 先核许可再下载 |
 | 产出 | 独立语料仓（`data/jd_corpus/`，gitignored）＋本获取记录（`research/`，入库） |
 | 阶段边界 | 只获取原文 + 保留来源已有结构（duty/require 若已拆分则保留），**不做任何 LLM/解析/能力抽取** |
 
@@ -33,15 +35,15 @@
 |---|---|---|---|---|
 | [SuitJOB](https://github.com/hscspring/SuitJOB)（hscspring） | MIT ✅ | ❌ **正文不在仓库** | 仓库仅含 `category.yml`、岗位 URL 清单、词频模型（`job_description_mark_sorted_dict.txt` 为词表非正文）；README 写明数据需自行运行其爬虫抓取（2019-05） | **不满足「数据集、零抓取」**，降为参考，不采用 |
 | [bossJD](https://github.com/yinshaojun001/bossJD) | MIT ✅ | 需运行其本地爬虫 | 面向 BOSS 直聘 AI/Agent 岗的本地采集工具 | 属「本地半自动站点工具」，按本轮口径排除 |
-| [RocXuLi AI 岗数据集（HF）](https://huggingface.co/datasets/RocXuLi/AI_Job_DataSet_1000_list) | 本机待核 ❓ | 需下载（1000 条中文 AI 岗） | HF API/resolve 在沙箱不可达，license 卡片未读到 | **首选待核**：本机打开数据卡片确认 license 是否允许下载/再分发 |
-| [IEEE Dataport 招聘文本分类集](https://ieee-dataport.org/documents/recruitment-job-postings-text-classification-results-ai-environmental-protection-other) | 需注册 + 同意协议 ❓ | 是（含 JD 自由文本，2014–2023，22 字段含 label） | 页面可达（200），下载需账号走协议 | **待核**：注册后确认条款与字段可用性 |
+| [RocXuLi AI 岗数据集（HF）](https://huggingface.co/datasets/RocXuLi/AI_Job_DataSet_1000_list) | 本机确认可下载 ✅（license 卡片显示可下载） | 需下载（1000 条中文 AI 岗） | 用户 2026-09-02 本机确认可下载；字段含职位描述/职位要求，天然拆好 | **AI 岗补深主源**：本机下载后落 `raw/rocxu-ai/` |
+| ~~[IEEE Dataport 招聘文本分类集](https://ieee-dataport.org/documents/recruitment-job-postings-text-classification-results-ai-environmental-protection-other)~~ | 需注册 + 协议 + **$40** | 是（含 JD 自由文本，2014–2023） | 用户 2026-09-02 确认 **不购买**：三分类（AI/环保/其他）不算广覆盖、偏研究、性价比低 | **排除**（不买）。广覆盖改由免付费源 + 自身合规渠道完成 |
 | [jd_content_clean](https://gitcode.com/lvupclub/jd_content_clean) | 未知 ❓ | 少量已清洗文本 | gitcode 为 SPA，正文不直连；量小 | 补充参考，非主源 |
 | [Chinese-SkillSpan](https://ar5iv.labs.arxiv.org/html/2604.23009) | 待核 ❓ | 学术标注集（span 级技能，对齐 ESCO） | arxiv 镜像沙箱不通 | 后期做能力抽取/校验的潜在资产，非本轮获取源 |
 
 ### 3.1 关键事实提示（影响判断）
 
 1. GitHub 上一批名为「JD 数据集」的仓库，很多实际是**爬虫代码或 URL 清单**而非打包正文（SuitJOB 即典型）——核验时必须看仓库正文文件，不能只看 README 的宣称条数。
-2. 真实「现成、零抓取、含正文、许可宽松」的中文 JD 语料**比搜索摘要窄**；当前确认可当正文来源的只有 IEEE（需注册协议）与 HF RocXuLi（需本机核 license）。
+2. 真实「现成、零抓取、含正文、许可宽松」的中文 JD 语料**比搜索摘要窄**；当前确认采用的主源为 HF RocXuLi（免费、AI 岗）；广覆盖不依赖第三方大语料，由自身合规渠道补齐。
 3. 数据集岗位体系普遍停在 2019–2023，**「AI Agent / 大模型应用工程师」这类 2024–2026 新角色几乎无对口真实样本**——「AI 补深」在数据集-only 口径下的现实含义是：把现成集中最接近的 AI/算法岗尽量抽出，而非拿到 2026 年的真实 AI Agent JD。
 
 ## 4. 语料仓设计（`data/jd_corpus/`，gitignored）
@@ -72,10 +74,8 @@ dedup_key       规则计算的去重键
 
 ## 5. 本机执行步骤（沙箱不可代跑）
 
-1. **核许可**（本机打开确认，倒查可再分发/署名要求）：
-   - HuggingFace `RocXuLi/AI_Job_DataSet_1000_list` 数据卡片 license；
-   - IEEE Dataport 注册 + 下载协议条款。
-2. **下载**：分别落 `data/jd_corpus/raw/<source>/`，冻结原始件。
+1. **下载主源**：HuggingFace `RocXuLi/AI_Job_DataSet_1000_list`，原始件落 `data/jd_corpus/raw/rocxu-ai/`（本机可访问 HF，沙箱不可）。
+2. **广覆盖补齐**（不依赖第三方）：用系统现有合规接入（模块一粘贴 / JSONL 文件上传，或直接向语料仓追加），覆盖目标主流岗位每类 10–30 条。
 3. **归一化去重**（纯规则脚本，非 LLM）：
    - 按 `(规范化标题, 公司, 正文归一化 hash)` 去重；
    - 过滤 <30 字空壳 / 纯模板 / 乱码；
@@ -84,9 +84,8 @@ dedup_key       规则计算的去重键
 
 ## 6. 待办 / 开放项
 
-- [ ] 本机核 HF RocXuLi license → 通过则下载做 AI 岗补深主源
-- [ ] 本机注册 IEEE Dataport → 核字段与协议 → 下载做广覆盖主源
-- [ ] 复核 SuitJOB 是否存在仓库外正文镜像（若存在再纳入评估）
+- [ ] 本机下载 HF RocXuLi AI 岗数据集 → 落 `raw/rocxu-ai/` → 确认正文结构（职责/要求分列与否）
+- [ ] 广覆盖岗位清单（目标几十类主流岗位的名称/别名清单）——供自身渠道逐类补齐
 - [ ] 归一化脚本编写（数据就位后做，避免空跑）
 
 ## 7. 相关文档关系
