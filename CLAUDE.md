@@ -73,5 +73,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## Project Context（本项目约定）
 
 - 本目录是「AI 驱动的岗位胜任力测评与人才画像系统」的 git 仓库根。
-- 全部设计文档与要求文档收录于 `design/` 目录（2026-08-31 整理入库，编号前缀已去除）：要求文档（《需求文档-胜任力测评与人才画像系统》《技术方案概述》）、主设计《总设计文档》（单一事实来源 SSOT，原 07）、四份模块设计文档（模块一~四，为总文档的分块摘录）、历史档案（原 04/05/06）。任何设计变更、范围调整、接口改动，**先更新《design/总设计文档.md》（正文 + §13 变更日志），再动代码**。
-- 实施按里程碑推进：M1~M3（模块一）已完成；下一步 M5 题库+对话 → M6 评分+报告 → M7 测试闭环。M4（黄金集、插件）本期保留不做。
+- **唯一 SSOT：`design/final-design/总设计文档.md`（v2.0，2026-09-02 起生效）**，四份分模块设计文档（`design/final-design/模块一~四设计`）为其分块摘录。任何设计变更、范围调整、接口改动，**先更新《design/final-design/总设计文档.md》（正文 + §14 变更日志），再动代码**。
+- 其余文档只有三种身份：从属模块稿（final-design/ 分模块文档）/ 临时讨论稿（design/ 临时讨论稿-*）/ 历史档案（`design/final-design/历史档案/` 及 design/ 原 04/05/06），均不作为实施依据；与 SSOT 冲突处以 SSOT 为准。要求文档（《需求文档-胜任力测评与人才画像系统》《技术方案概述》）为上游需求输入。
+- 实施按里程碑推进，状态用四维口径记录（implemented / contract_complete / verified / production_ready）：M1~M3（模块一）已完成；M5~M7 主体代码已落地但 contract_complete=false，后续按 SSOT §28 修复与重构待办推进（P0：资源所有权校验、score→report 串行、开考检查、状态事件表）。M4（黄金集、插件）本期保留不做。Prompt 模块单独讨论（SSOT §26 已登记扩展点，实施时保留可替换接口）。
