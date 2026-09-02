@@ -2239,3 +2239,289 @@ review_status = HUMAN_REVIEW_REQUIRED
 5. 新总设计文档在 `design/final-design/` 生效并取代旧 SSOT 的文档治理步骤。
 
 本节仍不展开 Prompt，也不授权修改代码。
+
+# 25. 第十轮确认回写：最后一批关键契约
+
+> 本节记录用户对剩余六项关键问题的确认。其中“按建议执行”的条目已按第九轮讨论稿的推荐方案细化为具体条目；用户给的数字和流程按原话记录。本节仍不展开 Prompt，也不授权修改代码。
+
+## 25.1 难度与 1–5 能力等级的最终映射
+
+### 用户确认
+
+```text
+observable_level_max: easy = 3, medium = 4, hard = 5
+rubric 最低等级:       easy = 2, medium = 3, hard = 4
+```
+
+### 细化条目
+
+1. 每道普通题的 rubric 行为锚点覆盖区间为：
+
+   ```text
+   easy:   [2, 3]
+   medium: [3, 4]
+   hard:   [4, 5]
+   ```
+
+2. rubric 最低等级即该题的最低行为锚点（`observable_level_min`）。
+3. 单题评分语义：
+   - 作答达到最低锚点：在锚点区间内评分；
+   - 有效作答但低于最低锚点：支撑等级 1（表示低于该难度最低可观测行为，不与拒答/缺证据混淆）；
+   - 未形成有效观察（拒答、缺证据、题目无效、系统错误、模型不确定）：不产生能力等级证据。
+4. rubric 可将某题的上限配置为低于默认上限，不允许配置超过所属难度的默认上限。
+5. `required_level` 的语义按第九轮建议确认：用于难度路径决策和报告中的达标比较，不改变 `item.weight`，不改变任何评分。
+6. hard 开放条件：
+
+   ```text
+   item.target_level > medium 默认上限(4)
+   且前序测量达到进入 hard 的路径条件
+   且存在合法 hard 题
+   ```
+
+7. 能力等级 5 的支撑必须来自达到 hard 题 5 级锚点且证据完整、稳定的测量。
+
+## 25.2 综合题与普通题的最终 item 合并规则（按第九轮建议确认）
+
+1. 普通题和综合题先各自转化为统一的 item 测量记录：
+
+   ```text
+   item_measurement
+     question_id
+     item_id
+     observed_level
+     evidence_refs
+     measurement_source: ordinary | integrated
+   ```
+
+2. item 最终等级由统一证据裁决函数产生：
+
+   ```text
+   item_final_level = adjudicate(ordinary_measurements + integrated_measurements)
+   ```
+
+3. 裁决规则：
+   - 普通题最低测量资格先检查（综合题不能替代）；
+   - 所有有效测量按 rubric、覆盖、稳定性和冲突裁决；
+   - 不按普通/综合来源加权；
+   - 不按题目数量重复乘 `item.weight`；
+   - 共享 evidence span 只影响证据解释，不产生分数折扣，也不自动复制评分；
+   - 重大冲突时取较低值，并保留人工复核标记。
+4. 综合题第二题激活沿用第九轮决策表：剩余联合 target 为主，第一题整体无效可触发，仍受最多两题、题库匹配、session 状态约束。
+
+## 25.3 `assessment_state_event` 最终契约（按第九轮建议确认）
+
+### 字段
+
+```text
+id
+session_id
+sequence_no
+assessment_question_id nullable
+assessment_message_id nullable
+event_type
+from_state nullable
+to_state nullable
+actor_type
+actor_id nullable
+request_id nullable
+idempotency_key nullable
+policy_version nullable
+model_version nullable
+question_bank_version nullable
+correlation_id nullable
+causation_event_id nullable
+payload_json
+created_at
+```
+
+约束：
+
+- `(session_id, sequence_no)` 唯一，`sequence_no` 为 session 内单调递增序号；
+- 状态迁移类事件必填 `from_state/to_state`，动作/事实类事件允许为空；
+- append-only：禁止 UPDATE/DELETE，纠错通过补偿事件；
+- 当前状态快照列与事件在同一事务更新；LLM 调用不持有长事务；
+- `correlation_id`/`causation_event_id` 一并加入，用于追踪用户请求链和事件因果。
+
+### 候选状态机（作为 from/to 值域）
+
+```text
+session: PENDING_START → ACTIVE → SCORING → COMPLETED
+         ACTIVE → ABANDONED（6 小时无活动，本期不可恢复）
+         任意 → FAILED（人工/系统终止）
+question: AWAITING_ANSWER → IN_FOLLOWUP → SEALED
+          → INVALIDATED
+report:   GENERATING → PROVISIONAL | READY → PUBLISHED
+          → FAILED
+```
+
+### 候选事件枚举（定稿于新总设计文档）
+
+```text
+SESSION_*   CREATED / STARTED / PAUSE_REQUESTED / PAUSED / RESUMED /
+            ENTERED_SCORING / GLOBAL_TIMEOUT / COMPLETED / ABANDONED
+QUESTION_*  SELECTED / ACTIVATED / ANSWER_RECEIVED / FOLLOWUP_ASKED /
+            SEALED / TIMEOUT / DIFFICULTY_RAISED / DIFFICULTY_LOWERED /
+            DIFFICULTY_RESTORED / PATH_UNAVAILABLE / INVALID_MARKED /
+            REQUIRED_EXCEPTION_GRANTED
+MESSAGE_*   STORED / REFINED
+OBSERVATION_* CLASSIFIED / EVIDENCE_EVALUATED / STABILITY_UPDATED /
+            UNCERTAINTY_RAISED
+CONTROL_*   SCAFFOLD_SHOWN / SUPPORT_SHOWN / CONDUCT_EVENT /
+            INJECTION_DETECTED / TECHNICAL_RETRY / TECHNICAL_BARRIER
+FORM_*      RENDERED / SUBMITTED / VALIDATED / VALIDATION_FAILED /
+            FACT_EXTRACTED / FACT_CONFLICT
+GATE_*      EVALUATED / OVERRIDDEN（人工覆盖，需二次确认）
+POLICY_*    DECISION_RECORDED（每轮策略决策统一留痕）
+TOOL_*      REQUESTED / EXECUTED / FAILED_ESCALATED（失败→暂停并人工接管）
+TASK_*      QUEUED / STARTED / SUCCEEDED / FAILED（评分、报告、题库生成、评测）
+REVIEW_*    REQUESTED / ACCESSED（访问审计）/ DECIDED /
+            REPORT_PUBLISH_CONFIRMED / FEEDBACK_RECEIVED（不改分）
+```
+
+每个枚举在新总设计文档中定稿时须注明：必填字段、是否状态迁移、是否计入题量、是否计入计时、是否需要人工处理。
+
+### `trace_link` 统一关联表
+
+```text
+id
+trace_id
+entity_type
+entity_id
+link_role: input | output | caused_by | scored | reported | source
+created_at
+```
+
+唯一约束：`(trace_id, entity_type, entity_id, link_role)`。业务表不逐一增加 trace 外键，统一通过 trace_link 闭合 report→session→model/version→question→message→trace 链。
+
+### 回放一致性
+
+- 回放仅用于审计、恢复、修复和测试；正常业务读取当前快照列；
+- 回放按 `(session_id, sequence_no)` 顺序重放状态迁移事件重建状态；
+- 回放结果与当前快照不一致时，不静默覆盖，标记不一致并进入人工/系统修复流程。
+
+## 25.4 计时有效区间与断线/无活动检测（按第九轮建议确认，结合 6 小时规则）
+
+1. 服务端保存计时区间，客户端时间仅用于展示：
+
+   ```text
+   session_time_interval
+     session_id
+     interval_type: active | paused
+     reason nullable
+     started_at_server
+     ended_at_server
+   ```
+
+   单题有效时长由区间记录与题目激活/封存时间推导；`active_elapsed = Σ active 区间`。
+2. 断线边界：
+   - 短暂断线：不自动暂停，当前题保留，候选人重新拉取即可恢复；
+   - 仅显式 pause 或技术/无障碍状态产生 paused 区间；
+   - 所有 paused 区间不计入 40 分钟。
+3. 无活动检测：
+   - 无活动时长 = 距最近一次候选人有效请求（answer、会话拉取等）的服务端 UTC 时间；
+   - 达到 6 小时 → 标记 `ABANDONED`，本期不可恢复；
+   - 检测时机：下一次请求到达时惰性判断 + 单进程内周期扫描；
+   - ABANDONED 不删除任何原始证据和审计记录。
+4. 单题 20 分钟超时：封存当前题（`seal_reason=timeout`），继续下一题；
+5. 全场 40 分钟超时：停止新增主问题，进入收尾和评分。
+
+## 25.5 报告发布校验、人工复核字段和发布流程（按第九轮建议确认）
+
+### 状态
+
+```text
+report_status: GENERATING → PROVISIONAL | READY → PUBLISHED | FAILED
+review_status: NONE | REQUIRED | IN_PROGRESS | CONFIRMED | CLOSED
+```
+
+### 发布前一致性校验清单
+
+1. 每个数字可从结构化评分重新计算；
+2. item.weight 总和与聚合结果一致；
+3. 引用的 question/message 属于该 session；
+4. 引用的 model/version 与 session 快照一致；
+5. 无效题、系统错误、模型不确定未进入正常分母；
+6. `IMPUTED`、`REFUSED`、required 缺失警告与结构化状态一致；
+7. 文案没有声称系统做录用判断。
+
+### 人工复核字段
+
+```text
+review_request_reason
+reviewer_id
+review_note
+review_outcome
+reviewed_at
+publish_confirmed_by
+published_at
+```
+
+### 流程
+
+```text
+评分完成
+→ 聚合与证据校验
+→ 生成报告（PROVISIONAL 或 READY）
+→ 有 required 缺失/补算超阈值/模型不确定 → 人工复核
+→ 管理员复核后明确点击发布
+→ PUBLISHED
+```
+
+- required 缺失的临时报告：人工确认后可发布为正式报告，必须明确点击发布，不自动发布；
+- 异议反馈（`REVIEW_FEEDBACK_RECEIVED`）不改分，仅进入人工处理和质量数据；
+- 人工复核不修改原始评分。
+
+## 25.6 新总设计文档的生效与文档治理规则（用户原话确认）
+
+### 撰写要求
+
+新总设计文档必须把所有已收敛细节全部写入，做到日后实施时尽可能不需要查阅旧总设计文档；旧总设计文档只作为历史文档保留。
+
+### 生效动作（一个 commit 内原子完成）
+
+1. 新总设计文档 + 新分模块文档落位 `design/final-design/`；
+2. 旧顶层 `design/总设计文档.md` 头部加“已废弃，权威见 final-design/”声明（原地保留，靠 git 管历史，不删除）；
+3. `final-design/` 中过时的旧稿移入“历史档案”子目录或加历史标记，不与新版并列；
+4. `CLAUDE.md` 项目约定更新 SSOT 路径。
+
+### 全仓库文档身份规则
+
+- 全仓库只允许一个 SSOT 标记（`design/final-design/` 中的新总设计文档）；
+- 其余文档只能是三种身份之一：从属模块稿 / 临时讨论稿 / 历史档案；
+- 变更日志维护在新 SSOT 内，沿用 §13 模式。
+
+### 与当前工作树状态的关系
+
+当前工作树已出现旧顶层设计文档移入 `design/final-design/` 的未提交变化；上述规则将该动作正式化：新文档写成后直接替换该目录中的过时版本，旧稿按第 3 条移入历史档案或加历史标记。
+
+## 25.7 本轮顺带固化的小项细化
+
+以下为无重大歧义、按既有确认直接细化的条目，供审阅：
+
+1. **7:3 平局规则：** 最大余数法在两个大类小数部分相等时（如 N=15 的 10.5/4.5），剩余 1 题分配给 `hard_skill`；即 N=9 → 6/3，N=10 → 7/3，N=11 → 8/3，N=15 → 11/4。
+2. **有效题目定义：** `question_bank.status=active` 且 model_id/model_version 匹配当前 confirmed 模型版本、难度/题型合法、未被标记无效的题目。
+3. **`question_score` 字段统一：** 统一使用 `score_final`，废弃现有 `final_score` 重复列（迁移时合并旧数据）。
+4. **`context_raw` 复用作用域：** 原文 hash 去重/复用限制在单一 session 范围内，不跨候选人复用，避免跨候选人隐私关联。
+5. **`N` 的岗位级配置：** 由管理员在岗位策略中设置；系统不设全局上下限；默认值在实施阶段结合 40 分钟体验测试确定。
+
+## 25.8 第十轮后的收敛状态
+
+至此，第八、九轮列出的全部重大未决项均已关闭：
+
+- BackgroundTasks 重启恢复：本期不要求，仅留优化记录；
+- 拒答聚合：只进行为/完整度，不进能力等级；
+- abandoned：6 小时无活动，不可恢复；
+- required 缺失报告：人工确认后可发布，必须明确点击发布；
+- 难度-等级映射：3/4/5 上限 + 2/3/4 rubric 最低锚点；
+- 综合题合并：统一 item 测量记录 + 证据裁决；
+- 事件表契约：字段、状态机、枚举、trace_link、回放规则；
+- 计时与断线：服务端区间 + 惰性/周期检测；
+- 报告发布：校验清单 + 复核字段 + 明确发布动作；
+- 文档治理：单 SSOT 标记、三种文档身份、原子生效 commit。
+
+**剩余事项只有两类：**
+
+1. **Prompt 模块：** 按既定安排，待用户明确授权后单独讨论；
+2. **新总设计文档撰写：** 待用户明确授权后开始；撰写要求已在本节 25.6 固化。
+
+非 Prompt 设计在本 checkpoint 视角下已收敛。收敛后的正式成文、分模块拆分和 SSOT 迁移以用户新总设计文档授权为触发点。
