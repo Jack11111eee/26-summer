@@ -251,10 +251,11 @@ precedence 数值越小优先级越高：总设计文档 0（唯一权威），�
 2. new-project-from-ingest 路线会调 gsd-roadmapper **生成全套 PROJECT/REQUIREMENTS/ROADMAP/STATE 初稿**——这正是不存在时的需要；它**不写** `codebase/` 与 `config.json`，地图不受影响；
 3. `.planning/` 存在时传 `--mode new` 会触发覆盖警告 + AskUserQuestion 确认（ingest-docs.md:65）——**选 Approve**：警告防的是误覆盖已有项目文件，而本仓库恰好没有那些文件。
 
-防御性备份（`.planning/` 目前未被 git 跟踪）：
+跑摄取前先提交未跟踪的 manifest（`.planning/` 已被 git 跟踪——codebase/ 地图与 config.json 在 `b74e9cf`/`02f4637` 已提交，ingest 产出的所有变更都受 git 保护，无需额外备份）：
 
 ```bash
-cp -r .planning /tmp/planning-backup-$(date +%s)
+git add .planning/ingest-manifest.yaml
+git commit -m "chore: add ingest manifest for SSOT v2.0"
 ```
 
 - `--resolve auto`：v1 只支持 auto；LOCKED-vs-LOCKED 硬冲突会自动阻断并列出，不会静默选择。
