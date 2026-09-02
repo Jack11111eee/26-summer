@@ -1,893 +1,623 @@
-# Claude Code + GSD Core：设计定稿后的大面积重构操作说明
+# Claude Code + GSD Core：SSOT v2.0 落地重构操作指南
 
-> **适用项目：** 已经有一版代码实现，设计文档正在发生或刚刚完成大面积调整，需要把既有代码重新对齐。
+> **适用场景：** 设计已冻结（SSOT v2.0，commit `a18d0fc`），代码主体已落地但 `contract_complete=false`，按 SSOT §28 待办基于现有代码**重构演进，不重写**。
 >
-> **本文版本核验：** 2026-09-01
+> **本文版本核验：** 2026-09-02。所有 GSD 命令与旗标均对照本机 GSD 1.42.3 的 workflow 源码逐一核实，非凭记忆或旧 help 文本。
 >
-> **重要说明：** 本文的 GSD 命令和安装结论以 GSD 官方仓库/发布包及本机安装内容为准；不以旧版 `/gsd-help` 输出作为唯一事实来源。当前本机安装版本为 **GSD 1.42.3**。
+> **基线实测（2026-09-02）：** 后端 `13 passed, 3+1 errors`（test_question_bank.py 预先损坏：fixture `pid/mid` 未定义 + `sqlite3.OperationalError`）；`web build` 通过（有 chunk 体积警告）；分支 `feature/m5-assessment`。
 
 ---
 
-## 1. 先给结论
+## 0. v1 指南（旧版）的错误修正表
 
-当前本机已经安装 GSD Core，不需要重复安装：
+本文取代 2026-09-01 版。重写前逐条核对了 GSD 1.42.3 实际 workflow 源码，v1 指南有以下错误：
+
+| v1 写法 | 实际行为（1.42.3） | 修正 |
+|---|---|---|
+| `/gsd-ingest-docs design/ --mode new --resolve interactive` | `--resolve interactive` 是保留字，v1 只支持 `auto`，传入直接被拒绝 | 用 `--resolve auto`，冲突后人工审查 `INGEST-CONFLICTS.md` |
+| `/gsd-discuss-phase 4 --batch=3` | `--batch` 是布尔旗标，无 `=N` 形式 | 写 `/gsd-discuss-phase 4 --batch` |
+| `/gsd-plan-phase 4 --tdd` / `/gsd-execute-phase 4 --tdd` | `--tdd` 未在任何 workflow 中定义 | 删除；用常规 plan→execute 流程 |
+| `/gsd-map-codebase --fast` / `--focus backend` | 不存在；真实旗标是 `--paths <p1,p2>`（增量重映射） | 用 `/gsd-map-codebase`（全量）或 `--paths server,web/src` |
+| `/gsd-phase "设计对齐重构"` 无参描述直接建 phase | add-phase 需要描述文本 | `/gsd-phase <描述>`；milestone 用 `/gsd-new-milestone` |
+| "Claude Code Skills：67 个 GSD skill" | 67 个已安装，但本会话只浮出 8 个核心入口（surface 机制） | 需要时 `/gsd-surface list` 检查并调整 |
+| ingest 扫描 `design/` 即可发现所有文档 | 目录约定只识别 adr/prd/spec/docs 子目录与 ADR-*/PRD-* 命名，**中文文件名全部发现不了** | 必须用 `--manifest` 显式列出（见 §4） |
+
+---
+
+## 1. 你和设计的"距离"是什么（先读这个）
+
+SSOT（`design/final-design/总设计文档.md`）已经替你完成了距离分析：
+
+- **§27 里程碑四维口径**：M1–M3 implemented；M5–M7 主体 implemented、`contract_complete=false`、`verified=false`。
+- **§28 修复与重构待办**：6 组、按实施顺序排列的差距清单（P0 优先）。
+
+也就是说，"设计文档和代码的距离"**不需要你或 GSD 从零推导**——SSOT §28 就是权威差距登记。GSD 的任务不是"重新发明路线图"，而是把 §28 落成可执行、可验证的 phase/plan 结构，并补上 §28 没细说的"每条差距对应哪些文件"。
+
+距离的三种形态（执行时逐一辨认）：
 
 ```text
-GSD 版本：1.42.3
-安装位置：~/.claude/get-shit-done/
-Claude Code Skills：67 个 GSD skill
-Claude Code Hooks：已安装并已接入 ~/.claude/settings.json
+A. 代码缺失   —— SSOT 要求的表/字段/状态机/校验不存在（如 assessment_state_event、7:3 配额、所有权校验）
+B. 代码存在但违约 —— 实现与 SSOT 契约不一致（如 score_live 50/50 合成、24h abandoned、一次性预选题）
+C. 代码存在且合规 —— 保持不动（如模块一流水线、报告五段式、JWT）
 ```
 
-推荐工作流：
+GSD 的 ingest 差距检查 + map-codebase 对照，就是把每条 §28 待办归入 A/B/C 并定位到文件。
+
+---
+
+## 2. 总流程图
 
 ```text
-design/（设计 SSOT）
-  → 设计冻结提交
-  → 代码基线
-  → GSD 代码库映射
-  → GSD 文档摄取与冲突决策
-  → 新建重构里程碑
-  → 每阶段 Discuss / Research / Plan
-  → 按 Wave 执行迁移切片
-  → 外部测试 + 独立验证 + Code Review
-  → 人工 Diff 审查
-  → 原子提交 / 可回滚
-```
-
-不要使用下面这种方式：
-
-```text
-一个 Agent + 一个长会话 + “重构整个仓库”
+第 0 步  前置检查（分支、工作区、GSD 就绪）
+   ↓
+第 1 步  代码基线固化（.baseline/，记录真实测试结果）
+   ↓
+第 2 步  GSD 代码库映射（map-codebase）
+   ↓
+第 3 步  设计摄取（ingest-docs + manifest，冲突人工裁决）
+   ↓
+第 4 步  新建里程碑"SSOT v2.0 对齐"（new-milestone）
+   ↓
+第 5 步  逐阶段：discuss → research → plan → 人工审 PLAN → execute（按 wave）→ wave 间人工检查
+   ↓
+第 6 步  阶段收尾：verify-work → code-review → （涉及时）secure-phase
+   ↓
+第 7 步  全程穿插：progress / pause / resume；结束做负向验证清单
+   ↓
+第 8 步  最终验收（§24 测试要求 + 四维口径核对）
 ```
 
 ---
 
-## 2. 来源、核验范围与证据等级
-
-### 2.1 官方来源
-
-GSD 的官方发布仓库和 npm 包元数据指向：
-
-- 官方仓库：<https://github.com/gsd-build/get-shit-done>
-- 官方主页：<https://github.com/gsd-build/get-shit-done>
-- npm 包：<https://www.npmjs.com/package/get-shit-done-cc>
-- 官方安装入口：`npx get-shit-done-cc@latest`
-
-截至本文核验时，npm 返回的最新稳定版本为 `1.42.3`。安装器输出的产品描述明确列出 Claude Code、OpenCode、Gemini、Codex 等宿主 runtime；本机包内的 runtime 配置也包含 `claude`、`codex`、`opencode`、`cursor`、`cline`、`hermes` 等。
-
-### 2.2 本机事实
-
-以下内容是直接检查本机后的事实：
+## 3. 第 0 步：前置检查
 
 ```bash
-cat "$HOME/.claude/get-shit-done/VERSION"
-find "$HOME/.claude/skills" -mindepth 1 -maxdepth 1 -type d -name 'gsd-*'
-find "$HOME/.claude/hooks" -maxdepth 1 -type f -name 'gsd-*'
-grep -n 'gsd' "$HOME/.claude/settings.json"
+cd /Users/huaxinzhang/Desktop/trifles/26-summer-sem
+git branch --show-current          # 当前在 feature/m5-assessment
+git status --short                 # 确认没有未提交的无关变更
+ls .planning 2>/dev/null           # 应为不存在（首次）
 ```
 
-结果：
+当前工作区有两处**用户进行中的变更**（`prototype/redesign/` 修改 + `final-admin/` 未跟踪），与本次重构无关，**不要提交、不要还原**，重构期间不要动 `prototype/`。
 
-- `~/.claude/get-shit-done/VERSION` 为 `1.42.3`；
-- GSD skills 已安装；
-- GSD hooks 已安装；
-- `~/.claude/settings.json` 的 `PreToolUse`、`PostToolUse`、`SessionStart`、`Stop` 和 `statusLine` 配置已引用 GSD hooks；
-- 项目内目前只有 `.claude/skills/impeccable/`，没有与 GSD 同名的项目级 skill。
-
-### 2.3 不能从官方资料推出的内容
-
-官方仓库和安装包可以证明“有某个命令或能力”，不能证明它在你的真实仓库上一定可靠。以下仍需由真实项目的受控试点验证：
-
-- 设计差异识别的准确率；
-- 删除行为的召回率；
-- 长任务恢复后的约束保持；
-- 并行 Agent 的实际冲突率；
-- 不同模型、代理和第三方 API 的稳定性。
-
----
-
-## 3. 现在要不要安装或更新？
-
-### 3.1 当前状态
-
-已经安装，因此不要再次执行安装器来“初始化”项目。当前可以直接重启 Claude Code，然后使用 GSD skill。
-
-```bash
-exit                    # 退出当前 Claude Code 会话
-cd /path/to/26-summer-sem
-claude
-```
-
-### 3.2 以后主动更新
-
-```bash
-npx get-shit-done-cc@latest
-```
-
-安装器会更新全局 GSD 文件、skills、agents、hooks 和版本清单。更新后必须重启 Claude Code：
-
-```bash
-claude
-```
-
-更新前建议保存当前版本和配置：
-
-```bash
-cat "$HOME/.claude/get-shit-done/VERSION" > /tmp/gsd-version-before-update.txt
-cp "$HOME/.claude/settings.json" /tmp/claude-settings-before-gsd-update.json
-```
-
-更新后检查：
-
-```bash
-cat "$HOME/.claude/get-shit-done/VERSION"
-grep -n 'gsd' "$HOME/.claude/settings.json"
-find "$HOME/.claude/hooks" -maxdepth 1 -type f -name 'gsd-*' -print | sort
-```
-
-### 3.3 本次不建议使用的选项
-
-安装器提示可以使用 `--force-statusline`。当前 statusline 已经配置为 GSD statusline，因此本次不要使用该选项：
-
-```bash
-# 不要在当前状态下执行
-npx get-shit-done-cc@latest --force-statusline
-```
-
-除非你明确希望覆盖现有 statusline，否则保持现有配置。
-
----
-
-## 4. GSD Skill 是否与现有 Skill 冲突？
-
-### 4.1 当前检查结论
-
-**没有发现名称级冲突。**
-
-当前项目级 skill：
-
-```text
-.claude/skills/impeccable/
-```
-
-当前全局 GSD skill 使用 `gsd-*` 命名，例如：
-
-```text
-gsd-map-codebase
-gsd-ingest-docs
-gsd-discuss-phase
-gsd-plan-phase
-gsd-execute-phase
-gsd-verify-work
-gsd-code-review
-gsd-ui-phase
-gsd-ui-review
-```
-
-因此：
-
-```text
-impeccable ≠ gsd-ui-phase
-gsd-code-review ≠ code-review（项目不存在同名项目 skill）
-gsd-help ≠ 其他项目 skill
-```
-
-Claude Code skill 的名称空间没有发生直接重名，通常不会因为“安装了很多 skill”而自动把两个同名实现合并执行。
-
-### 4.2 没有名称冲突，不等于没有语义重叠
-
-未来如果使用 UI 相关工作，可能出现**职责重叠**而不是名称冲突：
-
-```text
-impeccable：偏 UI 设计、审美、交互和视觉改进
-/gsd-ui-phase：偏 UI 阶段规格、计划、执行和验证
-```
-
-建议分工：
-
-```text
-先用 impeccable 确定视觉/交互方案
-  → 把已确认方案写入设计 SSOT
-  → 再用 /gsd-ui-phase 进行阶段化实施和验收
-```
-
-不要让两个 Agent 同时修改同一组 UI 文件。
-
-### 4.3 GSD hooks 与项目规则的关系
-
-当前 GSD hooks 会在 Claude Code 工具生命周期中参与：
-
-- 上下文监控；
-- Read 注入扫描；
-- 阶段边界检查；
-- 写入前提示/工作流检查；
-- 提交校验；
-- Session 状态记录；
-- statusline 显示。
-
-它们不是项目设计规则的替代品。项目已有的 `CLAUDE.md` 要继续保留；建议把以下边界写入项目规则：
-
-```text
-- design/ 是设计事实来源；
-- .planning/ 只保存 GSD 执行状态和计划；
-- 设计冲突不得静默解决；
-- 当前计划外文件不得未经批准修改；
-- 删除的旧行为必须有负向验证；
-- 测试、CI 和 Git diff 是最终证据。
-```
-
-### 4.4 每次更新后的冲突检查命令
-
-```bash
-find "$HOME/.claude/skills" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > /tmp/claude-global-skills.txt
-find .claude/skills -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort > /tmp/claude-project-skills.txt
-comm -12 /tmp/claude-global-skills.txt /tmp/claude-project-skills.txt
-```
-
-输出为空表示没有同名的全局/项目级 skill。若出现同名，不要立即删除；先读取两个 `SKILL.md`，确认哪个应作为唯一入口。
-
----
-
-## 5. 设计文档仍在修改时应该做什么
-
-你当前仍在修改设计文档，因此暂时**不要执行重构阶段**。
-
-可以做只读检查：
-
-```text
-当前设计文档仍在修改中。请只做只读分析，不编辑任何文件。
-
-请检查 design/：
-1. 找出文档之间互相矛盾的要求；
-2. 找出没有验收标准的要求；
-3. 找出可能影响 API、数据库、后端、前端和测试的章节；
-4. 找出新增、修改、删除和澄清的概念；
-5. 输出风险清单。
-
-禁止：修改业务代码、删除文件、生成最终迁移计划、执行数据库写入。
-```
-
-设计没有冻结前，不建议运行：
-
-```text
-/gsd-execute-phase
-```
-
-也不建议让 Agent 根据未定稿文档生成最终 `PLAN.md`。
-
----
-
-## 6. 设计冻结后的标准起始流程
-
-以下命令中的路径需要替换为项目实际路径。
-
-### 6.1 进入项目并检查工作区
-
-```bash
-cd /path/to/26-summer-sem
-pwd
-git branch --show-current
-git status --short
-git log --oneline -5
-```
-
-如果有其他尚未准备纳入本次重构的工作，不要把它们和设计定稿混在一起。
-
-### 6.2 单独提交设计定稿
-
-```bash
-git add design/
-git commit -m "docs: finalize redesign specification"
-git rev-parse HEAD
-```
-
-把该 commit 记为：
-
-```text
-NEW_DESIGN_COMMIT
-```
-
-### 6.3 记录代码基线
-
-```bash
-mkdir -p .baseline
-git rev-parse HEAD~1 > .baseline/old-code-commit.txt
-git rev-parse HEAD > .baseline/new-design-commit.txt
-git status --short > .baseline/git-status.txt
-git log --oneline -10 > .baseline/recent-history.txt
-```
-
-执行真实的基线命令。Node 项目示例：
-
-```bash
-npm install
-npm run build 2>&1 | tee .baseline/build-result.txt
-npm test 2>&1 | tee .baseline/test-result.txt
-npm run lint 2>&1 | tee .baseline/lint-result.txt
-npm run typecheck 2>&1 | tee .baseline/typecheck-result.txt
-```
-
-如果命令不存在，不要伪造结果；改用项目实际命令，并在 `known-failures.md` 记录。
-
-```bash
-touch .baseline/known-failures.md
-git add .baseline/
-git commit -m "chore: record pre-refactor baseline"
-```
-
-### 6.4 检查当前 GSD 命令是否已加载
-
-重启 Claude Code 后使用：
+GSD 就绪性检查（在 Claude Code 会话内）：
 
 ```text
 /gsd-help
+/gsd-surface list
 ```
 
-注意：`/gsd-help` 是当前安装版本的方便入口，但本文不把旧的 help 文本当成唯一来源。若命令行为和本文不一致，应优先查看当前安装包中的 skill/workflow，并以实际版本为准。
+若核心循环命令（new-milestone / discuss-phase / plan-phase / execute-phase / verify-work / code-review）未浮出，执行：
+
+```text
+/gsd-surface profile full
+```
+
+然后重启会话使其生效。
+
+**本机配置注意（已实测）：** `~/.gsd/defaults.json` 将全部 GSD 子代理（executor/planner/verifier/reviewer 等 33 个）的模型覆盖为 `ccswitch-anthropic-k3/kimi-k3`，且 `mode: yolo`。含义：
+
+- yolo 模式下 GSD 自动批准大多数决策，只在关键检查点停——**对本重构偏激进**；
+- 子代理全部走 kimi-k3，与主会话模型无关。
+
+建议本次重构改为 interactive：
+
+```text
+/gsd-settings
+```
+
+把 mode 改为 interactive（或在 `.planning/config.json` 建好后手动改 `"mode": "interactive"`）。若希望子代理与主会话同模型，删除 defaults.json 中的 `model_overrides` 块。这不是硬前置，但 yolo+错档子代理会放大重构风险。
 
 ---
 
-## 7. 建立 GSD 项目上下文
+## 4. 第 1 步：代码基线固化
 
-### 7.1 映射已有代码库
+目的：给整个重构一个可回滚、可对比的锚点。
 
-在 Claude Code 中：
+```bash
+mkdir -p .baseline
+git rev-parse HEAD > .baseline/base-commit.txt
+git log --oneline -10 > .baseline/recent-history.txt
+find server web/src -type f | sort > .baseline/file-inventory.txt
+```
+
+执行真实基线测试并留档：
+
+```bash
+# 后端（mock 模式，临时 DB，不污染 data/app.db）
+cd server
+python3 -m pytest test_m5_backend.py test_m6_backend.py test_m7_backend.py test_question_bank.py -q 2>&1 | tee ../.baseline/backend-tests.txt
+cd ..
+
+# 前端
+cd web && npm run build 2>&1 | tee ../.baseline/web-build.txt; cd ..
+```
+
+**当前实测基线**（写进 `known-failures.md`）：
+
+```text
+test_question_bank.py:
+  - 3 个 ERROR：fixture 'pid'/'mid' 未定义（测试文件预先损坏，非本次引入）
+  - 1 个 FAILED：test_prompts — sqlite3.OperationalError
+其余 m5/m6/m7 测试：13 passed
+web build：通过（chunk >500kB 警告，不阻断）
+```
+
+SSOT §24 要求"M1 回归为动态测评实施硬前置"——当前 server/ 下**没有 M1 回归测试**，这本身就是要登记的第一条差距。
+
+把已知失败登记下来，避免后续被误判为重构引入：
+
+```bash
+cat > .baseline/known-failures.md <<'EOF'
+# 基线已知失败（2026-09-02）
+- test_question_bank.py: fixture pid/mid 未定义（3 errors）
+- test_question_bank.py::test_prompts: sqlite3.OperationalError
+- 无 M1 回归测试（SSOT §24 硬前置缺失，待补）
+EOF
+```
+
+`.baseline/` 建议提交（它不属于 SSOT 也不属于 .planning，是重构审计材料）：
+
+```bash
+git add .baseline/
+git commit -m "chore: record pre-refactor baseline (SSOT v2.0 alignment)"
+```
+
+---
+
+## 5. 第 2 步：GSD 代码库映射
 
 ```text
 /gsd-map-codebase
 ```
 
-快速模式：
+说明：
+
+- 无 `--fast`/`--focus` 旗标；全量映射。生成 7 份文档到 `.planning/codebase/`，含 `last_mapped_commit` 戳。
+- 若想限制范围（例如只重映射后端），用真实旗标：
+
+  ```text
+  /gsd-map-codebase --paths server,web/src
+  ```
+
+映射完成后，让 CC 对照 SSOT 做覆盖性检查（只读，不改代码）：
 
 ```text
-/gsd-map-codebase --fast
-```
-
-按范围映射：
-
-```text
-/gsd-map-codebase --focus backend
-/gsd-map-codebase --focus frontend
-/gsd-map-codebase --focus database
-/gsd-map-codebase --focus testing
-```
-
-它的目标是建立代码库地图，而不是修改业务实现。完成后检查：
-
-```bash
-find .planning/codebase -maxdepth 1 -type f -print | sort
-```
-
-让 Claude Code 检查地图是否漏掉设计涉及的区域：
-
-```text
-请审查 .planning/codebase/ 下的代码库地图。
-
-对照 design/ 当前版本，检查：
-1. API 是否覆盖；
-2. 数据库/schema 是否覆盖；
-3. 后端调用链是否覆盖；
-4. 前端页面和状态是否覆盖；
-5. 测试和构建入口是否覆盖；
-6. 设计提到但地图没有覆盖的区域；
-7. 代码存在但设计没有解释的重要区域。
-
-只输出缺口，不修改代码。
-```
-
-### 7.2 摄取设计文档
-
-如果当前项目还没有 `.planning/`：
-
-```text
-/gsd-ingest-docs design/ --mode new --resolve interactive
-```
-
-如果已有 `.planning/`，要把设计合并进现有上下文：
-
-```text
-/gsd-ingest-docs design/ --mode merge --resolve interactive
-```
-
-建议先列出文档清单：
-
-```bash
-find design -type f | sort > .baseline/design-files.txt
-```
-
-摄取后检查：
-
-```bash
-find .planning -maxdepth 3 -type f | sort
-```
-
-重点查看：
-
-```text
-.planning/PROJECT.md
-.planning/REQUIREMENTS.md
-.planning/STATE.md
-.planning/INGEST-CONFLICTS.md
-```
-
-### 7.3 处理冲突
-
-如果存在冲突：
-
-```text
-请读取 .planning/INGEST-CONFLICTS.md。
-
-逐项列出：
-1. 冲突来源和具体章节；
-2. 两个要求的语义差异；
-3. 选择各自方案会影响哪些代码；
-4. 哪些冲突需要我作决策；
-5. 哪些冲突可以有明确证据自动解决。
-
-LOCKED 与 LOCKED 的冲突不得自动选择。
-不要修改业务代码。
+请审查 .planning/codebase/ 下的代码库地图，对照 design/final-design/总设计文档.md，
+只输出缺口，不修改任何文件：
+1. §6 的 21 张表清单，代码里现有哪些、缺哪些（assessment_state_event/trace_link/form_instance）；
+2. §10 题量配额、§11.2 难度路径、§11.4 answer_state/score_state、§12 表结构演进，
+   在 server/services/question_selection.py、interview.py、scoring.py、db.py 中的现状；
+3. §7 所有权校验在 server/api/assessment.py 的现状；
+4. §21.1 报告发布契约在 server/services/report.py 的现状；
+5. §11.5 SSE 在 server/api/ 与 web/src/utils/sse.js 的现状；
+6. 代码存在但 SSOT 未覆盖的区域。
 ```
 
 ---
 
-## 8. 建立“设计对齐重构”里程碑
+## 6. 第 3 步：设计摄取（关键步骤，有坑）
 
-设计冻结、代码映射和冲突处理完成后：
+### 6.1 为什么必须用 manifest
 
-```text
-/gsd-new-milestone "设计对齐重构"
+ingest-docs 的目录约定扫描只识别 `adr/prd/spec/docs` 子目录和 `ADR-*/PRD-*/SPEC-*` 前缀文件。`design/final-design/` 是中文命名，**自动发现不了**；`design/` 顶层还有十余份临时讨论稿和历史档案，自动扫描会混入非权威文档（上限 50 份也容易超）。
+
+因此**必须手写 manifest**，只列权威文档：
+
+```bash
+mkdir -p .planning
+cat > .planning/ingest-manifest.yaml <<'EOF'
+docs:
+  - path: design/final-design/总设计文档.md
+    type: DOC
+    precedence: 0
+  - path: design/final-design/模块一设计-岗位JD解析与胜任力模型构建.md
+    type: DOC
+    precedence: 1
+  - path: design/final-design/模块二设计-AI动态测评.md
+    type: DOC
+    precedence: 1
+  - path: design/final-design/模块三设计-立体人才画像.md
+    type: DOC
+    precedence: 1
+  - path: design/final-design/模块四设计-测试闭环.md
+    type: DOC
+    precedence: 1
+  - path: design/需求文档-胜任力测评与人才画像系统.md
+    type: PRD
+    precedence: 2
+  - path: design/技术方案概述.md
+    type: DOC
+    precedence: 2
+EOF
 ```
 
-在交互中明确告诉 GSD：
+precedence 数值越小优先级越高：总设计文档 0（唯一权威），分模块 1，上游需求 2。
+
+### 6.2 执行摄取
 
 ```text
-这是已有项目的一轮设计对齐重构，不是新项目开发。
+/gsd-ingest-docs design/ --manifest .planning/ingest-manifest.yaml --mode new --resolve auto
+```
 
-权威设计文档：design/
-代码基线：.baseline/
+- `--mode new`：当前无 `.planning/`（首次摄取）；后续如有设计增量，用 `--mode merge`。
+- `--resolve auto`：v1 只支持 auto；LOCKED-vs-LOCKED 硬冲突会自动阻断并列出，不会静默选择。
+
+产物检查：
+
+```bash
+find .planning -maxdepth 2 -type f | sort
+# 重点：PROJECT.md / REQUIREMENTS.md / ROADMAP.md / STATE.md / INGEST-CONFLICTS.md
+```
+
+注意：`--mode new` 会走 `new-project-from-ingest` 路线，自动生成 ROADMAP（gsd-roadmapper 代理）。**生成的 ROADMAP 是机器初稿**，第 4 步你必须人工重排（它不知道 §28 的优先级）。分模块文档与总文档的重复内容由 synthesizer 按 precedence 去重，LOCKED 冲突进 `INGEST-CONFLICTS.md`。
+
+### 6.3 冲突裁决
+
+如产生 `INGEST-CONFLICTS.md`：
+
+```text
+请读取 .planning/INGEST-CONFLICTS.md。逐项列出：
+1. 冲突来源章节；2. 语义差异；3. 各方案影响的代码区域；
+4. 哪些需要我决策；5. 哪些有明确证据可自动解决。
+LOCKED-vs-LOCKED 不自动选择。不修改业务代码。
+```
+
+理论上不应有真实冲突——分模块文档是总文档的分块摘录（SSOT 附录 C）。若出现，多半是摄取了非权威文档，检查 manifest。
+
+### 6.4 把 §28 摄进 REQUIREMENTS
+
+摄取的 ROADMAP 不会自动包含 §28 待办。补一步（在 CC 中说）：
+
+```text
+请读取 design/final-design/总设计文档.md §27–§28 与 .planning/REQUIREMENTS.md。
+将 §28 的 6 组待办逐条转为带唯一 ID 的需求条目（REF-1 ~ REF-N），每条注明：
+SSOT 章节、差距类型（缺失/违约/保持）、涉及文件（对照 .planning/codebase/ 地图）、
+验收命令。不修改业务代码，只更新 .planning/REQUIREMENTS.md。
+```
+
+---
+
+## 6.5 阶段拆分映射（§28 → phases）
+
+照 SSOT §28 的实施顺序拆 phase（不要按前端/后端/数据库机械拆）：
+
+```text
+Phase 1  P0：权限与运行契约（所有权校验 §7、score→report 串行 §21.1、开考检查 §10.4、状态事件表 §13）
+Phase 2  题库与选题（题库绑定 model/version §9.2、动态选题四层结构 §10.6、required 例外 §10.5）
+Phase 3  会话与难度路径（难度路径状态机 §11.2、实例模型 §11.1、answer/score 状态分离 §11.4）
+Phase 4  传输与上下文（真实 SSE §11.5、幂等 §13.4、计时区间 §15、P-refine 滑窗 §14）
+Phase 5  评分与证据（score_live 仅导航 §17、REFUSED 特殊值 §18、item_measurement 裁决 §19、
+         IMPUTED 补算 §20、证据 span §12.5、trace_link §13.3）
+Phase 6  表单链（form_instance 生命周期 §16.1、extract_form_facts §16.2、Tools 边界 §16.3）
+Phase 7  题库生成与管理端修复（生成失败可见、orphan 路由、模型编辑校验、feedback/报告版本化）
+Phase 8  迁移与测试体系（schema_version 迁移、M1 回归、测试重构与 CI、E2E、eval 隔离）
+```
+
+这个顺序遵循 §28 的依赖：P0 权限契约先于一切（否则后续测试全踩在无防护接口上）；事件表（Phase 1）先于依赖它记账的行为（Phase 2–4）；评分链重排（Phase 5）先于报告契约依赖它的部分；迁移体系（Phase 8）殿后收口。
+
+---
+
+## 7. 第 4 步：新建里程碑
+
+map + ingest 完成后：
+
+```text
+/gsd-new-milestone "SSOT v2.0 对齐"
+```
+
+交互时明确告知（这段可直接粘贴）：
+
+```text
+这是既有项目按 SSOT v2.0（design/final-design/总设计文档.md，commit a18d0fc）的
+契约对齐重构，基于现有代码演进，不重写。
 
 要求：
-1. 先做设计差异和影响分析；
-2. 不把整个仓库压成一个任务；
-3. 删除项必须有负向测试；
-4. API 和数据库变更单独成可验证任务；
-5. 每阶段必须有测试和回滚边界；
-6. 设计冲突不能静默猜测；
-7. 当前计划外文件不得修改。
+1. 阶段结构以 .planning/REQUIREMENTS.md 中 REF-* 条目和 §28 实施顺序为准；
+2. 每个任务绑定 REF ID、SSOT 章节、明确文件边界和测试命令；
+3. 差距类型是"违约"的，先写负向测试锁定旧行为，再改；
+4. API/数据库变更独立成可验证任务，迁移先行；
+5. 设计冲突不得静默解决，列出来问我；
+6. 计划外文件不得修改。
 ```
 
-如果 `.planning/` 已经有合适的 milestone，不需要重复创建，可以使用：
+若 ROADMAP 需要调整 phase 顺序（对照 §6.5 的映射）：
 
 ```text
-/gsd-phase "设计对齐重构"
+/gsd-phase --remove <编号>
+/gsd-phase --edit <编号>
+/gsd-phase --insert <编号> <描述>
 ```
 
 ---
 
-## 9. 推荐的阶段拆分
+## 8. 第 5 步：逐阶段执行
 
-不要按“所有前端、所有后端、所有数据库”机械拆分；按可验证的迁移结果拆分。
+以 Phase 1（P0 权限与运行契约）为例。每个 phase 重复此循环。
 
-适合本项目的一种候选顺序：
-
-```text
-Phase 1：设计差异、术语和 Requirement ID 固化
-Phase 2：岗位 JD → 胜任力模型的数据结构和接口
-Phase 3：题库、动态对话和测评会话流程
-Phase 4：评分、证据链和报告数据结构
-Phase 5：立体人才画像生成和展示
-Phase 6：管理端 UI 与新流程对齐
-Phase 7：删除旧行为、兼容性清理和数据迁移
-Phase 8：端到端测试闭环和最终验收
-```
-
-需要创建阶段时：
+### 8.1 Discuss
 
 ```text
-/gsd-phase "固定设计差异与迁移契约"
-/gsd-phase "迁移胜任力模型数据结构"
-/gsd-phase "迁移动态测评流程"
-/gsd-phase "迁移评分与人才报告"
-/gsd-phase "完成管理端 UI 对齐"
-/gsd-phase "完成回归测试和旧行为清理"
+/gsd-discuss-phase 1 --analyze
 ```
 
-插入紧急阶段：
+可用旗标（本机 1.42.3 实测）：`--all --auto --chain --batch --analyze --text --power --assumptions`。交互时把范围说死：
 
 ```text
-/gsd-phase --insert 3 "修复测评数据兼容性问题"
+Phase 1 只负责 §7/§21.1/§10.4/§13 四件事。
+包含：资源所有权校验（candidate 只能访问本人 session/report/form/feedback）、
+score→report 串行、开考前可测量性检查、assessment_state_event/trace_link 落表。
+不包含：题库配额公式、难度路径、SSE、评分链重排。
 ```
 
-如果阶段仍需同时处理多个可独立验收的系统，应继续拆分。
-
----
-
-## 10. 每个阶段的执行顺序
-
-以 Phase 4 为例。
-
-### 10.1 Discuss：先明确范围
+### 8.2 Research
 
 ```text
-/gsd-discuss-phase 4 --batch=3
+/gsd-plan-phase --research-phase 1
 ```
 
-复杂阶段：
+研究专用模式，只产 RESEARCH.md 不生成计划。刷新用 `--research-phase 1 --research`。
+
+### 8.3 Plan
 
 ```text
-/gsd-discuss-phase 4 --analyze
+/gsd-plan-phase 1
 ```
 
-仅分析实施假设：
+重要旗标核实结果：
 
-```text
-/gsd-discuss-phase 4 --assumptions
-```
+- `--tdd` **不存在**——但 SSOT 本身就是测试先行的哲学，直接在 discuss/plan 提示中把"先负向测试锁旧行为"写进任务描述即可；
+- `--gaps`：plan-checker 发现缺口后重新规划用；
+- `--skip-verify`：**本重构禁用**（跳过 plan 检查，风险不可接受）；
+- `--mvp`：裁剪范围用，本次不用。
 
-交互时明确：
-
-```text
-Phase 4 只负责评分、证据链和报告数据结构。
-
-必须包含：新设计的评分规则、输入输出、证据来源、缺失数据和异常处理。
-
-不包含：新题库设计、管理端视觉重构、无设计依据的模型替换、无关数据库清理。
-```
-
-阶段讨论结果应形成该阶段的 `CONTEXT.md`。
-
-### 10.2 Research：先研究再计划
-
-```text
-/gsd-plan-phase --research-phase 4
-```
-
-强制刷新研究：
-
-```text
-/gsd-plan-phase --research-phase 4 --research
-```
-
-只查看已有研究：
-
-```text
-/gsd-plan-phase --research-phase 4 --view
-```
-
-### 10.3 Plan：生成可执行计划
-
-```text
-/gsd-plan-phase 4
-```
-
-测试驱动顺序：
-
-```text
-/gsd-plan-phase 4 --tdd
-```
-
-前一次计划检查发现缺口时：
-
-```text
-/gsd-plan-phase 4 --gaps
-```
-
-本次大重构不建议使用：
-
-```text
-/gsd-plan-phase 4 --skip-verify
-```
-
-### 10.4 人工审查 PLAN.md
+### 8.4 人工审查 PLAN.md
 
 ```bash
-find .planning/phases -path '*04-*' -name '*PLAN.md' -print | sort
+ls .planning/phases/*1-*/
+git diff --stat
 ```
-
-在 Claude Code 中：
 
 ```text
-请审查当前 Phase 4 的所有 PLAN.md，不修改任何文件。
-
-检查：
-1. 每个任务是否绑定 Requirement ID；
-2. 是否有明确文件边界；
-3. 是否有明确测试命令；
-4. API、数据库和兼容性影响是否被列出；
-5. 删除项是否有负向验证；
-6. 是否存在计划外文件风险；
-7. 依赖波次是否正确；
-8. 是否存在需要人工决策却被静默假设的事项。
-
-任何一项无法回答都标记为 BLOCKED。
+请审查 Phase 1 的所有 PLAN.md，不修改文件。检查：
+1. 每任务是否绑定 REF ID 与 SSOT 章节；
+2. 文件边界是否明确（对照 server/api/assessment.py 等实际路径）；
+3. 测试命令是否真实存在（pytest 目标文件）；
+4. "违约"类任务是否先写负向测试；
+5. 依赖波次是否正确（如事件表先于记事件的行为）；
+6. 是否存在被静默假设的设计决策。
+任何一项无法回答 → BLOCKED，向我列出。
 ```
 
-### 10.5 Execute：按波次执行
-
-执行整个阶段：
+### 8.5 Execute（按 wave）
 
 ```text
-/gsd-execute-phase 4
+/gsd-execute-phase 1 --wave 1
 ```
 
-只执行指定波次：
+- 旗标实测：`--wave N`（执行指定波次）、`--gaps-only`（只补验证缺口）、`--auto`、`--interactive`、`--mvp`。
+- **Wave 安全机制**：指定 `--wave 2` 时若 wave 1 有未完成计划，GSD 会拒绝并要求先完成低波次。这是好的，配合它。
+- Wave 之间做人工检查（下节）。
 
-```text
-/gsd-execute-phase 4 --wave 1
-/gsd-execute-phase 4 --wave 2
-```
-
-只重新执行验证发现的缺口：
-
-```text
-/gsd-execute-phase 4 --gaps-only
-```
-
-测试驱动执行：
-
-```text
-/gsd-execute-phase 4 --tdd
-```
-
-大重构建议先执行 Wave 1，检查后再执行 Wave 2，而不是一开始让所有 Wave 连续运行。
-
----
-
-## 11. 每个 Wave 之间的人工检查
-
-在终端执行：
+### 8.6 每波次之间的人工检查
 
 ```bash
 git status --short
 git diff --stat
-git diff --check
 git diff --name-only
-git log --oneline -5
+git diff --check          # 尾随空格/冲突标记
+cd server && python3 -m pytest test_m5_backend.py test_m6_backend.py test_m7_backend.py -q; cd ..
 ```
 
-运行项目验证：
+对照 PLAN 边界：
+
+```text
+请把当前 git diff 的文件与 Phase 1 PLAN.md 声明的文件边界逐一比较。
+输出：计划内/计划外/声明未改/间接影响文件。不修改文件。
+```
+
+计划外文件三选一：恢复、改计划重新批准、拆独立任务。不接受"顺手改的"。
+
+---
+
+## 9. 第 6 步：阶段收尾
+
+### 9.1 verify-work
+
+```text
+/gsd-verify-work 1
+```
+
+目标导向验证：不是"任务勾完了"，而是"Phase 1 承诺的契约真的成立"。
+
+### 9.2 code-review
+
+```text
+/gsd-code-review 1 --depth=deep
+```
+
+`--depth=standard|deep`、`--files=<paths>`、`--fix`（自动修复）均实测存在。第一次先读 REVIEW.md，确认问题属于本阶段后再 `--fix`。
+
+### 9.3 涉及安全/权限/敏感数据的 phase
+
+Phase 1（所有权校验）、Phase 4（幂等）、Phase 5（证据/trace，含 PII）必须跑：
+
+```text
+/gsd-secure-phase 1
+```
+
+---
+
+## 9.4 删除旧行为的负向验证
+
+"不重写"意味着大量任务是**替换违约实现**，替换后必须验证旧路径死透。SSOT §30 的 N1–N12 就是权威删除清单：
+
+| REF 类 | 必须消失的旧行为 |
+|---|---|
+| N2 score_live 合成 | `score_final = 0.5*live + 0.5*final` 式合成代码与测试 |
+| N4 固定题量 hard6/soft2/exp2 | 一次性预选的常量与逻辑 |
+| N5 一次性预选 | session 创建时全量预选逻辑 |
+| N7 24h abandoned | `24*3600` 类常量 |
+| N8 拒答按 0 分进聚合 | REFUSED 进能力等级分母的代码路径 |
+| N1 55/20/20/5 权重 | 旧比例常量与分摊代码 |
+
+操作（先全库搜残留）：
 
 ```bash
-npm test
-npm run lint
-npm run typecheck
-npm run build
+rg -n '0\.5.*live|50/50|live.*0\.5' server/ --type py
+rg -n '24.*3600|86400' server/
+rg -n 'final_score' server/          # §12.4 废弃列，迁移合并到 score_final
+rg -n '55|0\.55' server/services/aggregate.py server/services/aggregation.py
 ```
 
-将变更文件与当前 `PLAN.md` 的文件边界比较：
+然后让 CC 生成完整删除清单并补负向测试：
 
 ```text
-请将当前 git diff 的文件与当前 PLAN.md 声明的文件边界逐一比较。
-
-输出：
-- 计划内文件；
-- 计划外文件；
-- 计划中声明但未修改的文件；
-- 需要人工确认的间接影响文件。
-
-不要修改文件。
+请对照 SSOT §30 N1–N12 与 §28，列出所有"必须消失的旧实现"。
+每项输出：删除项、SSOT 章节、可能残留位置（rg 搜索）、
+已有负向测试、缺失的负向测试。先输出清单，我批准后你再补测试。
 ```
 
-如果出现计划外文件，只能：
+负向测试示例（REFUSED 不进能力等级分母）：
 
-```text
-恢复它；
-或修改计划并重新批准；
-或把它拆成独立任务。
+```python
+def test_refused_not_in_competency_denominator():
+    # REFUSED 观察不应进入能力等级聚合（SSOT §18）
+    ...
 ```
 
-不要接受“顺手改了，应该没问题”。
+注意：`rg` 搜不到字符串 ≠ 删除完成；还要验证用户入口、API 行为与数据迁移结果。另外 §12.4 的 `final_score`→`score_final` 是**数据迁移**不是纯删除，属 Phase 8 迁移体系的活，先把代码契约改对，迁移脚本在 Phase 8 做。
 
 ---
 
-## 12. 独立验证和代码审查
+## 9.5 迁移注意（SQLite 单文件）
 
-### 12.1 阶段验收
-
-```text
-/gsd-verify-work 4
-```
-
-### 12.2 代码审查
-
-标准审查：
-
-```text
-/gsd-code-review 4 --depth=standard
-```
-
-深度审查：
-
-```text
-/gsd-code-review 4 --depth=deep
-```
-
-指定文件：
-
-```text
-/gsd-code-review 4 --files src/assessment/scoring.ts,tests/assessment/scoring.test.ts
-```
-
-第一次建议先不自动修复，先阅读审查结果。确认问题属于本阶段后，再使用：
-
-```text
-/gsd-code-review 4 --fix
-```
-
-### 12.3 安全相关阶段
-
-涉及权限、敏感数据、外部 API 或脚本时：
-
-```text
-/gsd-secure-phase 4
-```
-
-### 12.4 UI 阶段
-
-管理端 UI 阶段可以使用：
-
-```text
-/gsd-ui-phase
-```
-
-UI 完成后：
-
-```text
-/gsd-ui-review
-```
-
-UI 设计决策应先写回 `design/` 的权威文档，再进入 GSD 执行计划。
+SSOT §5：DDL+迁移内嵌 `server/db.py`，含 schema_version 演进。21 表清单（§6）是**目标结构**，演进到它属于 Phase 8 迁移体系；但 Phase 1–7 各阶段落新表/新列时，必须同步在 db.py 的迁移框架里登记版本号，避免 Phase 8 收口时积重难返。
 
 ---
 
-## 13. 删除项的负向验证
+## 10. 第 7 步：状态管理与中断恢复
 
-设计文档中明确删除的行为，必须单独验证“不再存在”。
-
-先搜索可能的残留：
-
-```bash
-rg "旧字段|旧接口|旧等级|旧入口|LegacyName" src tests design
-```
-
-让 Claude Code 生成删除清单：
-
-```text
-请根据 design/ 当前版本列出所有明确删除或废弃的行为。
-
-对每一项输出：
-- 删除项；
-- 设计来源章节；
-- 可能残留的代码位置；
-- 已有负向测试；
-- 缺失的负向测试。
-
-不要修改文件。
-```
-
-负向测试示例：
-
-```ts
-it("does not expose the removed legacy behavior", () => {
-  const result = calculateScore(input);
-  expect(result.level).not.toBe("legacy-level");
-});
-```
-
-不要因为 `rg` 没搜到字符串就直接判定删除完成；仍需验证用户入口、API 行为、数据字段和迁移结果。
-
----
-
-## 14. 恢复、暂停和阶段交接
-
-查看状态：
+### 10.1 进度
 
 ```text
 /gsd-progress
+/gsd-progress --forensic    # 完整性审计
 ```
 
-完整性审计：
-
-```text
-/gsd-progress --forensic
-```
-
-暂停：
+### 10.2 暂停/恢复
 
 ```text
 /gsd-pause-work --report
+/gsd-resume-work
 ```
 
-恢复：
+### 10.3 跨会话恢复上下文
+
+GSD 的状态全在 `.planning/STATE.md`，不依赖聊天记忆。新会话直接：
 
 ```text
 /gsd-resume-work
 ```
 
-恢复时不要只依赖聊天记忆，要求按顺序读取：
+或手动恢复提示词：
 
 ```text
-请恢复本项目重构上下文，只读，不修改文件。
-
-按以下顺序读取：
-1. design/ 当前权威文档；
-2. .baseline/；
-3. .planning/STATE.md；
-4. .planning/ROADMAP.md；
-5. 当前阶段 CONTEXT.md；
-6. 当前阶段所有 PLAN.md；
-7. 最近 SUMMARY.md；
-8. git status 和最近提交。
-
-先输出当前状态、未完成任务和阻塞项。
+请恢复本重构上下文，只读。按序读取：
+1. design/final-design/总设计文档.md（SSOT）；
+2. .baseline/（基线与已知失败）；
+3. .planning/STATE.md → ROADMAP.md → 当前 phase 的 CONTEXT.md → PLAN.md → 最近 SUMMARY.md；
+4. git status 与最近提交。
+先输出：当前 phase、未完成任务、阻塞项。
 ```
 
 ---
 
-## 15. 推荐的项目 CLAUDE.md 补充规则
+## 10.4 关于子代理模型（重要）
 
-只添加短规则，不把整个设计文档复制到 `CLAUDE.md`：
+本机 `~/.gsd/defaults.json` 将全部 GSD 子代理覆盖为 `ccswitch-anthropic-k3/kimi-k3`。这意味着：
 
-```md
-## Design-aligned refactor rules
+- `/gsd-map-codebase`、`/gsd-execute-phase`、`/gsd-verify-work` 等命令的所有子代理实际跑在 kimi-k3 上，与主会话模型选择无关；
+- 如果你在主会话换了更强的模型（比如 Opus 5），子代理依然是 kimi-k3——**规划与执行的模型策略要在 GSD 层面配，不能只换主会话模型**；
+- 配置入口：`/gsd-settings`（交互式）或直接编辑 `~/.gsd/defaults.json`（全局）／`.planning/config.json`（项目级）。
 
-- `design/` is the authoritative design source.
-- `.planning/` contains execution plans and phase state only.
-- Read the relevant design sections before editing code.
-- Do not silently resolve conflicting design requirements.
-- Every implementation task must identify Requirement IDs and file boundaries.
-- Do not modify files outside the current plan without approval.
-- Every behavior change requires tests.
-- Deleted requirements require negative verification.
-- Do not weaken a test oracle merely to make a test pass.
-- Git diff, external tests, CI, and independent review are the final evidence.
-```
-
-这段规则和 GSD skill 是互补关系，不是替代关系。
+如需子代理与主会话同档（如全用主会话当前模型），把 defaults.json 的 `model_overrides` 置空。项目级优先于全局：`.planning/config.json` 的 `model_profile` 设 `inherit` 并清空覆盖，GSD 子代理就用主会话模型。
 
 ---
 
-## 16. 最终可复制命令清单
+## 11. 第 8 步：最终验收
 
-设计定稿后：
+### 11.1 §24 测试要求核对
+
+```text
+1. 统一 pytest 收集（脚本测试重构为可收集或明确独立命令）；CI 为正式验收入口；
+2. M1 回归为动态测评实施硬前置——当前缺失，Phase 8 必须补齐；
+3. 候选人端完整 E2E（注册→选岗→session→作答/追问→表单→完成→评分→报告→异议，
+   含刷新恢复/断线重试/越权/超时）为 M5–M7 verified 必要条件；
+4. 越权/权限矩阵、幂等/并发、计时、迁移、SSE 为必测项；
+5. prototype 为视觉参考，静态原型不作功能验收依据。
+```
+
+### 11.2 四维口径核对（§27）
+
+让 CC 做终局审计：
+
+```text
+请对照 SSOT §27 四维口径做最终审计，只读：
+对每个里程碑（M1–M7）输出 implemented / contract_complete / verified / production_ready
+四维状态与证据（测试名、文件、提交）。任何一维"是"都必须指向可复核证据，
+没有证据一律写"否"。
+```
+
+### 11.3 报告一致性校验（§21.1 七项）
+
+发布前代码校验：数字可重算、weight 和一致、引用归属 session、model/version 快照一致、无效题/系统错误不进分母、IMPUTED/REFUSED 警告与结构化状态一致、文案无录用判断表述。这条在 Phase 5 落地后作为常驻校验保留。
+
+### 11.4 顺路修复基线问题
+
+`test_question_bank.py` 的 fixture 损坏属于 Phase 8"测试重构"范围，会在统一 pytest 收集时一并处理；不要提前单独修它（避免计划外文件修改），但要在 Phase 8 的 plan 里显式列出。
+
+---
+
+## 12. 可复制命令速查（全部已核实）
+
+设计冻结后的完整启动序列：
 
 ```bash
-cd /path/to/26-summer-sem
+cd /Users/huaxinzhang/Desktop/trifles/26-summer-sem
 git status --short
-git add design/
-git commit -m "docs: finalize redesign specification"
 mkdir -p .baseline
-git rev-parse HEAD~1 > .baseline/old-code-commit.txt
-git rev-parse HEAD > .baseline/new-design-commit.txt
-git status --short > .baseline/git-status.txt
-git log --oneline -10 > .baseline/recent-history.txt
-npm run build 2>&1 | tee .baseline/build-result.txt
-npm test 2>&1 | tee .baseline/test-result.txt
-npm run lint 2>&1 | tee .baseline/lint-result.txt
-npm run typecheck 2>&1 | tee .baseline/typecheck-result.txt
-git add .baseline/
-git commit -m "chore: record pre-refactor baseline"
+git rev-parse HEAD > .baseline/base-commit.txt
+cd server && python3 -m pytest test_m5_backend.py test_m6_backend.py test_m7_backend.py test_question_bank.py -q 2>&1 | tee ../.baseline/backend-tests.txt; cd ..
+cd web && npm run build 2>&1 | tee ../.baseline/web-build.txt; cd ..
+git add .baseline/ && git commit -m "chore: record pre-refactor baseline (SSOT v2.0 alignment)"
 ```
 
-Claude Code 中：
+Claude Code 内按序：
 
 ```text
-/gsd-map-codebase
-/gsd-ingest-docs design/ --mode new --resolve interactive
-/gsd-new-milestone "设计对齐重构"
+/gsd-surface list                    ← 确认核心命令浮出（缺则 /gsd-surface profile full）
+/gsd-map-codebase                    ← 生成 .planning/codebase/
+（写 ingest-manifest.yaml，见 §6.1）
+/gsd-ingest-docs design/ --manifest .planning/ingest-manifest.yaml --mode new --resolve auto
+/gsd-new-milestone "SSOT v2.0 对齐"
+（用 /gsd-phase --edit/--insert/--remove 把 ROADMAP 调成 §6.5 的顺序）
 ```
 
-每个阶段：
+每个 phase 循环：
 
 ```text
-/gsd-discuss-phase N --batch=3
+/gsd-discuss-phase N --analyze
 /gsd-plan-phase --research-phase N
 /gsd-plan-phase N
+（人工审 PLAN.md → BLOCKED 项问清楚）
 /gsd-execute-phase N --wave 1
+（wave 间人工检查：git diff + pytest）
+/gsd-execute-phase N --wave 2
 /gsd-verify-work N
 /gsd-code-review N --depth=deep
-/gsd-progress --forensic
+/gsd-secure-phase N                  ← 仅权限/幂等/PII 相关 phase
+/gsd-progress
 ```
 
 暂停/恢复：
@@ -895,29 +625,30 @@ Claude Code 中：
 ```text
 /gsd-pause-work --report
 /gsd-resume-work
+/gsd-progress --forensic
 ```
 
 ---
 
-## 17. 本项目的最终操作原则
+## 13. 本项目最终操作原则
 
 ```text
-design/ = 设计事实来源
-.planning/ = 执行计划和阶段状态
-Claude Code = 本地调查、实施、测试和 Git 集成
-GSD Core = 阶段化工作流、计划、交接和验证编排
-Git/CI/独立审查 = 最终证据
+design/final-design/总设计文档.md = 唯一设计权威（SSOT，commit a18d0fc）
+.planning/                          = GSD 执行状态与计划（非 SSOT）
+.baseline/                          = 重构审计锚点
+server/ + web/src                   = 实现
+pytest + git diff + verify-work     = 最终证据
 ```
 
-牢记：
+十条铁律：
 
-1. 设计文档没有冻结，不开始代码重构；
-2. 先映射代码库，再摄取设计；
-3. 先解决冲突，再创建计划；
-4. 每个迁移切片绑定 Requirement ID、文件边界、测试命令和回滚点；
-5. 先按 Wave 执行，再进入下一 Wave；
-6. 删除项必须有负向测试；
-7. 不让多个 Agent 同时修改同一核心文件；
-8. 不把 `.planning/` 当成设计 SSOT；
-9. 不把 Agent 的完成总结当作验证证据；
-10. 每次阶段完成后都保留可回滚的 Git 边界。
+1. 设计变更先改 SSOT（§29 规则）再动代码——本文流程内不允许出现"代码先行、文档后补"；
+2. 每个任务绑定 REF ID + SSOT 章节 + 文件边界 + 测试命令；
+3. 违约类差距先写负向测试锁定旧行为，再替换；
+4. 不修改计划外文件；计划外文件只有恢复/改计划/拆任务三条路；
+5. P0（权限、串行、开考检查、事件表）先于一切；
+6. 删除的旧行为必须负向验证死透（§30 N1–N12 是清单）；
+7. 不把 Agent 完成总结当证据，verify-work + pytest + git diff 才是；
+8. wave 间必做人工 diff 检查，"顺手改的"一律退回；
+9. yolo 模式不适合本重构，用 interactive；
+10. 迁移版本号随阶段登记，不留到 Phase 8 积重难返。
