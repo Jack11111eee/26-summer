@@ -35,7 +35,7 @@
 |---|---|---|---|---|
 | [SuitJOB](https://github.com/hscspring/SuitJOB)（hscspring） | MIT ✅ | ❌ **正文不在仓库** | 仓库仅含 `category.yml`、岗位 URL 清单、词频模型（`job_description_mark_sorted_dict.txt` 为词表非正文）；README 写明数据需自行运行其爬虫抓取（2019-05） | **不满足「数据集、零抓取」**，降为参考，不采用 |
 | [bossJD](https://github.com/yinshaojun001/bossJD) | MIT ✅ | 需运行其本地爬虫 | 面向 BOSS 直聘 AI/Agent 岗的本地采集工具 | 属「本地半自动站点工具」，按本轮口径排除 |
-| [RocXuLi AI 岗数据集（HF）](https://huggingface.co/datasets/RocXuLi/AI_Job_DataSet_1000_list) | 本机确认可下载 ✅（license 卡片显示可下载） | 需下载（1000 条中文 AI 岗） | 用户 2026-09-02 本机确认可下载；字段含职位描述/职位要求，天然拆好 | **AI 岗补深主源**：本机下载后落 `raw/rocxu-ai/` |
+| [RocXuLi AI 岗数据集（HF）](https://huggingface.co/datasets/RocXuLi/AI_Job_DataSet_1000_list) | 本机确认可下载 ✅ | 已下载（1000 条中文 AI 岗） | 实测（2026-09-02）：CSV 仅 `_c0`(岗位名) + `text` 两列；`text` 为「技能标签前缀 ＋ 小节粘合」混合体，含 TAB/`<p>`/引号噪声；**职责/要求非分列**，89 行无小节标记 | **AI 岗补深主源**（已落 `raw/rocxu-ai/res.csv`）；duty/require 不在此拆，原文保留 |
 | ~~[IEEE Dataport 招聘文本分类集](https://ieee-dataport.org/documents/recruitment-job-postings-text-classification-results-ai-environmental-protection-other)~~ | 需注册 + 协议 + **$40** | 是（含 JD 自由文本，2014–2023） | 用户 2026-09-02 确认 **不购买**：三分类（AI/环保/其他）不算广覆盖、偏研究、性价比低 | **排除**（不买）。广覆盖改由免付费源 + 自身合规渠道完成 |
 | [jd_content_clean](https://gitcode.com/lvupclub/jd_content_clean) | 未知 ❓ | 少量已清洗文本 | gitcode 为 SPA，正文不直连；量小 | 补充参考，非主源 |
 | [Chinese-SkillSpan](https://ar5iv.labs.arxiv.org/html/2604.23009) | 待核 ❓ | 学术标注集（span 级技能，对齐 ESCO） | arxiv 镜像沙箱不通 | 后期做能力抽取/校验的潜在资产，非本轮获取源 |
@@ -45,6 +45,7 @@
 1. GitHub 上一批名为「JD 数据集」的仓库，很多实际是**爬虫代码或 URL 清单**而非打包正文（SuitJOB 即典型）——核验时必须看仓库正文文件，不能只看 README 的宣称条数。
 2. 真实「现成、零抓取、含正文、许可宽松」的中文 JD 语料**比搜索摘要窄**；当前确认采用的主源为 HF RocXuLi（免费、AI 岗）；广覆盖不依赖第三方大语料，由自身合规渠道补齐。
 3. 数据集岗位体系普遍停在 2019–2023，**「AI Agent / 大模型应用工程师」这类 2024–2026 新角色几乎无对口真实样本**——「AI 补深」在数据集-only 口径下的现实含义是：把现成集中最接近的 AI/算法岗尽量抽出，而非拿到 2026 年的真实 AI Agent JD。
+4. **实测警示（2026-09-02）**：HF 数据卡片预览 ≠ 实际下载文件。RocXuLi 卡片显示「职位描述/职位要求」两列，但 `res.csv` 实为 `_c0`(岗位名)+`text` 两列，`text` 内嵌「技能标签前缀 + 岗位职责/任职要求等小节粘合」且含 TAB/`<p>`/引号噪声。**下载后必须以文件实际结构为准，不能照卡片 schema 写归一化。**
 
 ## 4. 语料仓设计（`data/jd_corpus/`，gitignored）
 
