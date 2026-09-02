@@ -522,6 +522,8 @@ if result:
 **How to avoid:** 改护栏时同步改 docstring（"幂等"语义收窄为 in_progress 内重复调用）；这是 D-09 断言重写的伴生小改。
 **Warning signs:** 代码评审发现"幂等"字样与 409 行为矛盾。
 
+> **勘误（2026-09-03，checker W-4/B-1）：** `test_m6_backend.py:250-254`（_test_report_idempotent）与 `services/report.py:90` docstring 的"幂等：同会话重复生成覆盖旧行"均为**服务层直调 generate_report 的证据**——不经 API 层，**不构成 request_report 端点重入语义的依据**。据此，request_report 对 completed 会话的裁决按三分支（非 completed→409；completed 且已有 report 行→409；completed 且无 report 行→202）执行，详见 01-03-PLAN.md interfaces 护栏语义裁决。本注记不改变本文件的其余行文与结构。
+
 ### Pitfall 10: admin"只读豁免"误伤 admin 自己的测评
 **What goes wrong:** route guard 修复（D-04）后 admin 可进入测评页并完成测评（后端允许任何登录用户 create_session）；若 admin 读自己的会话，helper 的 owner 分支必须覆盖 admin 本人资源（admin 既是 admin 又是 owner）。
 **How to avoid:** helper 判定顺序：`user_id == current` 恒通过（无论角色）；仅当非 owner 时才看 admin 读豁免。矩阵加一条"admin 访问自己创建的 session/report"用例。
