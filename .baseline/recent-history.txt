@@ -1,0 +1,10 @@
+4127004 feat(prototype): 新增 final-admin 素色工作台定稿原型（admin/candidate 双页）
+44c0f14 fix(prototype): 10-blocks 背景雾团收敛为单团放大，导航徽标与行按钮细节调整
+310bef5 docs: CLAUDE.md 移除里程碑状态行（里程碑事实以 SSOT 为准）
+f702b0c docs: rewrite GSD operating guide for SSOT v2.0 alignment refactor
+03506b2 docs: 增补 SSOT 修改须授权与快照不构成授权两条约定
+a18d0fc docs(SSOT): 新总设计文档 v2.0 原子生效
+931bf63 docs: 回写第十轮最终契约与文档治理规则
+6051f15 docs: 固化拒答聚合边界
+6b07cba docs: 更新剩余设计收敛清单
+f7b7f5e docs: 回写第九轮关键运行契约
