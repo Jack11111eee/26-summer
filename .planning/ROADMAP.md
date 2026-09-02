@@ -31,13 +31,13 @@
   3. 题库未就绪/模型不可测量时创建 session 返回明确状态（QUESTION_BANK_GENERATING / QUESTION_BANK_INCOMPLETE / MODEL_NOT_MEASURABLE）并产生管理员待办，绝不创建 0 题会话
   4. assessment_state_event 表落地且 append-only：session/question 等关键状态迁移均写事件（from/to 必填），纠错走补偿事件，直接 UPDATE/DELETE 被测试证明拒绝
   5. completed 会话再调 POST /score、/report 被状态护栏拒绝（不再可重复评分/报告）
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 01-01: 候选人资源所有权校验 + 越权测试矩阵（api/assessment.py 6 处路由 + admin 边界）
-- [ ] 01-02: 状态事件表 assessment_state_event 落地 + 现有状态迁移点接入（append-only 约束 + 补偿事件语义）
-- [ ] 01-03: score→report 服务端串行（服务端执行，不依赖浏览器补调）+ completed 会话护栏
-- [ ] 01-04: 开考前可测量性检查（confirmed model → 题库 readiness → 配额可行 → 表单 schema → 阻止/管理员待办）
+- [ ] 01-01-PLAN.md — 候选人资源所有权校验（load_owned_session/load_owned_report 8 路由 + 404 语义 + admin 只读）+ 越权测试矩阵 + route guard 修复（D-01~D-04）
+- [ ] 01-02-PLAN.md — assessment_state_event 表落地（触发器 append-only + append_event）+ create_session/submit_answer 迁移点接入（D-05~D-07）
+- [ ] 01-03-PLAN.md — score→report 服务端串行（request_report 入口链方案 B + allow_completed 豁免）+ completed 护栏 + 回归断言重写（D-08~D-10）
+- [ ] 01-04-PLAN.md — question_bank_task 表 + check_session_readiness 三态 409 + todos 扩展 + PositionAssess.vue 提示（D-11~D-13）
 
 ### Phase 2: 动态选题与有界循环
 **Goal**: 测评运行时按 SSOT §10/§11 运转——每题动态实例化、四层代码选题、难度路径状态机导航、回答状态分类驱动处理原则，评分链废除 score_live 50/50 合成、权重对齐 7:3
