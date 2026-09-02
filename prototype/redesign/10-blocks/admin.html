@@ -9,7 +9,7 @@
 <body class="admin">
 
   <!-- 动态浅色背景 -->
-  <div class="bg"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
+  <div class="bg"><i class="blob b1"></i></div>
 
   <!-- 左侧悬停触发区：鼠标贴左缘 → 侧栏伸出；离开 → 收回 -->
   <div class="edge" title="将鼠标移到此处"></div>
@@ -25,9 +25,9 @@
     <nav class="nav">
       <a class="nav-item active" href="#">岗位库 <span class="cnt">3</span></a>
       <a class="nav-item" href="#">岗位详情</a>
-      <a class="nav-item" href="#">能力词典</a>
-      <a class="nav-item" href="#">用户管理</a>
-      <a class="nav-item" href="#">测试中心</a>
+      <a class="nav-item" href="#">能力词典 <span class="cnt">24</span></a>
+      <a class="nav-item" href="#">用户管理 <span class="cnt">12</span></a>
+      <a class="nav-item" href="#">测试中心 <span class="cnt">5</span></a>
     </nav>
 
     <div class="side-foot">
@@ -173,7 +173,8 @@
 (function () {
   var els = Array.prototype.slice.call(document.querySelectorAll('.blob'));
   var T = 55, vw = window.innerWidth, vh = window.innerHeight;
-  var ANCHOR = [[.20,.26,.30,.16],[.52,.42,.27,.19],[.32,.64,.29,.15],[.66,.28,.26,.18]];
+  var HALF = 420;  /* 840px 雾团半径的一半，使 translate 对准元素中心 */
+  var ANCHOR = [[.5, .5, .30, .18]];
   var cfg = els.map(function (_, i) {
     var d = ANCHOR[i];
     var r = function (a, b) { return a + Math.random() * (b - a); };
@@ -221,7 +222,7 @@
       var noy = 0.6 * Math.sin(2 * Math.PI * t * c.nf[1] / T + c.np[2]) + 0.4 * Math.sin(2 * Math.PI * t * c.nf[0] / T + c.np[3]);
       var x = c.cx + c.ax * (mx + 0.15 * no  + 0.05 * c.jx);
       var y = c.cy + c.ay * (my + 0.15 * noy + 0.05 * c.jy);
-      els[i].style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+      els[i].style.transform = 'translate(' + (x - HALF).toFixed(1) + 'px,' + (y - HALF).toFixed(1) + 'px)';
     }
     requestAnimationFrame(frame);
   }
