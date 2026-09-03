@@ -112,25 +112,43 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
             item["evidence"] = json.loads(item.pop("evidence_json") or "[]")
             scope = "position" if item["category"] in ("hard_skill", "soft_skill") else "general"
 
-            # 幂等：同能力项已有 active 题则跳过（岗位题按岗位+项，通用题按项跨岗位）
-            if scope == "position":
-                exists = conn.execute(
-                    "SELECT 1 FROM question_bank WHERE scope='position' AND position_id=?"
-                    " AND std_name=? AND category=? AND status='active' LIMIT 1",
-                    (position_id, item["std_name"], item["category"]),
-                ).fetchone()
-            else:
-                exists = conn.execute(
-                    "SELECT 1 FROM question_bank WHERE scope='general'"
-                    " AND std_name=? AND category=? AND status='active' LIMIT 1",
-                    (item["std_name"], item["category"]),
-                ).fetchone()
-            if exists:
-                continue
-
             plan = _question_plan(item)
             chain_key = item["item_id"] if scope == "position" and len(plan) > 1 else None
             for seq, (difficulty, qtype) in enumerate(plan, start=1):
+                # WR-03：幂等按 (std_name, category, difficulty) 的 plan 目标粒度——
+                # 部分 item 成功的链条重触发时只补缺档（easy 有/medium missing 只生成
+                # medium），不再整 item 跳过导致残缺链条永不补齐；difficulty 为 None
+                # 的通用题按 std_name+category 判重（无难度维度）
+                if scope == "position":
+                    if difficulty is None:
+                        exists = conn.execute(
+                            "SELECT 1 FROM question_bank WHERE scope='position' AND position_id=?"
+                            " AND std_name=? AND category=? AND status='active' LIMIT 1",
+                            (position_id, item["std_name"], item["category"]),
+                        ).fetchone()
+                    else:
+                        exists = conn.execute(
+                            "SELECT 1 FROM question_bank WHERE scope='position' AND position_id=?"
+                            " AND std_name=? AND category=? AND difficulty=?"
+                            " AND status='active' LIMIT 1",
+                            (position_id, item["std_name"], item["category"], difficulty),
+                        ).fetchone()
+                else:
+                    if difficulty is None:
+                        exists = conn.execute(
+                            "SELECT 1 FROM question_bank WHERE scope='general'"
+                            " AND std_name=? AND category=? AND status='active' LIMIT 1",
+                            (item["std_name"], item["category"]),
+                        ).fetchone()
+                    else:
+                        exists = conn.execute(
+                            "SELECT 1 FROM question_bank WHERE scope='general'"
+                            " AND std_name=? AND category=? AND difficulty=?"
+                            " AND status='active' LIMIT 1",
+                            (item["std_name"], item["category"], difficulty),
+                        ).fetchone()
+                if exists:
+                    continue
                 result = call_llm_json(
                     "question_gen", item["item_id"], QUESTION_GEN_SYSTEM,
                     generate_questions_prompt(item, position_name, difficulty or "general", qtype),
