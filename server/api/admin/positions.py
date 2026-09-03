@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin-positions"], dependencies=[
 
 @router.get("/todos")
 def get_todos() -> dict:
-    """管理员待办：待审新岗位数、stalled 模型数、待归属 JD 数。"""
+    """管理员待办：待审新岗位数、stalled 模型数、待归属 JD 数、题库未就绪岗位数。"""
     conn = get_conn()
     pending_positions = conn.execute(
         "SELECT COUNT(*) c FROM position WHERE status='pending_review'"
@@ -21,10 +21,15 @@ def get_todos() -> dict:
     orphan_jds = conn.execute(
         "SELECT COUNT(*) c FROM jd_record WHERE position_id IS NULL AND status != 'failed'"
     ).fetchone()["c"]
+    # 题库未就绪（D-13）：存在非 SUCCEEDED 生成任务行（QUEUED/RUNNING/FAILED）的岗位数，按 position 去重
+    question_bank_not_ready = conn.execute(
+        "SELECT COUNT(DISTINCT position_id) c FROM question_bank_task WHERE status != 'SUCCEEDED'"
+    ).fetchone()["c"]
     return {
         "pending_positions": pending_positions,
         "stalled_models": stalled,
         "orphan_jds": orphan_jds,
+        "question_bank_not_ready": question_bank_not_ready,
     }
 
 
@@ -56,6 +61,20 @@ def review_position(position_id: str, body: dict) -> dict:
         conn.commit()
         return {"position_id": position_id, "status": "active"}
     if action == "reject":
+        # CR-03：reject 会 DELETE position，FK 开启下若子表（competency_model /
+        # question_bank_task / assessment_session）已有该岗位数据，会触发未捕获的
+        # IntegrityError → 500。先检查子表占用，命中则 409 引导改用上架/下架等处理。
+        blocking = conn.execute(
+            "SELECT (SELECT COUNT(*) FROM competency_model WHERE position_id=?) m,"
+            " (SELECT COUNT(*) FROM question_bank_task WHERE position_id=?) t,"
+            " (SELECT COUNT(*) FROM assessment_session WHERE position_id=?) s",
+            (position_id, position_id, position_id),
+        ).fetchone()
+        if blocking["m"] or blocking["t"] or blocking["s"]:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "岗位已产生模型/题库/会话数据，不可撤销删除（请改用下架等处理）",
+            )
         # 撤销岗位：其下 JD 归 NULL（待归属队列），别名删除，岗位本身删除
         conn.execute("UPDATE jd_record SET position_id=NULL WHERE position_id=?", (position_id,))
         conn.execute("DELETE FROM position_alias WHERE position_id=?", (position_id,))

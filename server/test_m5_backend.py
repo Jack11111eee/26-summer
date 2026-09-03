@@ -253,12 +253,15 @@ def test_answer_flow_and_scoring():
                     json={"question_id": q1, "answer": long_answer}, headers=headers)
     assert r.status_code == 409
 
-    # 终局打分
+    # 终局打分：completed 会话被服务层护栏拒绝（REF-8.2，与 report 行无关）
     r = client.post(f"/api/assessment/sessions/{sid}/score", headers=headers)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["scored_count"] == len(questions)
-    assert body["total_questions"] == len(questions)
+    assert r.status_code == 409, f"completed 会话重复评分应 409，实得 {r.status_code}"
+
+    # question_score 数据来源改走 POST /report 串行链（completed 且尚无 report 行
+    # → B-1 分支 c，202 入队；服务端串行执行 score→generate，不经 Python 直调掩盖）
+    r = client.post(f"/api/assessment/sessions/{sid}/report", headers=headers)
+    assert r.status_code == 202, r.text
+    # scored_count 等价断言 = question_score 行数 == expected_scored（见下方 _q 断言）
 
     # question_score 落库：Python 客观题命中 def → 5 分；主观题 mock score_final=3
     rows = _q(

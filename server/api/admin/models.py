@@ -2,6 +2,7 @@
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 
 from ...core.security import require_admin
 from ...db import get_conn
@@ -11,13 +12,37 @@ from ...services.pipeline import now_iso
 router = APIRouter(prefix="/api/admin", tags=["admin-models"], dependencies=[Depends(require_admin)])
 
 
+class ModelItem(BaseModel):
+    """人审编辑的单个能力项（WR-07：std_name/category/weight 等字段强类型，
+    缺字段/非法类型 422 而非 KeyError/ValueError→500）。"""
+
+    std_name: str = Field(min_length=1)
+    category: str = Field(pattern="^(hard_skill|soft_skill|experience|qualification)$")
+    weight: float = Field(ge=0)
+    required_level: int | None = None
+    importance: str | None = None
+    years: float | None = None
+    gate: int = 0
+    level_reason: str | None = None
+    occurrence: dict = {}
+    evidence: list = []
+
+
+class ModelUpdateBody(BaseModel):
+    items: list[ModelItem] = Field(min_length=1)
+
+
 @router.post("/positions/{position_id}/aggregate")
 def trigger_aggregate(position_id: str, background: BackgroundTasks) -> dict:
-    """手动触发聚合（自动触发的兜底）。"""
+    """手动触发聚合（自动触发的兜底）。仅 active 岗位可聚合（WR-08）：
+    pending_review 岗位聚合会产生 competency_model 行，使后续 reject 撞 FK（CR-03）；
+    自动链（pipeline）同样只在 active 时触发，手动入口保持一致。"""
     conn = get_conn()
     pos = conn.execute("SELECT status FROM position WHERE position_id=?", (position_id,)).fetchone()
     if pos is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "岗位不存在")
+    if pos["status"] != "active":
+        raise HTTPException(status.HTTP_409_CONFLICT, "仅上架岗位可触发聚合")
     background.add_task(run_aggregate, position_id)
     return {"position_id": position_id, "aggregating": True}
 
@@ -40,10 +65,12 @@ def get_current_model(position_id: str) -> dict:
 
 
 @router.put("/models/{model_id}")
-def update_model(model_id: str, body: dict) -> dict:
+def update_model(model_id: str, body: ModelUpdateBody) -> dict:
     """人审编辑草稿：整份 items 替换（改名/调级/调权/增删项/改类间配比）。
 
-    body 直接为完整 model_json。仅 draft/stalled 可编辑。
+    body 为完整 model_json（Pydantic 只取其后端已知的结构化字段；前端提交的
+    其余 model_json 元数据如 position_id/version 由 GET 模型时下发、编辑时
+    原样透传，故存库时合并保留）。仅 draft/stalled 可编辑。
     """
     conn = get_conn()
     row = conn.execute("SELECT status FROM competency_model WHERE model_id=?", (model_id,)).fetchone()
@@ -52,31 +79,32 @@ def update_model(model_id: str, body: dict) -> dict:
     if row["status"] == "confirmed":
         raise HTTPException(status.HTTP_409_CONFLICT, "已确认模型不可编辑（请走 diff 审阅流）")
 
-    items = body.get("items")
-    if not isinstance(items, list) or not items:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "model_json.items 必须是非空数组")
+    items = body.items
 
     # Σ=100% 服务端校验（容差 0.5%）
-    total_weight = sum(float(it.get("weight", 0)) for it in items)
+    total_weight = sum(it.weight for it in items)
     if abs(total_weight - 1.0) > 0.005:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             f"权重合计须为 100%（当前 {total_weight * 100:.1f}%）")
 
-    body.pop("stall_reason", None)  # 编辑后清除 stalled 标记
+    # 存库 model_json：前端原 body 的额外字段（position_id 等）经 model_dump 保序保留，
+    # items 部分以校验后的结构化字段覆盖（stall_reason 清除）
+    from ...services.pipeline import new_id
+    stored = body.model_dump()
+    stored.pop("stall_reason", None)  # 编辑后清除 stalled 标记
     conn.execute("UPDATE competency_model SET model_json=?, status='draft' WHERE model_id=?",
-                 (json.dumps(body, ensure_ascii=False), model_id))
+                 (json.dumps(stored, ensure_ascii=False), model_id))
     # 明细表同步重建（人审后的权威内容）
     conn.execute("DELETE FROM competency_item WHERE model_id=?", (model_id,))
-    from ...services.pipeline import new_id
     for it in items:
         conn.execute(
             "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
             " importance, weight, years, gate, level_reason, occurrence_json, evidence_json)"
             " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("c"), model_id, it["std_name"], it["category"], it.get("required_level"),
-             it.get("importance"), it.get("weight"), it.get("years"), int(it.get("gate", 0)),
-             it.get("level_reason"), json.dumps(it.get("occurrence", {})),
-             json.dumps(it.get("evidence", []), ensure_ascii=False)),
+            (new_id("c"), model_id, it.std_name, it.category, it.required_level,
+             it.importance, it.weight, it.years, it.gate,
+             it.level_reason, json.dumps(it.occurrence),
+             json.dumps(it.evidence, ensure_ascii=False)),
         )
     conn.commit()
     return {"model_id": model_id, "status": "draft", "saved": True}
@@ -95,9 +123,20 @@ def confirm_model(model_id: str, background: BackgroundTasks, admin: dict = Depe
     if row["status"] == "stalled":
         raise HTTPException(status.HTTP_409_CONFLICT, "模型处于滞留状态，请先完成等级裁决")
 
+    # WR-04：UPDATE confirmed 与 INSERT task 行同一事务——插行失败（磁盘满/DB busy）
+    # 时 confirmed 一并回滚，避免出现"confirmed 但无 task 行"的不可恢复态（readiness
+    # 第 3 项查不到行 → 按实际题量判定 → 永久 INCOMPLETE）
     conn.execute(
         "UPDATE competency_model SET status='confirmed', confirmed_by=?, confirmed_at=? WHERE model_id=?",
         (admin["user_id"], now_iso(), model_id),
+    )
+    # 题库生成任务行（D-12）：confirm 后插 QUEUED，生成任务开始/结束更新自身行；
+    # 先于 add_task 落库，确保即使后台任务异常，三态仍真实可查
+    from ...services.pipeline import new_id
+    conn.execute(
+        "INSERT INTO question_bank_task(task_id, position_id, model_id, model_version,"
+        " status, created_at) VALUES(?,?,?,?,?,?)",
+        (new_id("qbt"), row["position_id"], model_id, row["version"], "QUEUED", now_iso()),
     )
     conn.commit()
 
@@ -105,6 +144,39 @@ def confirm_model(model_id: str, background: BackgroundTasks, admin: dict = Depe
     background.add_task(generate_question_bank, row["position_id"], model_id)
     return {"model_id": model_id, "status": "confirmed", "version": row["version"],
             "question_bank_generating": True}
+
+
+@router.post("/question-bank-tasks/{task_id}/retry")
+def retry_question_bank_task(task_id: str, background: BackgroundTasks) -> dict:
+    """重触发失败的题库生成任务（CR-02：FAILED 恢复入口，兑现"可手动重触发"契约）。
+
+    confirm 对已确认模型恒 409，无此入口时 FAILED + 题库不足的岗位会被 readiness
+    永久锁死（todos 的 question_bank_not_ready 也永不归零）。做法：新插一行 QUEUED
+    task（保留旧行作审计）并后台重跑 generate_question_bank；最新行判定口径即 D-12。
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT position_id, model_id, model_version, status FROM question_bank_task"
+        " WHERE task_id=?",
+        (task_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+    if row["status"] != "FAILED":
+        raise HTTPException(status.HTTP_409_CONFLICT, "仅失败任务可重试")
+
+    from ...services.pipeline import new_id
+    conn.execute(
+        "INSERT INTO question_bank_task(task_id, position_id, model_id, model_version,"
+        " status, created_at) VALUES(?,?,?,?,?,?)",
+        (new_id("qbt"), row["position_id"], row["model_id"],
+         row["model_version"], "QUEUED", now_iso()),
+    )
+    conn.commit()
+
+    from ...services.question_bank import generate_question_bank
+    background.add_task(generate_question_bank, row["position_id"], row["model_id"])
+    return {"position_id": row["position_id"], "model_id": row["model_id"], "requeued": True}
 
 
 @router.post("/positions/{position_id}/retry-level")

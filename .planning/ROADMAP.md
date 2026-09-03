@@ -13,7 +13,7 @@
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: P0 安全与主链修复** - 所有权校验 / score→report 串行 / 开考检查 / 状态事件表 + 附带护栏
+- [x] **Phase 1: P0 安全与主链修复** - 所有权校验 / score→report 串行 / 开考检查 / 状态事件表 + 附带护栏 (completed 2026-09-03)
 - [ ] **Phase 2: 动态选题与有界循环** - 四层选题 / 难度状态机 / 回答状态分类 / 评分链 50-50 废除 / 7:3 权重口径
 - [ ] **Phase 3: 表单/SSE/幂等/计时** - 表单实例链 / 真实 SSE / 幂等并发 / 计时区间 / 上下文三层
 - [ ] **Phase 4: 题库版本绑定与模块一收口** - model/version 绑定 / 生成失败可见 / orphan 路由 / 模型编辑校验
@@ -40,19 +40,19 @@
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — 候选人资源所有权校验（load_owned_session/load_owned_report 8 路由 + 404 语义 + admin 只读）+ 越权测试矩阵 + route guard 修复（D-01~D-04）
+- [x] 01-01-PLAN.md — 候选人资源所有权校验（load_owned_session/load_owned_report 8 路由 + 404 语义 + admin 只读）+ 越权测试矩阵 + route guard 修复（D-01~D-04）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — assessment_state_event 表落地（触发器 append-only + append_event）+ create_session/submit_answer 迁移点接入（D-05~D-07）
+- [x] 01-02-PLAN.md — assessment_state_event 表落地（触发器 append-only + append_event）+ create_session/submit_answer 迁移点接入（D-05~D-07）
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — score→report 服务端串行（request_report 入口链方案 B + allow_completed 豁免）+ completed 护栏 + 回归断言重写（D-08~D-10）
+- [x] 01-03-PLAN.md — score→report 服务端串行（request_report 入口链方案 B + allow_completed 豁免）+ completed 护栏 + 回归断言重写（D-08~D-10）
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-04-PLAN.md — question_bank_task 表 + check_session_readiness 三态 409 + todos 扩展 + PositionAssess.vue 提示（D-11~D-13）
+- [x] 01-04-PLAN.md — question_bank_task 表 + check_session_readiness 三态 409 + todos 扩展 + PositionAssess.vue 提示（D-11~D-13）
 
 ### Phase 2: 动态选题与有界循环
 
@@ -173,7 +173,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. P0 安全与主链修复 | 0/4 | Not started | - |
+| 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
 | 2. 动态选题与有界循环 | 0/5 | Not started | - |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |

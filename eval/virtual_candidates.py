@@ -68,13 +68,17 @@ def _get_or_seed_bank(position_id: str) -> str:
         raise ValueError(f"模型 {model_id} 无 hard_skill 能力项，无法造题")
 
     existing = conn.execute(
-        "SELECT COUNT(*) AS c FROM question_bank WHERE position_id=? AND qtype='objective' AND status='active'",
+        "SELECT COUNT(*) AS c FROM question_bank WHERE position_id=? AND qtype='objective'"
+        " AND status IN ('active','eval_seed')",
         (position_id,),
     ).fetchone()["c"]
     if existing >= 3:
         return model_id
 
-    # 造 3 道客观题（answer_key = fixture 关键词）
+    # 造 3 道客观题（answer_key = fixture 关键词）。
+    # WR-13：占位题写 status='eval_seed' 隔离态（表无 status CHECK，无需迁移）——
+    # 选题（question_selection）与 readiness 计数口径均为 status='active'，
+    # 占位题不进真实候选人选题池、不计配额；仅本工具自身会话可见。
     for i, item in enumerate(items[:3]):
         conn.execute(
             "INSERT OR IGNORE INTO question_bank(question_id, scope, position_id, std_name, category,"
@@ -88,7 +92,7 @@ def _get_or_seed_bank(position_id: str) -> str:
                 f"（虚拟考生造题）请简述 {item['std_name']} 的核心概念。",
                 _KEYWORDS[i % len(_KEYWORDS)], None,
                 f"eval_{item['item_id'][:8]}", 1,
-                "human", "active", now_iso(),
+                "human", "eval_seed", now_iso(),
             ),
         )
     conn.commit()
@@ -110,7 +114,8 @@ def _run_one_tier(position_id: str, user_id: str, tier: str, model_id: str) -> d
     )
     questions = conn.execute(
         "SELECT question_id, answer_key FROM question_bank"
-        " WHERE position_id=? AND qtype='objective' AND status='active' ORDER BY question_id LIMIT 3",
+        " WHERE position_id=? AND qtype='objective' AND status IN ('active','eval_seed')"
+        " ORDER BY question_id LIMIT 3",
         (position_id,),
     ).fetchall()
     answers = _answers_for_tier(tier, [dict(q) for q in questions])
@@ -127,13 +132,15 @@ def _run_one_tier(position_id: str, user_id: str, tier: str, model_id: str) -> d
             " role, content, created_at) VALUES(?,?,?,?,?,?)",
             (new_id("am"), session_id, aq_id, "user", ans, now_iso()),
         )
+    # 先落库再评分（score_session 用独立连接）；评分须在置 completed 之前（01-03 护栏）
+    conn.commit()
+
+    score_session(session_id)
     conn.execute(
         "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
         (now_iso(), session_id),
     )
     conn.commit()
-
-    score_session(session_id)
     agg = aggregate_session_scores(session_id)
     return {"session_id": session_id, "total_score": agg["total_score"]}
 

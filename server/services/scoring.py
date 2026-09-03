@@ -15,13 +15,47 @@ from .prompts.score import SCORE_SYSTEM, score_prompt
 
 # ---------- 客观题代码判分 ----------
 
+# WR-14：answer_key 长度上限与候选人回答截断长度（防病态正则灾难性回溯）
+_MAX_KEY_LEN = 512
+_MAX_ANSWER_LEN = 64 * 1024
+
+
 def _score_objective(answer_key: str, answer: str) -> tuple[int, str]:
-    """answer_key 命中 → 5 分，否则 1 分。先按正则试，非法正则退化为子串包含。"""
-    try:
-        hit = re.search(answer_key, answer) is not None
-    except re.error:
-        hit = answer_key.lower() in answer.lower()
+    """answer_key 命中 → 5 分，否则 1 分。
+
+    answer_key 缺失/空白 → 按最低分记（CR-01：空串正则 re.search('', x) 恒命中，
+    任何回答会白得 5 分，属评分正确性缺陷）。
+
+    WR-14 防护：
+    - 含显式正则结构（| 分支、字符类、量词组等"有意写成正则"的形态）→ 按正则匹配，
+      非法正则退化子串；
+    - 其余（含裸元字符如 "C+"、"*"）一律 re.escape 字面匹配——LLM 生成的 key 含
+      未转义量词时会静默改变语义（"C+" 匹配任何含 C 的回答），字面匹配杜绝该类误判；
+    - key 限长 + 回答截断，收窄灾难性回溯面（慢性 ReDoS）。
+    """
+    if not (answer_key or "").strip():
+        return 1, "answer_key 缺失（题目配置异常），按最低分记"
+    key = answer_key[:_MAX_KEY_LEN]
+    text = (answer or "")[:_MAX_ANSWER_LEN]
+
+    if _looks_like_regex(key):
+        try:
+            hit = re.search(key, text) is not None
+        except re.error:
+            hit = key.lower() in text.lower()
+    else:
+        # 字面匹配（含裸量词等不构成有效正则意图的元字符）
+        hit = key.lower() in text.lower()
     return (5, f"命中答案要点: {answer_key}") if hit else (1, f"未命中答案要点: {answer_key}")
+
+
+def _looks_like_regex(key: str) -> bool:
+    """判定 key 是否显式声明为正则：仅 |（分支）与字符类 [...]{...} 视为正则意图。
+
+    裸量词（+、*、?）跟在普通字符后不视为正则声明——凭其静默改变语义的风险
+    大于收益（"C+"、"V*" 这类 key 几乎都是想表达字面文本）。
+    """
+    return bool(re.search(r"\||\[[^\]]*\]|\([^)]*\)[?*+]", key))
 
 
 def _mock_score(system_prompt: str, user_prompt: str) -> dict:
@@ -104,18 +138,25 @@ def _latest_score_live(session_id: str, question_id: str) -> int | None:
     return row["score_live"] if row else None
 
 
-def score_session(session_id: str) -> dict:
-    """对会话内所有已回答题目打分并落 question_score（幂等：重打先删旧行）。
+def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
+    """对会话内所有已回答题目打分并落 question_score。
+
+    completed 护栏（REF-8.2）：会话已结束即拒绝重复评分（API 与直调双路径都被护）；
+    服务端串行链（request_report 后台任务）经 allow_completed=True 内部豁免（D-03/D-08）。
+    幂等仅限 in_progress 会话内重复调用（completed 由护栏拒绝，不再触发删旧重打）。
 
     实现注意：先在内存里算完全部行（含 LLM 调用），最后一次写库——避免外层
     conn 持写事务时 LLM trace 用新连接写库导致 database is locked。
     """
     conn = get_conn()
     session = conn.execute(
-        "SELECT model_id FROM assessment_session WHERE session_id=?", (session_id,)
+        "SELECT model_id, status FROM assessment_session WHERE session_id=?", (session_id,)
     ).fetchone()
     if session is None:
         raise ValueError(f"会话不存在: {session_id}")
+    if session["status"] == "completed" and not allow_completed:
+        raise ValueError("会话已结束，不允许重复评分")
+    # in_progress 放行（重复调用删旧重打）
 
     answered = conn.execute(
         "SELECT aq.question_id, b.std_name, b.category, b.qtype"

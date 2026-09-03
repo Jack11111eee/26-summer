@@ -119,6 +119,9 @@ async function loadModel() {
     const { data } = await api.get(`/assessment/positions/${positionId}/model`)
     meta.value = { model_id: data.model_id, version: data.version }
     model.value = data.model
+  } catch (e) {
+    // WR-09：404（无 confirmed 模型）等错误须给出提示，否则页面空白无反馈
+    ElMessage.error(e.response?.data?.detail || '加载岗位模型失败')
   } finally {
     loading.value = false
   }
@@ -134,6 +137,10 @@ async function onStart() {
   } catch (e) {
     if (e.response?.status === 501) {
       ElMessage.warning('测评功能尚未上线（模块二）')
+    } else if (e.response?.status === 409) {
+      // 开考检查拒绝（readiness 三态）：detail 为 {error_code, message}，取可读中文提示
+      const detail = e.response?.data?.detail
+      ElMessage.warning(detail?.message || detail || '当前岗位暂不可开考，请联系管理员')
     } else {
       ElMessage.error(e.response?.data?.detail || '创建测评会话失败')
     }

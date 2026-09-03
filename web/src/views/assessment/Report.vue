@@ -282,7 +282,9 @@ async function submitFeedback() {
     fbVisible.value = false
     ElMessage.success('异议已提交，管理员会尽快处理')
   } catch (e) {
-    ElMessage.error(e.response?.data?.detail || '提交失败，请稍后重试')
+    // WR-01：后端 409 detail 为 {error_code, message} 结构时取可读 message，避免 [object Object]
+    const d = e.response?.data?.detail
+    ElMessage.error(d?.message || d || '提交失败，请稍后重试')
   } finally {
     fbSubmitting.value = false
   }
@@ -394,7 +396,9 @@ async function bootstrap() {
     await assessment.generateReport(sessionId)
   } catch (e) {
     if (e.response?.status !== 404) {
-      ElMessage.error(e.response?.data?.detail || '触发报告生成失败')
+      // WR-01：409 detail 为 {error_code, message} 结构时取可读 message
+      const d = e.response?.data?.detail
+      ElMessage.error(d?.message || d || '触发报告生成失败')
     }
   }
   // 3. 轮询
