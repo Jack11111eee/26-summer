@@ -3,7 +3,7 @@
 check_session_readiness 在 create_session 的 INSERT 会话前预检：不通过返回
 {"error_code": ..., "detail": ...}，API 层转 409（拒绝创建 0 题会话，REF-3.5）。
 
-三个失败状态名（QUESTION_BANK_GENERATING / QUESTION_BANK_INCOMPLETE /
+三态检查失败名（QUESTION_BANK_GENERATING / QUESTION_BANK_INCOMPLETE /
 MODEL_NOT_MEASURABLE）只在本函数统一返回（D-11）。
 配额口径用 question_selection.CATEGORY_QUOTA（现行口径，勿用 config.CATEGORY_RATIO 旧口径）。
 """

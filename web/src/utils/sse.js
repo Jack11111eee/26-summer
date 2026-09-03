@@ -29,11 +29,12 @@ export function streamAnswer(sessionId, questionId, answer, callbacks) {
   })
     .then(async (response) => {
       if (!response.ok) {
-        // 与 axios 拦截器对齐的错误形态
+        // 与 axios 拦截器对齐的错误形态（WR-01：后端 409 detail 为 {error_code, message} 时取可读 message）
         let detail = `请求失败（${response.status}）`
         try {
           const body = await response.json()
-          if (body?.detail) detail = body.detail
+          if (body?.detail?.message) detail = body.detail.message
+          else if (body?.detail) detail = body.detail
         } catch {
           /* 非 JSON 响应体，保留默认提示 */
         }

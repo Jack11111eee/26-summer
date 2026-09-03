@@ -147,7 +147,10 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     conn = get_conn()
     s = load_owned_session(conn, session_id, user)
     if s["status"] != "in_progress":
-        raise HTTPException(status.HTTP_409_CONFLICT, f"会话已结束（{s['status']}）")
+        # WR-01：409 detail 统一为 {error_code, message} 结构（与 readiness 三态一致）
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_IN_PROGRESS",
+                                    "message": f"会话已结束（{s['status']}）"})
     q = conn.execute(
         "SELECT question_id, answered_at FROM assessment_question WHERE question_id=? AND session_id=?",
         (question_id, session_id),
@@ -155,7 +158,10 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     if q is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不属于该会话")
     if q["answered_at"] is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "该题已作答")
+        # WR-01：409 detail 统一为 {error_code, message} 结构（与 readiness 三态一致）
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "QUESTION_ALREADY_ANSWERED",
+                                    "message": "该题已作答"})
 
     now = now_iso()
     # 1. 用户消息（长输入走精炼，原文哈希归档）
@@ -253,7 +259,10 @@ def score_session_endpoint(session_id: str, user: dict = Depends(require_login))
     try:
         result = score_session(session_id)
     except ValueError as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+        # WR-01：409 detail 统一为 {error_code, message} 结构（与 readiness 三态一致）
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_COMPLETED",
+                                    "message": str(e)})
     return {**result, "total_questions": total}
 
 
@@ -311,12 +320,17 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
     conn = get_conn()
     session = load_owned_session(conn, session_id, user)
     if session["status"] != "completed":
-        raise HTTPException(status.HTTP_409_CONFLICT, "会话未完成，不能请求报告")
+        # WR-01：409 detail 统一为 {error_code, message} 结构（与 readiness 三态一致）
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_COMPLETED",
+                                    "message": "会话未完成，不能请求报告"})
     report_row = conn.execute(
         "SELECT 1 FROM report WHERE session_id=?", (session_id,)
     ).fetchone()
     if report_row is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "报告已生成，不允许重复报告")
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "REPORT_ALREADY_EXISTS",
+                                    "message": "报告已生成，不允许重复报告"})
     # 仅 (c) 分支入队；TASK_QUEUED 事件独立小事务，务必在 add_task 前落库
     # （TASK_QUEUED 为事实类事件，无快照态迁移：from/to 留空）
     append_event(conn, session_id=session_id, event_type="TASK_QUEUED",
