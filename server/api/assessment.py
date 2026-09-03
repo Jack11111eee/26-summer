@@ -17,27 +17,37 @@ from ..services.state_events import append_event
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
 
 
+def _latest_confirmed_model(conn, position_id: str):
+    """取岗位最新 confirmed 模型行（WR-15：「最新 confirmed 版」唯一口径）。
+
+    相关子查询取每岗位 MAX(version)，列表/会话/预览共用，避免两处实现漂移。
+    """
+    return conn.execute(
+        "SELECT model_id, version, model_json FROM competency_model"
+        " WHERE position_id=? AND status='confirmed'"
+        " AND version=(SELECT MAX(version) FROM competency_model m2"
+        "              WHERE m2.position_id=competency_model.position_id AND m2.status='confirmed')"
+        " ORDER BY version DESC LIMIT 1",
+        (position_id,),
+    ).fetchone()
+
+
 @router.get("/positions")
 def list_assessable_positions() -> list[dict]:
     """可测评岗位：active 且存在 confirmed 模型（附版本号与能力项数）。"""
     conn = get_conn()
+    # WR-15：全程取每岗位最新 confirmed 版（相关子查询），岗位排序与版本号无关
     rows = conn.execute(
         "SELECT p.position_id, p.name, m.version, m.model_id,"
         " json_array_length(json_extract(m.model_json,'$.items')) AS item_count"
         " FROM position p"
         " JOIN competency_model m ON m.position_id=p.position_id"
         " WHERE p.status='active' AND m.status='confirmed'"
-        " ORDER BY m.version DESC"
+        " AND m.version=(SELECT MAX(version) FROM competency_model m2"
+        "                WHERE m2.position_id=m.position_id AND m2.status='confirmed')"
+        " ORDER BY p.created_at DESC"
     ).fetchall()
-    # 同一岗位只展示最新 confirmed 版
-    seen = set()
-    out = []
-    for r in rows:
-        if r["position_id"] in seen:
-            continue
-        seen.add(r["position_id"])
-        out.append(dict(r))
-    return out
+    return [dict(r) for r in rows]
 
 
 @router.get("/positions/{position_id}/model")
@@ -72,11 +82,7 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
     if not position_id:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 position_id")
     conn = get_conn()
-    model = conn.execute(
-        "SELECT model_id, version, model_json FROM competency_model"
-        " WHERE position_id=? AND status='confirmed' ORDER BY version DESC LIMIT 1",
-        (position_id,),
-    ).fetchone()
+    model = _latest_confirmed_model(conn, position_id)
     if model is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型，无法开考")
 
