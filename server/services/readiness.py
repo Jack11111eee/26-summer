@@ -49,7 +49,15 @@ def check_session_readiness(position_id: str) -> dict | None:
     7) qualification 表单 schema（no-op：Phase 3 填充）
     """
     conn = get_conn()
+    try:
+        return _check_session_readiness_locked(conn, position_id)
+    finally:
+        # WR-11：与同模块调用方（API/测试）的 try/finally close 纪律一致——
+        # 不依赖 CPython 引用计数释放连接
+        conn.close()
 
+
+def _check_session_readiness_locked(conn, position_id: str) -> dict | None:
     # 1) position active（W-2：inactive 分支写死，勿留占位或放行；
     #    岗位存在性/无 confirmed 模型仍走 create_session 既有 404 路径）
     pos = conn.execute(
@@ -124,5 +132,4 @@ def check_session_readiness(position_id: str) -> dict | None:
 
     # 6) 综合题槽位：Phase 2-4 填充
     # 7) qualification 表单 schema：Phase 3 填充
-    conn.close()
     return None
