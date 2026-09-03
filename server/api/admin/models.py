@@ -2,6 +2,7 @@
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 
 from ...core.security import require_admin
 from ...db import get_conn
@@ -9,6 +10,26 @@ from ...services.aggregate import run_aggregate
 from ...services.pipeline import now_iso
 
 router = APIRouter(prefix="/api/admin", tags=["admin-models"], dependencies=[Depends(require_admin)])
+
+
+class ModelItem(BaseModel):
+    """人审编辑的单个能力项（WR-07：std_name/category/weight 等字段强类型，
+    缺字段/非法类型 422 而非 KeyError/ValueError→500）。"""
+
+    std_name: str = Field(min_length=1)
+    category: str = Field(pattern="^(hard_skill|soft_skill|experience|qualification)$")
+    weight: float = Field(ge=0)
+    required_level: int | None = None
+    importance: str | None = None
+    years: float | None = None
+    gate: int = 0
+    level_reason: str | None = None
+    occurrence: dict = {}
+    evidence: list = []
+
+
+class ModelUpdateBody(BaseModel):
+    items: list[ModelItem] = Field(min_length=1)
 
 
 @router.post("/positions/{position_id}/aggregate")
@@ -44,10 +65,12 @@ def get_current_model(position_id: str) -> dict:
 
 
 @router.put("/models/{model_id}")
-def update_model(model_id: str, body: dict) -> dict:
+def update_model(model_id: str, body: ModelUpdateBody) -> dict:
     """人审编辑草稿：整份 items 替换（改名/调级/调权/增删项/改类间配比）。
 
-    body 直接为完整 model_json。仅 draft/stalled 可编辑。
+    body 为完整 model_json（Pydantic 只取其后端已知的结构化字段；前端提交的
+    其余 model_json 元数据如 position_id/version 由 GET 模型时下发、编辑时
+    原样透传，故存库时合并保留）。仅 draft/stalled 可编辑。
     """
     conn = get_conn()
     row = conn.execute("SELECT status FROM competency_model WHERE model_id=?", (model_id,)).fetchone()
@@ -56,31 +79,32 @@ def update_model(model_id: str, body: dict) -> dict:
     if row["status"] == "confirmed":
         raise HTTPException(status.HTTP_409_CONFLICT, "已确认模型不可编辑（请走 diff 审阅流）")
 
-    items = body.get("items")
-    if not isinstance(items, list) or not items:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "model_json.items 必须是非空数组")
+    items = body.items
 
     # Σ=100% 服务端校验（容差 0.5%）
-    total_weight = sum(float(it.get("weight", 0)) for it in items)
+    total_weight = sum(it.weight for it in items)
     if abs(total_weight - 1.0) > 0.005:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             f"权重合计须为 100%（当前 {total_weight * 100:.1f}%）")
 
-    body.pop("stall_reason", None)  # 编辑后清除 stalled 标记
+    # 存库 model_json：前端原 body 的额外字段（position_id 等）经 model_dump 保序保留，
+    # items 部分以校验后的结构化字段覆盖（stall_reason 清除）
+    from ...services.pipeline import new_id
+    stored = body.model_dump()
+    stored.pop("stall_reason", None)  # 编辑后清除 stalled 标记
     conn.execute("UPDATE competency_model SET model_json=?, status='draft' WHERE model_id=?",
-                 (json.dumps(body, ensure_ascii=False), model_id))
+                 (json.dumps(stored, ensure_ascii=False), model_id))
     # 明细表同步重建（人审后的权威内容）
     conn.execute("DELETE FROM competency_item WHERE model_id=?", (model_id,))
-    from ...services.pipeline import new_id
     for it in items:
         conn.execute(
             "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
             " importance, weight, years, gate, level_reason, occurrence_json, evidence_json)"
             " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("c"), model_id, it["std_name"], it["category"], it.get("required_level"),
-             it.get("importance"), it.get("weight"), it.get("years"), int(it.get("gate", 0)),
-             it.get("level_reason"), json.dumps(it.get("occurrence", {})),
-             json.dumps(it.get("evidence", []), ensure_ascii=False)),
+            (new_id("c"), model_id, it.std_name, it.category, it.required_level,
+             it.importance, it.weight, it.years, it.gate,
+             it.level_reason, json.dumps(it.occurrence),
+             json.dumps(it.evidence, ensure_ascii=False)),
         )
     conn.commit()
     return {"model_id": model_id, "status": "draft", "saved": True}
