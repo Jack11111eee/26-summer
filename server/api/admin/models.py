@@ -13,11 +13,15 @@ router = APIRouter(prefix="/api/admin", tags=["admin-models"], dependencies=[Dep
 
 @router.post("/positions/{position_id}/aggregate")
 def trigger_aggregate(position_id: str, background: BackgroundTasks) -> dict:
-    """手动触发聚合（自动触发的兜底）。"""
+    """手动触发聚合（自动触发的兜底）。仅 active 岗位可聚合（WR-08）：
+    pending_review 岗位聚合会产生 competency_model 行，使后续 reject 撞 FK（CR-03）；
+    自动链（pipeline）同样只在 active 时触发，手动入口保持一致。"""
     conn = get_conn()
     pos = conn.execute("SELECT status FROM position WHERE position_id=?", (position_id,)).fetchone()
     if pos is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "岗位不存在")
+    if pos["status"] != "active":
+        raise HTTPException(status.HTTP_409_CONFLICT, "仅上架岗位可触发聚合")
     background.add_task(run_aggregate, position_id)
     return {"position_id": position_id, "aggregating": True}
 
