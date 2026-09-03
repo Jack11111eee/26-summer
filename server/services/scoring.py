@@ -104,18 +104,25 @@ def _latest_score_live(session_id: str, question_id: str) -> int | None:
     return row["score_live"] if row else None
 
 
-def score_session(session_id: str) -> dict:
-    """对会话内所有已回答题目打分并落 question_score（幂等：重打先删旧行）。
+def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
+    """对会话内所有已回答题目打分并落 question_score。
+
+    completed 护栏（REF-8.2）：会话已结束即拒绝重复评分（API 与直调双路径都被护）；
+    服务端串行链（request_report 后台任务）经 allow_completed=True 内部豁免（D-03/D-08）。
+    幂等仅限 in_progress 会话内重复调用（completed 由护栏拒绝，不再触发删旧重打）。
 
     实现注意：先在内存里算完全部行（含 LLM 调用），最后一次写库——避免外层
     conn 持写事务时 LLM trace 用新连接写库导致 database is locked。
     """
     conn = get_conn()
     session = conn.execute(
-        "SELECT model_id FROM assessment_session WHERE session_id=?", (session_id,)
+        "SELECT model_id, status FROM assessment_session WHERE session_id=?", (session_id,)
     ).fetchone()
     if session is None:
         raise ValueError(f"会话不存在: {session_id}")
+    if session["status"] == "completed" and not allow_completed:
+        raise ValueError("会话已结束，不允许重复评分")
+    # in_progress 放行（重复调用删旧重打）
 
     answered = conn.execute(
         "SELECT aq.question_id, b.std_name, b.category, b.qtype"
