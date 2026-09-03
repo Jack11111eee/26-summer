@@ -98,8 +98,19 @@ def check_session_readiness(position_id: str) -> dict | None:
         (model["model_id"],),
     ).fetchall()
     missing_required = [r["std_name"] for r in required_items if r["std_name"] not in covered]
+    # CR-04：配额只在模型实际含该类目时才要求——SSOT §8「若某大类无有效能力项，
+    # 现有大类归一到 1.00」——纯软技能/纯硬技能岗位是合法形态，题库生成只按本模型
+    # items 产题，对缺失类目硬性配额会把合法岗位永久锁死在 QUESTION_BANK_INCOMPLETE
+    needed_categories = {
+        r["category"] for r in conn.execute(
+            "SELECT DISTINCT category FROM competency_item WHERE model_id=? AND gate=0",
+            (model["model_id"],),
+        ).fetchall()
+    }
     gaps: list[str] = []
     for category, quota in CATEGORY_QUOTA.items():
+        if category not in needed_categories:
+            continue  # 模型不含该类目：不要求配额
         have = counts.get(category, 0)
         if have < quota:
             gaps.append(f"{category} {have}/{quota}")
