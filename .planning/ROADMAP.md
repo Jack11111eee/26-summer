@@ -40,7 +40,7 @@
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — 候选人资源所有权校验（load_owned_session/load_owned_report 8 路由 + 404 语义 + admin 只读）+ 越权测试矩阵 + route guard 修复（D-01~D-04）
+- [x] 01-01-PLAN.md — 候选人资源所有权校验（load_owned_session/load_owned_report 8 路由 + 404 语义 + admin 只读）+ 越权测试矩阵 + route guard 修复（D-01~D-04）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -173,7 +173,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. P0 安全与主链修复 | 0/4 | Not started | - |
+| 1. P0 安全与主链修复 | 1/4 | In Progress|  |
 | 2. 动态选题与有界循环 | 0/5 | Not started | - |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
