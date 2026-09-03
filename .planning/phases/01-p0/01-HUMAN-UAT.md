@@ -7,8 +7,13 @@ updated: 2026-09-03T12:40:00Z
 ---
 
 ## Current Test
+<!-- OVERWRITE each test - shows where we are -->
 
-[awaiting human testing]
+number: 1
+name: UI 主链浏览器走查：候选人注册→选岗→答完全场题→页面自动进入报告页
+expected: |
+  报告页渲染真实雷达图与逐题明细（无 no_data 空聚合、无空白雷达），全程无需手动调评分
+awaiting: user response
 
 ## Tests
 
