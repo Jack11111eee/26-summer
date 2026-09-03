@@ -375,7 +375,15 @@ def submit_feedback(report_id: str, body: dict, user: dict = Depends(require_log
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 item_id 或 feedback_text")
     conn = get_conn()
     load_owned_report(conn, report_id, user)
-    it = conn.execute("SELECT 1 FROM competency_item WHERE item_id=?", (item_id,)).fetchone()
+    # WR-06：item_id 须属于本报告会话锚定的模型（非全表存在性校验——
+    # 挂入无关模型的能力项会破坏反馈回溯链 report→item 的数据完整性）
+    it = conn.execute(
+        "SELECT 1 FROM competency_item ci"
+        " JOIN assessment_session s ON s.model_id=ci.model_id"
+        " JOIN report r ON r.session_id=s.session_id"
+        " WHERE r.report_id=? AND ci.item_id=?",
+        (report_id, item_id),
+    ).fetchone()
     if it is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "能力项不存在")
     feedback_id = new_id("fb")
