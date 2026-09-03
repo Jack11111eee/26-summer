@@ -79,7 +79,7 @@ Plans:
 
 - [ ] 02-02-PLAN.md — 四层动态选题替换一次性预选（select_next_question 全量重写；岗位级 N + 7:3 最大余数 + tier ceil 公式纯函数；required 刚性例外；readiness 第 5 步同源换新；legacy 会话续答兜底；N 默认值 checkpoint 呈报）—— REF-3.1/3.2/3.6/4.1
 
-**Wave 3** *(blocked on 02-01)* — 回答状态两层化（与 02-02 无文件冲突、可并行推进）
+**Wave 3** *(blocked on 02-01 + 02-02)* — 回答状态两层化（与 02-02 共改 assessment.py/test_m5_backend.py，文件冲突故串行——见下方计划顺序说明）
 
 - [ ] 02-04-PLAN.md — 回答状态分类重构（InterviewObservation Pydantic 11 态 + 裁决层纯函数；mock 规则分类器双轨；拒答确认后封存 REFUSED 语义链；followup 迁列 + OBSERVATION 事件）—— REF-1.3/1.6/1.7/4.3/4.4/4.5
 

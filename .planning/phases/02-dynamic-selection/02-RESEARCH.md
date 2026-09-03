@@ -557,32 +557,37 @@ rows = conn.execute(
 | A7 | create_session 响应去掉 question_count 或置 None，前端无消费（grep 已核 Chat.vue 只用 get_session 的 total_count） | Pitfall 9 | PositionAssess.vue 只取 session_id（实测核过 :134），无风险；唯 test_m5 断言要改 |
 | A8 | 迁移次序：02-01 合并 final_score→score_final 但不 DROP，DROP 延后至 02-05 | State of the Art | 若 02-01 即 DROP，report.py/eval SELECT 在 02-01 与 02-05 之间运行会断裂（业务库直升窗口内） |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **INSUFFICIENT_EVIDENCE 态的 Phase 2 生产边界（A3）**
    - What we know: SSOT §11.4 枚举含该态；D-28 列它于"不进正常分母"组；生产场景=evidence_sufficient=False 且非拒答/无效。
    - What's unclear: Phase 2 的 score_question/score_session 是否在评分时依据观察层 evidence_sufficient 写该态，还是留空（默认 SCORED）待 Phase 5。
    - Recommendation: 按 A3 兜底（枚举预留不生产）；plan 对 02-05 验收标准明确"REFUSED/INVALIDATED 有生产路径、INSUFFICIENT_EVIDENCE 至少出现在代码枚举常量"。若计划要求生产，其判据轻微（evidence_sufficient=False 时 score_session 标记），加一个 if 的成本可控。
+   - **Resolution:** Q1 → 02-05 interfaces（score_state 6 态口径：INSUFFICIENT_EVIDENCE 保持枚举常量存在、本 phase 不生产；见 02-05-PLAN.md「score_state 6 态（D-28 / Pitfall 7）」）。
 
 2. **`sequence_no` 新列 vs 沿用 `seq`（A1）**
    - What we know: §12.2 字面列名 sequence_no；现有列 seq；现有代码（selection→INSERT）多处用 seq；UNIQUE 可用索引实现。
    - What's unclear: SSOT 对内部列名的字面约束力（§12.2 是"演进后"描述而非 DDL 级强制）。
    - Recommendation: 沿用 `seq` + `CREATE UNIQUE INDEX uq_aq_session_seq ON assessment_question(session_id, seq)`——避免双列冗余；在 selection_reason JSON 或 DDL 注释中说明 seq = sequence_no 语义载体。若 plan 检查器判定必须字面对齐，加 `sequence_no` 列的 ALTER 成本约 3 行 + 索引。
+   - **Resolution:** Q2 → 02-01（沿用 seq 列承载 §12.2 sequence_no 语义、不加新列；CREATE UNIQUE INDEX IF NOT EXISTS uq_aq_session_seq ON assessment_question(session_id, seq)；见 02-01-PLAN.md 新列清单）。
 
 3. **「稳定随机种子」的 seed 来源（排序第四键）**
    - What we know: D-17 要求"chain 后继 → item.weight → 稳定随机种子"三键；seed 未定义来源。
    - What's unclear: seed = session_id 派生（同一会话重放同序）vs question_id 派生（跨会话同库同序）。
    - Recommendation: `random.Random(int(hashlib.sha256(session_id.encode()).hexdigest()[:8], 16))` 会话级派生——可审计（selection_reason 记 seed 值）且同会话幂等。plan 阶段一句话定死。
+   - **Resolution:** Q3 → 02-02（排序第四键 seed = int(sha256(session_id).hexdigest()[:8], 16) 会话级派生，selection_reason 记 seed 值；见 02-02-PLAN.md「§10.6 四层选题」第④层）。
 
 4. **readiness 第 5 步与 02-02 的同批闭合**
    - What we know: Pitfall 3 指出两处口径需共享；readiness 属 02-01 计划清单还是 02-02（CONTEXT 原文 readiness 改造写在 02-01 权重批次的代码现状引用里，但 02-02 选题才是公式主体）。
    - What's unclear: plan 拆分时 readiness 公式更新归 02-01 还是 02-02。
    - Recommendation: 归 02-02（与 select_next_question 同 plan 闭合共享函数），02-01 只做表结构 + 7:3 权重三落点——readiness 不依赖权重口径只依赖配额公式，跟选题走语义最顺。
+   - **Resolution:** Q4 → 02-02 Task 3（readiness 第 5 步改 from .question_selection import plan_quotas 同源预检，与 select_next_question 共享同一公式；见 02-02-PLAN.md Task 3）。
 
 5. **旧会话（无 path_state_snapshot/dynamic columns）的兼容读行为（D-15 边界确认）**
    - What we know: 业务库有 16 条旧 assessment_question/8 条旧 score 行；D-15 说"保持可读、不参与新选选题路径"。旧会话 status=in_progress 的（若有）在 02-02 后 submit_answer 会不会走新 select_next_question？
    - What's unclear: 旧 in_progress 会话的续答语义（新代码面对无 selection_reason/无 path snapshot 的存量实例）。
    - Recommendation: select_next_question 入口对"旧会话"的可识别兜底：查询到的已封存实例若无 selection_reason（legacy NULL）→ 可续用旧路径或最小改动（兼容读+首 next 即走新选题）；建议 plan 加一个 migration smoke test——造旧结构 session（手工插行模拟）→ submit_answer next → 断言不 500。实测业务库现状：16 行全有 seq 且会话状态混合（in_progress 存在），不能假设零存量。
+   - **Resolution:** Q5 → 02-02 legacy 兜底（会话既有实例 selection_reason 全 NULL → 走旧 ORDER BY seq 派发、不进新四层选题）+ test_legacy_session_continues 迁移冒烟测试（见 02-02-PLAN.md「旧会话兼容」）。
 
 ## Environment Availability
 
