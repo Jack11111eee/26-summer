@@ -1,0 +1,45 @@
+{
+  "phase_number": "1",
+  "padded_phase": "01",
+  "phase_name": "P0 安全与主链修复",
+  "areas_total": 4,
+  "areas_completed": ["越权语义与实现", "状态事件接入范围", "评分→报告串行", "开考检查裁剪"],
+  "areas_remaining": [],
+  "decisions": [
+    {
+      "area": "越权语义与实现",
+      "decisions": [
+        "越权返回语义：404 统一'不存在'——单查询 WHERE session_id AND user_id（admin 读豁免用 OR），无行即 404；不引入 403 分支",
+        "实现形态：共享 helper——load_owned_session / load_owned_report 两个形状，路由首调，返回行或抛 404；admin 读豁免在 helper 内统一",
+        "admin 写边界：admin 只读——可读候选人资源，写操作（答题/表单/反馈等）一律 owner-only，admin 写同样拒绝",
+        "前端 route guard：顺带修——/assessment/session/:id、/assessment/report/:id 的 meta.role:'candidate' 改为 requiresAuth:true，与后端权限模型对齐"
+      ]
+    },
+    {
+      "area": "状态事件接入范围",
+      "decisions": [
+        "事件范围：全量+链事件——session 生命周期 + question 迁移点必接项之外，评分→报告后台链也接 TASK_QUEUED/STARTED/SUCCEEDED/FAILED 与 SESSION_ENTERED_SCORING，主链全程事件可审计",
+        "强制机制：触发器+helper——assessment_state_event 建 BEFORE UPDATE/DELETE 触发器 RAISE ABORT（测试可证明拒绝）；append_event() helper 单点封装 sequence_no=MAX+1 与快照列同事务写入",
+        "actor_type 枚举：candidate/system/admin 三值起步，helper 内代码校验（N11 无 DB CHECK）；admin 值 Phase 1 预留不写入事件"
+      ]
+    },
+    {
+      "area": "评分→报告串行",
+      "decisions": [
+        "串行落点：B 入口链——POST /report 的 background task 先调 score_session 再 aggregate/generate；复用现有 BackgroundTasks+轮询形态，前端不动；后台链内部沿用'内存算完单事务落库'模式",
+        "POST /score 保留 + 服务层护栏：护栏写 score_session / request_report 服务层入口（completed 再调→409；in_progress 调评分属非法前置→409），API 与直调双路径都被护；test_m6_backend.py 既有直调断言随修复同步重写（不重构风格）",
+        "session 快照口径：不加中间态——finish 置 completed，串行链进度由 TASK_* 事件表达；SCORING 快照态留给 Phase 3 随 REF-2.6 状态机一次做对"
+      ]
+    },
+    {
+      "area": "开考检查裁剪",
+      "decisions": [
+        "裁剪策略：分层留扩展点——检查函数按 §10.4 全链骨架一次成型；Phase 1 实现可查 4 项（active/confirmed/题库就绪/required 覆盖）+ 旧 CATEGORY_QUOTA 口径配额校验；综合题/表单 schema/新配额留 no-op 检查位，Phase 2–4 只填位不改骨架",
+        "readiness 载体：A 任务表——新增 question_bank_task 表（position+model/version+status(QUEUED/RUNNING/SUCCEEDED/FAILED)+时间戳），confirm 触发时插行、任务开始/结束更新自身行；GENERATING/INCOMPLETE 两态真实可查，Phase 4 失败可见复用此表",
+        "待办呈现：扩展聚合+409 码——GET /api/admin/todos 增加题库不就绪岗位计数/列表（question_bank_task 驱动）；POST /sessions 失败返回 409 + error_code（QUESTION_BANK_GENERATING/QUESTION_BANK_INCOMPLETE/MODEL_NOT_MEASURABLE）+ 中文 detail，positions 页展示可读提示"
+      ]
+    }
+  ],
+  "deferred_ideas": [],
+  "updated_at": "2026-09-02"
+}

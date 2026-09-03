@@ -1,0 +1,25 @@
+{
+  "source_path": "/Users/huaxinzhang/Desktop/trifles/26-summer-sem/design/final-design/模块一设计-岗位JD解析与胜任力模型构建.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "模块一设计：岗位 JD 解析与胜任力模型构建",
+  "summary": "Subordinate excerpt of the SSOT 总设计文档.md covering Module 1: JD parsing pipeline, competency model aggregation and confirmation, weighting rules, admin UI pages, and M1 regression prerequisites.",
+  "scope": [
+    "岗位JD解析流水线",
+    "胜任力模型聚合与版本管理",
+    "岗位状态机与归岗",
+    "能力词典",
+    "权重口径",
+    "LLM抽取/消歧/聚合工序",
+    "管理员前端页面",
+    "M1回归测试"
+  ],
+  "cross_refs": [
+    "design/final-design/总设计文档.md",
+    "design/final-design/模块二设计-AI动态测评.md"
+  ],
+  "locked": false,
+  "precedence": 1,
+  "notes": "Manifest-assigned DOC (precedence 1), consistent with repo convention: doc self-identifies as a subordinate excerpt (分块摘录) of the SSOT 总设计文档.md, non-authoritative where they conflict. Content is spec-like (state machine, config constants, route tables) but serves as context per manifest. source_hash '0000404c' is a disclosed fallback checksum (sum of the full path's UTF-8 bytes mod 2^32, zero-padded to 8 hex) because SHA-256 is not computable in this agent (no execution tools); it exists only to keep the output filename unique across parallel classifiers."
+}

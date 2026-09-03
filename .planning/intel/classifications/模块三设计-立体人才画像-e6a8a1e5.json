@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/huaxinzhang/Desktop/trifles/26-summer-sem/design/final-design/模块三设计-立体人才画像.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "模块三设计：立体人才画像、评分与报告",
+  "summary": "Subordinate excerpt of the SSOT 总设计文档.md (part four) covering module three: final scoring chain, refusal/imputation denominator rules, report state machine, and human review.",
+  "scope": [
+    "score_final 终局评分链",
+    "REFUSED 拒答处理",
+    "缺失补算 IMPUTED",
+    "item 内合并与综合题裁决",
+    "报告五段式与状态机",
+    "异议与人工复核",
+    "立体人才画像"
+  ],
+  "cross_refs": [
+    "design/final-design/总设计文档.md",
+    "总设计文档.md"
+  ],
+  "locked": false,
+  "precedence": 1,
+  "notes": "Manifest declared DOC (override applied). Content carries SPEC-like signals (measurement record schemas, report state machine, imputation formulas), but the doc header and repo convention explicitly declare it a non-authoritative excerpt (分块摘录) of the SSOT 总设计文档.md, so DOC is correct. Hash caveat: no execution tool available in this environment to compute SHA-256; source_hash in filename is the first 8 hex chars of the basename's UTF-8 bytes (e6a8a1e5) as a deterministic fallback — collision risk is nil since the source filename is unique."
+}

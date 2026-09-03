@@ -1,0 +1,38 @@
+{
+  "source_path": "/Users/huaxinzhang/Desktop/trifles/26-summer-sem/design/final-design/总设计文档.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "AI 驱动的岗位胜任力测评与人才画像系统 — 总设计文档",
+  "summary": "Repo-declared SSOT (v2.0, effective 2026-09-02) for the AI competency assessment and talent profiling system: global non-negotiable constraints, four module designs, 21-table schema, scoring/report contracts, and document governance.",
+  "scope": [
+    "系统定位与端到端链路（JD → 胜任力模型 → 有界动态测评 → 人才画像 → 测试闭环）",
+    "系统范围边界（不做录用判断/排序/自动淘汰）",
+    "四条强约束（LLM 不碰数字、人工唯一权威、一切留痕、代码唯一状态机）",
+    "技术栈与部署形态（FastAPI/SQLite/Vue3 单进程单机演示上线）",
+    "全局数据库清单（21 张表，新增 assessment_state_event/trace_link/form_instance）",
+    "权限模型（资源级所有权校验，P0 上线阻断项）",
+    "模块一：JD 解析与胜任力模型构建六工位流水线",
+    "权重口径（类目 7:3、item.weight、tier 语义）",
+    "模块二：题库、题量配额、动态选题四层结构、难度路径状态机、证据判定、SSE 与幂等、计时恢复、表单与 Tools",
+    "模块三：评分链、拒答、综合题合并、补算聚合、报告五段式与发布契约",
+    "模块四：测试闭环、评测、验收要求、安全与数据治理",
+    "Prompt 模块接口登记与禁止事项",
+    "里程碑四维口径与修复重构待办",
+    "文档治理（SSOT 身份、变更日志 §14、与旧版差异登记）"
+  ],
+  "cross_refs": [
+    "design/final-design/模块一设计-岗位JD解析与胜任力模型构建.md",
+    "design/final-design/模块二设计-AI动态测评.md",
+    "design/final-design/模块三设计-立体人才画像.md",
+    "design/final-design/模块四设计-测试闭环.md",
+    "design/final-design/历史档案/总设计文档-2026-08-30版.md",
+    "design/需求文档-胜任力测评与人才画像系统.md",
+    "design/技术方案概述.md",
+    "design/ 临时讨论稿-*（第一~十轮，收敛过程记录）",
+    "checkpoint《项目全貌与设计收敛状态》"
+  ],
+  "locked": false,
+  "precedence": 0,
+  "notes": "Manifest-declared DOC at precedence 0. Repo convention (CLAUDE.md + doc §29/附录 C) declares this file the unique SSOT (唯一权威设计文档 v2.0, effective 2026-09-02): it supersedes the 2026-08-30 version, all four module docs are subordinate excerpts of it, upstream requirement docs are inputs, and any design/scope/interface change must update this doc (body + §14 change log) before code. Content itself reads as spec/decision-grade (non-negotiable constraints, state machines, schemas, quotas), but is typed DOC per manifest; synthesizer should treat it as the primary extraction authority for design decisions and technical constraints, with module excerpts avoided to prevent double extraction. Filename hash suffix is a deterministic fallback digest of the source path (SHA-256 not computable without execution tools); the source_path field is authoritative."
+}
