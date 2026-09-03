@@ -8,6 +8,7 @@ admin 读豁免（200）/写拒绝（404）；admin 自有资源 200（owner 判
 """
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 
@@ -344,3 +345,105 @@ def test_admin_trace_still_works():
     admin = _admin_headers()
     r = client.get(f"/api/admin/trace/by-session/{a_sid}", headers=admin)
     assert r.status_code == 200, f"admin trace 应 200，实得 {r.status_code}"
+
+
+# ---------- 状态事件矩阵（REF-1.5/REF-2.2） ----------
+
+
+def test_event_table_rejects_update_delete():
+    """assessment_state_event append-only：直接 UPDATE/DELETE 被触发器拒绝（成功标准 4）。"""
+    from server.services.state_events import append_event
+
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT id FROM assessment_state_event LIMIT 1").fetchone()
+        if row is None:  # 无事件行时经 append_event 直插一条（迁移点断言另行覆盖真实业务流）
+            append_event(conn, session_id="sess_append_only_seed", event_type="SESSION_CREATED",
+                         from_state=None, to_state="in_progress", actor_type="system")
+            conn.commit()
+            row = conn.execute("SELECT id FROM assessment_state_event LIMIT 1").fetchone()
+        assert row is not None, "应至少存在一条事件行"
+        try:
+            conn.execute("UPDATE assessment_state_event SET event_type='x' WHERE id=?", (row["id"],))
+            assert False, "UPDATE 应被触发器拒绝"
+        except sqlite3.IntegrityError as e:
+            assert "append-only" in str(e), f"应为 append-only 错误，实得 {e}"
+        try:
+            conn.execute("DELETE FROM assessment_state_event WHERE id=?", (row["id"],))
+            assert False, "DELETE 应被触发器拒绝"
+        except sqlite3.IntegrityError as e:
+            assert "append-only" in str(e), f"应为 append-only 错误，实得 {e}"
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+def test_actor_type_validated():
+    """append_event 的 actor_type 三值白名单：非法值 raise ValueError（D-07）。"""
+    from server.services.state_events import append_event
+
+    conn = get_conn()
+    try:
+        try:
+            append_event(conn, session_id="sess_x", event_type="SESSION_CREATED",
+                         from_state=None, to_state="in_progress",
+                         actor_type="hacker")
+            assert False, "非法 actor_type 应 raise ValueError"
+        except ValueError:
+            pass
+        # 未 commit 且未产生任何行
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+def test_session_created_event():
+    """create_session 落 SESSION_CREATED：from NULL → in_progress，actor_type=candidate，sequence_no=1。"""
+    pid, _mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid)
+    headers = _auth_headers("p0_event_created")
+    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
+    assert r.status_code == 201, r.text
+    sid = r.json()["session_id"]
+    rows = _q("SELECT * FROM assessment_state_event WHERE session_id=?", (sid,))
+    assert rows, "建会话后应存在 SESSION_CREATED 事件行"
+    assert rows[0]["event_type"] == "SESSION_CREATED"
+    assert rows[0]["from_state"] is None
+    assert rows[0]["to_state"] == "in_progress"
+    assert rows[0]["actor_type"] == "candidate"
+    assert rows[0]["sequence_no"] == 1
+
+
+def test_question_answered_and_session_completed_events():
+    """答题推进落 QUESTION_ANSWERED（assessment_question_id 非空）；finish 落 SESSION_COMPLETED；
+    同 session 的 sequence_no 严格递增无重复。"""
+    pid, _mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid)
+    headers = _auth_headers("p0_event_chain")
+    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
+    assert r.status_code == 201, r.text
+    sid = r.json()["session_id"]
+
+    _answer_whole_session(sid, headers)
+
+    events = _q(
+        "SELECT event_type, from_state, to_state, actor_type, sequence_no, assessment_question_id"
+        " FROM assessment_state_event WHERE session_id=? ORDER BY sequence_no",
+        (sid,),
+    )
+    assert events, "答完全场后应有事件行"
+
+    qa = [e for e in events if e["event_type"] == "QUESTION_ANSWERED"]
+    assert qa, "应存在 QUESTION_ANSWERED 事件行"
+    assert all(e["assessment_question_id"] for e in qa), "QUESTION_ANSWERED 应带 assessment_question_id"
+
+    completed = [e for e in events if e["event_type"] == "SESSION_COMPLETED"]
+    assert completed, "finish 后应存在 SESSION_COMPLETED 事件行"
+    assert completed[0]["from_state"] == "in_progress"
+    assert completed[0]["to_state"] == "completed"
+    assert completed[0]["actor_type"] == "system"
+
+    seqs = [e["sequence_no"] for e in events]
+    assert seqs == sorted(seqs), "sequence_no 应递增"
+    assert len(set(seqs)) == len(seqs), "sequence_no 不得重复"
+    assert seqs[0] == 1 and seqs == list(range(1, len(seqs) + 1)), "sequence_no 应从 1 连续递增"
