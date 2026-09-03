@@ -232,31 +232,88 @@ def submit_form(session_id: str, body: dict, user: dict = Depends(require_login)
 
 @router.post("/sessions/{session_id}/score")
 def score_session_endpoint(session_id: str, user: dict = Depends(require_login)) -> dict:
-    """终局打分：会话内所有已答题逐题评分，落 question_score。"""
+    """终局打分：会话内所有已答题逐题评分，落 question_score。
+
+    completed 会话被服务层护栏拒绝（ValueError → 409，REF-8.2）；正常 UI 主链的
+    评分已由 request_report 串行链在服务端承接（D-08），本端点保留为显式入口。
+    """
     conn = get_conn()
     load_owned_session(conn, session_id, user)
     total = conn.execute(
         "SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (session_id,)
     ).fetchone()["c"]
-    result = score_session(session_id)
+    try:
+        result = score_session(session_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     return {**result, "total_questions": total}
 
 
 # ---------- 报告（07 §10.5，异步生成 + 轮询） ----------
 
-def _generate_report_task(session_id: str) -> None:
-    """后台任务：生成报告。异常静默（前端轮询 report 表为空即判失败/未完成）。"""
+def _append_task_event(session_id: str, event_type: str, *, payload: dict | None = None,
+                       from_state: str | None = None, to_state: str | None = None) -> None:
+    """独立小事务写串行链事件（后台任务无外层事务；不持事务跨 LLM 调用）。"""
+    conn = get_conn()
     try:
+        append_event(conn, session_id=session_id, event_type=event_type,
+                     from_state=from_state, to_state=to_state,
+                     actor_type="system", payload=payload)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _generate_report_task(session_id: str) -> None:
+    """后台任务：评分→报告串行链（D-08 方案 B，SSOT §21.1 前端完成后由服务端执行）。
+
+    异常静默（前端轮询 report 表为空即判失败/未完成），TASK_FAILED 事件留痕；
+    FAILED 可见性属 Phase 5（REF-8.3）。completed 会话评分经 allow_completed 内部
+    链豁免（D-03：串行链语义，不经候选人端点）。
+    """
+    try:
+        # 链入口事件（事实类，D-10 无 SCORING 快照态）
+        _append_task_event(session_id, "TASK_STARTED",
+                           payload={"note": "串行链启动（评分→报告）"})
+        _append_task_event(session_id, "SESSION_ENTERED_SCORING",
+                           from_state="in_progress", to_state="in_progress",
+                           payload={"note": "无 SCORING 快照态（D-10），事实类事件"})
+        # 评分子步：内存算完单事务落库（scoring 模式），事件紧随其后独立小事务
+        score_session(session_id, allow_completed=True)
+        _append_task_event(session_id, "TASK_SUCCEEDED", payload={"step": "score"})
+        # 报告子步
         generate_report(session_id)
-    except Exception:  # noqa: BLE001
-        pass
+        _append_task_event(session_id, "TASK_SUCCEEDED", payload={"step": "report"})
+    except Exception as e:  # noqa: BLE001
+        try:
+            _append_task_event(session_id, "TASK_FAILED", payload={"error": str(e)[:200]})
+        except Exception:  # noqa: BLE001
+            pass  # 事件写入失败不改变静默现状
 
 
 @router.post("/sessions/{session_id}/report", status_code=status.HTTP_202_ACCEPTED)
 def request_report(session_id: str, background: BackgroundTasks, user: dict = Depends(require_login)) -> dict:
-    """触发报告生成（异步，前端轮询 GET /reports?session_id= 获取结果）。"""
+    """触发报告生成（异步，前端轮询 GET /reports?session_id= 获取结果）。
+
+    三分支裁决（B-1）：(a) 会话非 completed → 409 非法前置（报告必须在完成后请求）；
+    (b) completed 且已存在 report 行 → 409 拒绝重复触发（不重复评分/报告）；
+    (c) completed 且尚无 report 行 → 202 入队（含后台链失败后的重试入口）。
+    评分→报告由服务端串行链执行（D-08 方案 B），前端无需再显式调 POST /score。
+    """
     conn = get_conn()
-    load_owned_session(conn, session_id, user)
+    session = load_owned_session(conn, session_id, user)
+    if session["status"] != "completed":
+        raise HTTPException(status.HTTP_409_CONFLICT, "会话未完成，不能请求报告")
+    report_row = conn.execute(
+        "SELECT 1 FROM report WHERE session_id=?", (session_id,)
+    ).fetchone()
+    if report_row is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "报告已生成，不允许重复报告")
+    # 仅 (c) 分支入队；TASK_QUEUED 事件独立小事务，务必在 add_task 前落库
+    # （TASK_QUEUED 为事实类事件，无快照态迁移：from/to 留空）
+    append_event(conn, session_id=session_id, event_type="TASK_QUEUED",
+                 actor_type="system")
+    conn.commit()
     background.add_task(_generate_report_task, session_id)
     return {"session_id": session_id, "status": "generating"}
 

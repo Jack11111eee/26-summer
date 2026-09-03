@@ -127,13 +127,15 @@ def _run_one_tier(position_id: str, user_id: str, tier: str, model_id: str) -> d
             " role, content, created_at) VALUES(?,?,?,?,?,?)",
             (new_id("am"), session_id, aq_id, "user", ans, now_iso()),
         )
+    # 先落库再评分（score_session 用独立连接）；评分须在置 completed 之前（01-03 护栏）
+    conn.commit()
+
+    score_session(session_id)
     conn.execute(
         "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
         (now_iso(), session_id),
     )
     conn.commit()
-
-    score_session(session_id)
     agg = aggregate_session_scores(session_id)
     return {"session_id": session_id, "total_score": agg["total_score"]}
 
