@@ -61,6 +61,20 @@ def review_position(position_id: str, body: dict) -> dict:
         conn.commit()
         return {"position_id": position_id, "status": "active"}
     if action == "reject":
+        # CR-03：reject 会 DELETE position，FK 开启下若子表（competency_model /
+        # question_bank_task / assessment_session）已有该岗位数据，会触发未捕获的
+        # IntegrityError → 500。先检查子表占用，命中则 409 引导改用上架/下架等处理。
+        blocking = conn.execute(
+            "SELECT (SELECT COUNT(*) FROM competency_model WHERE position_id=?) m,"
+            " (SELECT COUNT(*) FROM question_bank_task WHERE position_id=?) t,"
+            " (SELECT COUNT(*) FROM assessment_session WHERE position_id=?) s",
+            (position_id, position_id, position_id),
+        ).fetchone()
+        if blocking["m"] or blocking["t"] or blocking["s"]:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "岗位已产生模型/题库/会话数据，不可撤销删除（请改用下架等处理）",
+            )
         # 撤销岗位：其下 JD 归 NULL（待归属队列），别名删除，岗位本身删除
         conn.execute("UPDATE jd_record SET position_id=NULL WHERE position_id=?", (position_id,))
         conn.execute("DELETE FROM position_alias WHERE position_id=?", (position_id,))
