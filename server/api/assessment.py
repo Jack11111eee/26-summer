@@ -44,9 +44,13 @@ def list_assessable_positions() -> list[dict]:
 def get_confirmed_model(position_id: str) -> dict:
     """confirmed 模型快照（模块二出题的输入契约，本期用于占位页展示）。"""
     conn = get_conn()
+    # WR-10：join position 校验 status='active'——与列表接口的 active 过滤一致，
+    # 不向任意登录用户泄露未上架岗位的胜任力模型配置
     row = conn.execute(
-        "SELECT model_id, version, model_json FROM competency_model"
-        " WHERE position_id=? AND status='confirmed' ORDER BY version DESC LIMIT 1",
+        "SELECT m.model_id, m.version, m.model_json FROM competency_model m"
+        " JOIN position p ON p.position_id=m.position_id"
+        " WHERE m.position_id=? AND m.status='confirmed' AND p.status='active'"
+        " ORDER BY m.version DESC LIMIT 1",
         (position_id,),
     ).fetchone()
     if row is None:
