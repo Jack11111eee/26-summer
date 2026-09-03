@@ -28,7 +28,7 @@ Milestone 收尾循环（§5）——Phase 6 关账后一次性：
 
 ### ② plan 四连（researcher → pattern-mapper → planner → plan-checker）
 
-- **做什么**：`/gsd-plan-phase <n>` 一次跑完四连产 RESEARCH/PATTERNS/PLAN 检查记录统一归档，PLans 按 ROADMAP 既定切分。
+- **做什么**：`/gsd-plan-phase <n>` 一次跑完四连，产出 RESEARCH.md / PATTERNS.md / 各 `<NN>-0X-PLAN.md`（按 ROADMAP 既定切分）+ plan-checker 检查记录统一归档。
 - **自动化**：四连全自动跑完，不中断。plan-checker 的 BLOCK 级问题当场修正（修改 planning 输入重新 planner）——属 fix 机制延长线，无需请示；FLAG 级记档带入关口包呈现。
 - **特殊**：发现 ROADMAP 该 phase 的 plan 切分与现实明显不符（范围错、依赖倒置），按硬关口 2 处理（调整切分 = 计划层变更，呈现于关口包一并批准）。
 - **注意**：`REQUIREMENTS.md` 的 REF-* 条目是关卡语义边界（哪些属本 phase、哪些不属），plan 只覆盖本 phase 的 REF；越界发现 → 关口包呈报，不擅自扩大范围。
@@ -50,7 +50,7 @@ Milestone 收尾循环（§5）——Phase 6 关账后一次性：
 
 - **做什么**：`/gsd-execute-phase <n>`。GSD 按 wave 顺序逐 plan 派 gsd-executor 子代理（全新上下文，读盘上 PLAN）。
 - **自动化**：wave 完成且其 verify 全部绿 → 代确认、续下一 wave（DECISIONS 记一条）；红 → 按异常停车（硬关口 3）。
-- **库表与状态**：executor 输出 SUMMARY.md；红线 2（测试卫生）、红线 2 分支纪律每次执行前自查（下见「执行前自查」）。
+- **库表与状态**：executor 输出 SUMMARY.md；红线 2（测试卫生）、红线 6（分支纪律）每次执行前自查（见 §3.5）。
 - **产物**：代码 commit（原子，含义清晰的 message 带 REF-*/SSOT §* 引用）、`<NN>-0X-SUMMARY.md`。
 
 ### ④ verify
@@ -93,13 +93,8 @@ Milestone 收尾循环（§5）——Phase 6 关账后一次性：
 - [ ] git status 干净（存在未提交用户文件 → 停车；executor 切不到 phase 分支时可临时 worktree）
 - [ ] 全部测试绿（进入本 wave 前的基线）
 - [ ] 本 wave 的 plan 已获关口 A 批准
-- checklist 三项全过才派 executor；任何一项不过停车。
 
-3.5 执行前自查清单（每个 wave 派发前）
-每个 wave 派发 executor 前快速过一遍：
-- git status 是否干净（存在未提交用户文件 → 停车；executor 切不到 phase 分支时可临时 workroot）
-- 基线测试是否绿（进入本 wave 前的全量回归，可按 plan 的 verify 命令）
-- 本 wave 的 plan 是否已获关口 A 批准
+三项全过才派 executor；任何一项不过停车。
 
 ## 4. 各 phase 要点速览（计划性信息，非替代 ROADMAP）
 
@@ -107,11 +102,11 @@ Milestone 收尾循环（§5）——Phase 6 关账后一次性：
 |---|---|---|---|
 | 2 动态选题与有界循环 | 四层选题/难度状态机/回答状态分类/评分链 50-50 废除/7:3 权重 | 5 | 契约最密集（SSOT §10/§11）；scoring/question_selection/interview 三线同改，测试面最大 |
 | 3 表单/SSE/幂等/计时 | form_instance/SSE/幂等协议/计时区间 | 5 | 前后端同改；sse.js 双形态；涉及表单校验边界（安全相关 → secure 必跑） |
-| 4 题库版本绑定 | model/version 绑定/失败可见/orphan 路由/模型编辑校验 | 2 | 最小 phase；06-01 schema_version 登记簿在 Phase 6，此期 4 开级联题库重建时してください先只做行为层联动 |
+| 4 题库版本绑定 | model/version 绑定/失败可见/orphan 路由/模型编辑校验 | 2 | 最小 phase；schema_version 登记簿在 Phase 6 收口，本期升版级联题库重建只做行为层联动 |
 | 5 证据链与报告契约 | 证据 span/trace_link/item 裁决/报告状态机/七项校验 | 4 | 审计语义多；报告不可变版本化（feedback 外键保护）是 DB 演进重头 |
-| 6 迨移与测试闭环 | schema_version 收口/pytest+CI/M1 回归/E2E/eval 颕离 | 5 | 测试工程 phase；REF 覆盖验收（REQ-e2e-demo-deliverables 等）；06-05 含安全收尾（输入限额/secret 启动校验/HttpOnly 方向决策）——需用户拍板的决策点已标注 |
+| 6 迁移与测试闭环 | schema_version 收口/pytest+CI/M1 回归/E2E/eval 隔离 | 5 | 测试工程 phase；REF 覆盖验收（REQ-e2e-demo-deliverables 等）；06-05 含安全收尾（输入限额/secret 启动校验/HttpOnly 方向决策）——涉及决策点的按硬关口 2 处理 |
 
-Phase 4 行内有两处明显乱码（「してください」「迨移颎离」），系笔误——正确内容以 ROADMAP 为准。
+各 phase 权威范围以 ROADMAP 与 SSOT §28 为准，本表只是快速索引。
 
 ## 5. Milestone 收尾（Phase 6 关账后一次性）
 
