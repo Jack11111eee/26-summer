@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin-positions"], dependencies=[
 
 @router.get("/todos")
 def get_todos() -> dict:
-    """管理员待办：待审新岗位数、stalled 模型数、待归属 JD 数。"""
+    """管理员待办：待审新岗位数、stalled 模型数、待归属 JD 数、题库未就绪岗位数。"""
     conn = get_conn()
     pending_positions = conn.execute(
         "SELECT COUNT(*) c FROM position WHERE status='pending_review'"
@@ -21,10 +21,15 @@ def get_todos() -> dict:
     orphan_jds = conn.execute(
         "SELECT COUNT(*) c FROM jd_record WHERE position_id IS NULL AND status != 'failed'"
     ).fetchone()["c"]
+    # 题库未就绪（D-13）：存在非 SUCCEEDED 生成任务行（QUEUED/RUNNING/FAILED）的岗位数，按 position 去重
+    question_bank_not_ready = conn.execute(
+        "SELECT COUNT(DISTINCT position_id) c FROM question_bank_task WHERE status != 'SUCCEEDED'"
+    ).fetchone()["c"]
     return {
         "pending_positions": pending_positions,
         "stalled_models": stalled,
         "orphan_jds": orphan_jds,
+        "question_bank_not_ready": question_bank_not_ready,
     }
 
 

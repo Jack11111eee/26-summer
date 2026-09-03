@@ -67,54 +67,85 @@ def _insert_question(conn, *, scope: str, position_id: str | None, item: dict,
     )
 
 
+def _update_task_status(conn, position_id: str, model_id: str, task_status: str,
+                        error_msg: str | None = None) -> None:
+    """更新该 (position, model) 最新 task 行状态（D-12：RUNNING/SUCCEEDED/FAILED 自维护）。"""
+    conn.execute(
+        "UPDATE question_bank_task SET status=?, started_at=COALESCE(started_at, CASE ? WHEN 'RUNNING' THEN ? END),"
+        " finished_at=CASE WHEN ? IN ('SUCCEEDED','FAILED') THEN ? END, error_msg=?"
+        " WHERE task_id=(SELECT task_id FROM question_bank_task"
+        " WHERE position_id=? AND model_id=? ORDER BY created_at DESC LIMIT 1)",
+        (task_status, task_status, now_iso(), task_status, now_iso(), error_msg,
+         position_id, model_id),
+    )
+
+
 def generate_question_bank(position_id: str, model_id: str) -> None:
-    """为 confirmed 模型生成题库（异步任务调用）。失败不抛，仅静默（可手动重触发）。"""
+    """为 confirmed 模型生成题库（异步任务调用）。失败不抛（可手动重触发），但落表 FAILED。
+
+    task 行生命周期（D-12）：入口置 RUNNING / 岗位不存在置 FAILED /
+    正常完成置 SUCCEEDED / 异常置 FAILED + error_msg（"失败静默改为至少落表"）。
+    """
     conn = get_conn()
-    pos = conn.execute("SELECT name FROM position WHERE position_id=?", (position_id,)).fetchone()
-    if pos is None:
-        return
-    position_name = pos["name"]
-    items = conn.execute(
-        "SELECT item_id, std_name, category, required_level, weight, evidence_json"
-        " FROM competency_item WHERE model_id=?",
-        (model_id,),
-    ).fetchall()
-
-    for row in items:
-        item = dict(row)
-        item["evidence"] = json.loads(item.pop("evidence_json") or "[]")
-        scope = "position" if item["category"] in ("hard_skill", "soft_skill") else "general"
-
-        # 幂等：同能力项已有 active 题则跳过（岗位题按岗位+项，通用题按项跨岗位）
-        if scope == "position":
-            exists = conn.execute(
-                "SELECT 1 FROM question_bank WHERE scope='position' AND position_id=?"
-                " AND std_name=? AND category=? AND status='active' LIMIT 1",
-                (position_id, item["std_name"], item["category"]),
-            ).fetchone()
-        else:
-            exists = conn.execute(
-                "SELECT 1 FROM question_bank WHERE scope='general'"
-                " AND std_name=? AND category=? AND status='active' LIMIT 1",
-                (item["std_name"], item["category"]),
-            ).fetchone()
-        if exists:
-            continue
-
-        plan = _question_plan(item)
-        chain_key = item["item_id"] if scope == "position" and len(plan) > 1 else None
-        for seq, (difficulty, qtype) in enumerate(plan, start=1):
-            result = call_llm_json(
-                "question_gen", item["item_id"], QUESTION_GEN_SYSTEM,
-                generate_questions_prompt(item, position_name, difficulty or "general", qtype),
-                mock_fn=_mock_question_gen,
-            )
-            for q in result.get("questions", []):
-                _insert_question(
-                    conn, scope=scope,
-                    position_id=position_id if scope == "position" else None,
-                    item=item, difficulty=difficulty, qtype=q.get("qtype", qtype),
-                    stem=q["stem"], answer_key=q.get("answer_key"), rubric=q.get("rubric"),
-                    chain_key=chain_key, chain_seq=seq if chain_key else None,
-                )
+    try:
+        pos = conn.execute("SELECT name FROM position WHERE position_id=?", (position_id,)).fetchone()
+        if pos is None:
+            _update_task_status(conn, position_id, model_id, "FAILED", error_msg="岗位不存在")
             conn.commit()
+            return
+        _update_task_status(conn, position_id, model_id, "RUNNING")
+        conn.commit()
+        position_name = pos["name"]
+        items = conn.execute(
+            "SELECT item_id, std_name, category, required_level, weight, evidence_json"
+            " FROM competency_item WHERE model_id=?",
+            (model_id,),
+        ).fetchall()
+
+        for row in items:
+            item = dict(row)
+            item["evidence"] = json.loads(item.pop("evidence_json") or "[]")
+            scope = "position" if item["category"] in ("hard_skill", "soft_skill") else "general"
+
+            # 幂等：同能力项已有 active 题则跳过（岗位题按岗位+项，通用题按项跨岗位）
+            if scope == "position":
+                exists = conn.execute(
+                    "SELECT 1 FROM question_bank WHERE scope='position' AND position_id=?"
+                    " AND std_name=? AND category=? AND status='active' LIMIT 1",
+                    (position_id, item["std_name"], item["category"]),
+                ).fetchone()
+            else:
+                exists = conn.execute(
+                    "SELECT 1 FROM question_bank WHERE scope='general'"
+                    " AND std_name=? AND category=? AND status='active' LIMIT 1",
+                    (item["std_name"], item["category"]),
+                ).fetchone()
+            if exists:
+                continue
+
+            plan = _question_plan(item)
+            chain_key = item["item_id"] if scope == "position" and len(plan) > 1 else None
+            for seq, (difficulty, qtype) in enumerate(plan, start=1):
+                result = call_llm_json(
+                    "question_gen", item["item_id"], QUESTION_GEN_SYSTEM,
+                    generate_questions_prompt(item, position_name, difficulty or "general", qtype),
+                    mock_fn=_mock_question_gen,
+                )
+                for q in result.get("questions", []):
+                    _insert_question(
+                        conn, scope=scope,
+                        position_id=position_id if scope == "position" else None,
+                        item=item, difficulty=difficulty, qtype=q.get("qtype", qtype),
+                        stem=q["stem"], answer_key=q.get("answer_key"), rubric=q.get("rubric"),
+                        chain_key=chain_key, chain_seq=seq if chain_key else None,
+                    )
+                conn.commit()
+        _update_task_status(conn, position_id, model_id, "SUCCEEDED")
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        # 失败不抛（保持"可手动重触发"总语义），但至少落表 FAILED（D-12）
+        try:
+            _update_task_status(conn, position_id, model_id, "FAILED", error_msg=str(e)[:200])
+            conn.commit()
+        except Exception:  # noqa: BLE001
+            pass  # 落表本身失败时维持旧静默语义（无更好降级路径）

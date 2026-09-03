@@ -246,6 +246,23 @@ BEGIN SELECT RAISE(ABORT, 'assessment_state_event 为 append-only：禁止 UPDAT
 
 CREATE TRIGGER IF NOT EXISTS ase_no_delete BEFORE DELETE ON assessment_state_event
 BEGIN SELECT RAISE(ABORT, 'assessment_state_event 为 append-only：禁止 DELETE'); END;
+
+-- ============ 题库生成任务表（SSOT §10.4/D-12 题库 readiness 载体）============
+-- 状态枚举 QUEUED/RUNNING/SUCCEEDED/FAILED 代码校验、无 DB CHECK（N11）；
+-- confirm 触发生成时插 QUEUED，generate_question_bank 开始/结束更新自身行；
+-- 开考检查（services/readiness.py）按最新行判定生成中/不完整/就绪。
+
+CREATE TABLE IF NOT EXISTS question_bank_task (
+  task_id      TEXT PRIMARY KEY,
+  position_id  TEXT NOT NULL REFERENCES position,
+  model_id     TEXT NOT NULL REFERENCES competency_model,
+  model_version INTEGER NOT NULL,
+  status       TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  started_at   TEXT,
+  finished_at  TEXT,
+  error_msg    TEXT
+);
 """
 
 

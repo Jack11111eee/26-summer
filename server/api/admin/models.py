@@ -101,6 +101,16 @@ def confirm_model(model_id: str, background: BackgroundTasks, admin: dict = Depe
     )
     conn.commit()
 
+    # 题库生成任务行（D-12）：confirm 后插 QUEUED，生成任务开始/结束更新自身行；
+    # 自身小事务先落库，确保即使后台任务异常，三态仍真实可查
+    from ...services.pipeline import new_id
+    conn.execute(
+        "INSERT INTO question_bank_task(task_id, position_id, model_id, model_version,"
+        " status, created_at) VALUES(?,?,?,?,?,?)",
+        (new_id("qbt"), row["position_id"], model_id, row["version"], "QUEUED", now_iso()),
+    )
+    conn.commit()
+
     from ...services.question_bank import generate_question_bank
     background.add_task(generate_question_bank, row["position_id"], model_id)
     return {"model_id": model_id, "status": "confirmed", "version": row["version"],
