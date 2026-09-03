@@ -352,15 +352,15 @@ def test_admin_trace_still_works():
 
 def test_event_table_rejects_update_delete():
     """assessment_state_event append-only：直接 UPDATE/DELETE 被触发器拒绝（成功标准 4）。"""
+    from server.services.state_events import append_event
+
     conn = get_conn()
     try:
         row = conn.execute("SELECT id FROM assessment_state_event LIMIT 1").fetchone()
-        if row is None:  # 无事件行时先经真实业务流建会话产生 SESSION_CREATED
-            pid, _mid = _seed_position_with_confirmed_model()
-            _seed_question_bank(pid)
-            headers = _auth_headers("p0_append_only")
-            r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
-            assert r.status_code == 201, r.text
+        if row is None:  # 无事件行时经 append_event 直插一条（迁移点断言另行覆盖真实业务流）
+            append_event(conn, session_id="sess_append_only_seed", event_type="SESSION_CREATED",
+                         from_state=None, to_state="in_progress", actor_type="system")
+            conn.commit()
             row = conn.execute("SELECT id FROM assessment_state_event LIMIT 1").fetchone()
         assert row is not None, "应至少存在一条事件行"
         try:
