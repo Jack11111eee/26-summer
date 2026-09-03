@@ -44,7 +44,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — assessment_state_event 表落地（触发器 append-only + append_event）+ create_session/submit_answer 迁移点接入（D-05~D-07）
+- [x] 01-02-PLAN.md — assessment_state_event 表落地（触发器 append-only + append_event）+ create_session/submit_answer 迁移点接入（D-05~D-07）
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -173,7 +173,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. P0 安全与主链修复 | 1/4 | In Progress|  |
+| 1. P0 安全与主链修复 | 2/4 | In Progress|  |
 | 2. 动态选题与有界循环 | 0/5 | Not started | - |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
