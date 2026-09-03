@@ -121,6 +121,39 @@ def confirm_model(model_id: str, background: BackgroundTasks, admin: dict = Depe
             "question_bank_generating": True}
 
 
+@router.post("/question-bank-tasks/{task_id}/retry")
+def retry_question_bank_task(task_id: str, background: BackgroundTasks) -> dict:
+    """重触发失败的题库生成任务（CR-02：FAILED 恢复入口，兑现"可手动重触发"契约）。
+
+    confirm 对已确认模型恒 409，无此入口时 FAILED + 题库不足的岗位会被 readiness
+    永久锁死（todos 的 question_bank_not_ready 也永不归零）。做法：新插一行 QUEUED
+    task（保留旧行作审计）并后台重跑 generate_question_bank；最新行判定口径即 D-12。
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT position_id, model_id, model_version, status FROM question_bank_task"
+        " WHERE task_id=?",
+        (task_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+    if row["status"] != "FAILED":
+        raise HTTPException(status.HTTP_409_CONFLICT, "仅失败任务可重试")
+
+    from ...services.pipeline import new_id
+    conn.execute(
+        "INSERT INTO question_bank_task(task_id, position_id, model_id, model_version,"
+        " status, created_at) VALUES(?,?,?,?,?,?)",
+        (new_id("qbt"), row["position_id"], row["model_id"],
+         row["model_version"], "QUEUED", now_iso()),
+    )
+    conn.commit()
+
+    from ...services.question_bank import generate_question_bank
+    background.add_task(generate_question_bank, row["position_id"], row["model_id"])
+    return {"position_id": row["position_id"], "model_id": row["model_id"], "requeued": True}
+
+
 @router.post("/positions/{position_id}/retry-level")
 def retry_level(position_id: str, body: dict, background: BackgroundTasks) -> dict:
     """stalled 处理：action=retry 重跑聚合；action=manual 由前端编辑后走 PUT，此处仅重试。"""
