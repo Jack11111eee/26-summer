@@ -140,7 +140,9 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
 def submit_answer(session_id: str, body: dict, user: dict = Depends(require_login)) -> dict:
     """提交回答：精炼落库 → interview 决策 → 落 assistant 消息 → 推进题目/会话状态。"""
     question_id = body.get("question_id")
-    answer = body.get("answer", "")
+    # WR-02：与 submit_feedback 的 .strip() 语义对齐——纯空格串 422，不落入精炼/评分
+    raw_answer = body.get("answer")
+    answer = raw_answer.strip() if isinstance(raw_answer, str) else ""
     if not question_id or not answer:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 question_id 或 answer")
 
