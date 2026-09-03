@@ -119,6 +119,9 @@ async function loadModel() {
     const { data } = await api.get(`/assessment/positions/${positionId}/model`)
     meta.value = { model_id: data.model_id, version: data.version }
     model.value = data.model
+  } catch (e) {
+    // WR-09：404（无 confirmed 模型）等错误须给出提示，否则页面空白无反馈
+    ElMessage.error(e.response?.data?.detail || '加载岗位模型失败')
   } finally {
     loading.value = false
   }
