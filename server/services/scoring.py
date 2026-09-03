@@ -16,7 +16,13 @@ from .prompts.score import SCORE_SYSTEM, score_prompt
 # ---------- 客观题代码判分 ----------
 
 def _score_objective(answer_key: str, answer: str) -> tuple[int, str]:
-    """answer_key 命中 → 5 分，否则 1 分。先按正则试，非法正则退化为子串包含。"""
+    """answer_key 命中 → 5 分，否则 1 分。先按正则试，非法正则退化为子串包含。
+
+    answer_key 缺失/空白 → 按最低分记（CR-01：空串正则 re.search('', x) 恒命中，
+    任何回答会白得 5 分，属评分正确性缺陷）。
+    """
+    if not (answer_key or "").strip():
+        return 1, "answer_key 缺失（题目配置异常），按最低分记"
     try:
         hit = re.search(answer_key, answer) is not None
     except re.error:

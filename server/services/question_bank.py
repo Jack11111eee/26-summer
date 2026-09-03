@@ -132,11 +132,18 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                     mock_fn=_mock_question_gen,
                 )
                 for q in result.get("questions", []):
+                    # CR-01：objective 题缺 answer_key 时降级为 subjective（rubric 兜底），
+                    # 阻断"无 answer_key 客观题入库后空正则恒命中"的评分缺陷
+                    q_qtype = q.get("qtype", qtype)
+                    q_answer_key = q.get("answer_key")
+                    if q_qtype == "objective" and not (q_answer_key or "").strip():
+                        q_qtype = "subjective"
+                        q_answer_key = None
                     _insert_question(
                         conn, scope=scope,
                         position_id=position_id if scope == "position" else None,
-                        item=item, difficulty=difficulty, qtype=q.get("qtype", qtype),
-                        stem=q["stem"], answer_key=q.get("answer_key"), rubric=q.get("rubric"),
+                        item=item, difficulty=difficulty, qtype=q_qtype,
+                        stem=q["stem"], answer_key=q_answer_key, rubric=q.get("rubric"),
                         chain_key=chain_key, chain_seq=seq if chain_key else None,
                     )
                 conn.commit()
