@@ -11,6 +11,7 @@ from ..services.question_selection import select_questions_for_session
 from ..services.refine import refine_user_input
 from ..services.report import generate_report
 from ..services.scoring import score_session
+from ..services.state_events import append_event
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
 
@@ -89,6 +90,10 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
             " VALUES(?,?,?,?,?)",
             (new_id("aq"), session_id, q["question_id"], i, now),
         )
+    # 状态迁移留痕：与 INSERT 会话同一事务（SSOT §13.1 快照与事件同事务）
+    append_event(conn, session_id=session_id, event_type="SESSION_CREATED",
+                 from_state=None, to_state="in_progress",
+                 actor_type="candidate", actor_id=user["user_id"])
     conn.commit()
     return {"session_id": session_id, "question_count": len(questions),
             "estimated_duration_minutes": 20}
@@ -173,18 +178,24 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
          decision["score_live_reason"], now_iso()),
     )
 
-    # 4. 推进题目/会话状态
+    # 4. 推进题目/会话状态（事件行与快照 UPDATE 同事务，随下述最终 commit 落库）
     next_question_id = None
     if decision["action"] in ("next", "finish"):
         conn.execute(
             "UPDATE assessment_question SET answered_at=? WHERE question_id=?",
             (now_iso(), question_id),
         )
+        append_event(conn, session_id=session_id, event_type="QUESTION_ANSWERED",
+                     from_state="active", to_state="answered",
+                     actor_type="candidate", actor_id=user["user_id"],
+                     assessment_question_id=question_id)
     if decision["action"] == "finish":
         conn.execute(
             "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
             (now_iso(), session_id),
         )
+        append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                     from_state="in_progress", to_state="completed", actor_type="system")
     else:
         nxt = conn.execute(
             "SELECT question_id FROM assessment_question"
