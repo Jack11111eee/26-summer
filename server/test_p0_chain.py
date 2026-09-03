@@ -1,4 +1,4 @@
-"""P0 主链串行 + completed 护栏测试（REF-5.10/REF-8.2）。
+"""P0 主链串行 + completed 护栏 + 开考可测量性检查测试（REF-5.10/REF-8.2/REF-3.5/REF-8.5）。
 
 零步断裂修复的直接证明：候选人在 API 完成整场答题后仅调 POST /report（不调 /score），
 question_score 应已落库且报告雷达/逐题评分非空（断言不经 Python 直调 score_session 掩盖）。
@@ -11,6 +11,13 @@ question_score 应已落库且报告雷达/逐题评分非空（断言不经 Pyt
 
 串行链事件：TASK_QUEUED / TASK_STARTED / SESSION_ENTERED_SCORING / TASK_SUCCEEDED（评分子步 +
 报告子步至少各一）。
+
+开考可测量性检查（§10.4，REF-3.5/REF-8.5）：
+- 题库生成中（task QUEUED/RUNNING）→ 409 QUESTION_BANK_GENERATING，绝不建会话
+- 题库不完整（task SUCCEEDED/FAILED 但配额/required 覆盖不足）→ 409 QUESTION_BANK_INCOMPLETE
+- 模型不可测量（items 空或全部 gate / 岗位非 active）→ 409 MODEL_NOT_MEASURABLE
+- 存量种子（无 task 行 + 题库足量）→ 201 不误伤（Pitfall 3 兼容）
+- GET /api/admin/todos 含 question_bank_not_ready 键（D-13）
 
 全程 LLM_PROVIDER=mock 离线运行；DB 用临时文件，不碰 data/app.db；单文件单进程。
 运行：cd server && python -m pytest test_p0_chain.py -v
@@ -223,6 +230,83 @@ def _seed_completed_session_direct(username: str) -> str:
     return sid
 
 
+# ---------- 开考检查种子（01-04，question_bank_task 三态） ----------
+
+def _insert_qb_task(pid: str, mid: str, model_version: int, task_status: str) -> None:
+    """直插 question_bank_task 行（01-04 新表；status 代码校验枚举）。"""
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO question_bank_task(task_id, position_id, model_id, model_version,"
+        " status, created_at) VALUES(?,?,?,?,?,?)",
+        (new_id("qbt"), pid, mid, model_version, task_status, now_iso()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _assert_session_not_created(pid: str) -> None:
+    """失败态绝不创建会话（成功标准 3：杜绝 0 题会话静默开考）。"""
+    c = _q("SELECT COUNT(*) c FROM assessment_session WHERE position_id=?", (pid,))[0]["c"]
+    assert c == 0, f"该岗位不应创建会话，实得 {c} 行"
+
+
+def _seed_empty_items_confirmed_model() -> str:
+    """active 岗位 + confirmed 模型 items=[]（REF-8.5 不可测量形态其一）。"""
+    conn = get_conn()
+    pid = new_id("pos")
+    mid = new_id("cm")
+    now = now_iso()
+    conn.execute(
+        "INSERT INTO position(position_id, name, status, created_at) VALUES(?,?,?,?)",
+        (pid, "空模型岗位", "active", now),
+    )
+    model_json = {"position_id": pid, "version": 1, "items": []}
+    conn.execute(
+        "INSERT INTO competency_model(model_id, position_id, version, status, model_json, created_at)"
+        " VALUES(?,?,?,?,?,?)",
+        (mid, pid, 1, "confirmed", json.dumps(model_json, ensure_ascii=False), now),
+    )
+    conn.commit()
+    conn.close()
+    return pid
+
+
+def _seed_inactive_position_with_full_setup() -> str:
+    """pending_review 岗位 + confirmed 模型 + 足量题库（W-2 inactive 分支，直插合法）。"""
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid)
+    conn = get_conn()
+    conn.execute("UPDATE position SET status='pending_review' WHERE position_id=?", (pid,))
+    conn.commit()
+    conn.close()
+    return pid
+
+
+def _ensure_admin() -> None:
+    """测试库首跑造 admin（m7 模式，bcrypt 直插）。"""
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM user WHERE username='admin'").fetchone()
+    if row is None:
+        from passlib.context import CryptContext
+
+        pwd_ctx = CryptContext(schemes=["bcrypt"])
+        conn.execute(
+            "INSERT INTO user(user_id, username, password_hash, role, is_active, created_at)"
+            " VALUES(?,?,?,?,1,?)",
+            (new_id("u"), "admin", pwd_ctx.hash("admin"), "admin", now_iso()),
+        )
+        conn.commit()
+    conn.close()
+
+
+def _admin_headers() -> dict:
+    """admin 登录取 headers（todos 断言用）。"""
+    _ensure_admin()
+    r = client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
 # ---------- 测试 ----------
 
 def test_ui_main_chain_score_report_serial():
@@ -380,3 +464,94 @@ def test_serial_chain_events():
     seqs = [e["sequence_no"] for e in events]
     assert len(set(seqs)) == len(seqs), f"sequence_no 不得重复，实得 {seqs}"
     assert seqs == sorted(seqs), "sequence_no 应递增"
+
+
+# ---------- 开考可测量性检查三态（01-04，REF-3.5/REF-8.5） ----------
+
+def test_question_bank_generating_blocks_session():
+    """题库生成中（task 行 QUEUED）→ 409 QUESTION_BANK_GENERATING，绝不建会话。
+
+    即使题库当前已足量（生成中状态优先于实际题量判定——判定逻辑 D-12）。
+    """
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid)
+    _insert_qb_task(pid, mid, 1, "QUEUED")
+    headers = _auth_headers("p0_chain_gen")
+
+    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
+    assert r.status_code == 409, f"生成中岗位开考应 409，实得 {r.status_code}: {r.text}"
+    assert r.json()["detail"]["error_code"] == "QUESTION_BANK_GENERATING", r.text
+    _assert_session_not_created(pid)
+
+
+def test_question_bank_incomplete_blocks_session():
+    """题库不完整（task SUCCEEDED 但题库仅 1 题，配额不满）→ 409 QUESTION_BANK_INCOMPLETE。"""
+    pid, mid = _seed_position_with_confirmed_model()
+    # 仅插 1 题（远低于 CATEGORY_QUOTA hard 6 / soft 2 / experience 2）
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+        " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (new_id("qb"), "position", pid, "Python", "hard_skill", "easy", "objective",
+         "Python 中用什么关键字定义函数？", "def", None, "human", "active", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    _insert_qb_task(pid, mid, 1, "SUCCEEDED")
+    headers = _auth_headers("p0_chain_inc")
+
+    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
+    assert r.status_code == 409, f"题库不足配额开考应 409，实得 {r.status_code}: {r.text}"
+    assert r.json()["detail"]["error_code"] == "QUESTION_BANK_INCOMPLETE", r.text
+    _assert_session_not_created(pid)
+
+
+def test_model_not_measurable_blocks_session():
+    """confirmed 模型 items 为空 → 409 MODEL_NOT_MEASURABLE（REF-8.5），不建会话。"""
+    pid = _seed_empty_items_confirmed_model()
+    headers = _auth_headers("p0_chain_mnm")
+
+    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
+    assert r.status_code == 409, f"空模型开考应 409，实得 {r.status_code}: {r.text}"
+    assert r.json()["detail"]["error_code"] == "MODEL_NOT_MEASURABLE", r.text
+    _assert_session_not_created(pid)
+
+
+def test_inactive_position_blocks_session():
+    """非 active 岗位（pending_review）+ confirmed 模型 + 足量题库 → 409 MODEL_NOT_MEASURABLE。
+
+    W-2：status != 'active' 复用 MODEL_NOT_MEASURABLE 作为"岗位不可开测"语义载体。
+    """
+    pid = _seed_inactive_position_with_full_setup()
+    headers = _auth_headers("p0_chain_inactive")
+
+    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
+    assert r.status_code == 409, f"未上架岗位开考应 409，实得 {r.status_code}: {r.text}"
+    assert r.json()["detail"]["error_code"] == "MODEL_NOT_MEASURABLE", r.text
+    _assert_session_not_created(pid)
+
+
+def test_legacy_seed_without_task_row_passes():
+    """存量种子形态（无 task 行 + 题库足量，m5 直插模式）→ 201 不误伤（Pitfall 3 兼容）。"""
+    pid, _mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid)
+    headers = _auth_headers("p0_chain_legacy")
+
+    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
+    assert r.status_code == 201, f"存量足量种子应 201 放行，实得 {r.status_code}: {r.text}"
+    c = _q("SELECT COUNT(*) c FROM assessment_session WHERE position_id=?", (pid,))[0]["c"]
+    assert c == 1, f"放行后应恰好创建 1 个会话，实得 {c}"
+
+
+def test_admin_todos_includes_question_bank_not_ready():
+    """存在非 SUCCEEDED task 行的岗位时 GET /api/admin/todos 含 question_bank_not_ready 且 >= 1（D-13）。"""
+    pid, mid = _seed_position_with_confirmed_model()
+    _insert_qb_task(pid, mid, 1, "RUNNING")
+
+    r = client.get("/api/admin/todos", headers=_admin_headers())
+    assert r.status_code == 200, r.text
+    todos = r.json()
+    assert "question_bank_not_ready" in todos, f"todos 应含 question_bank_not_ready 键，实得 {todos}"
+    assert todos["question_bank_not_ready"] >= 1, \
+        f"存在 RUNNING task 行，question_bank_not_ready 应 >= 1，实得 {todos['question_bank_not_ready']}"
