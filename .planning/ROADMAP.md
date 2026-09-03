@@ -48,7 +48,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — score→report 服务端串行（request_report 入口链方案 B + allow_completed 豁免）+ completed 护栏 + 回归断言重写（D-08~D-10）
+- [x] 01-03-PLAN.md — score→report 服务端串行（request_report 入口链方案 B + allow_completed 豁免）+ completed 护栏 + 回归断言重写（D-08~D-10）
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -173,7 +173,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. P0 安全与主链修复 | 2/4 | In Progress|  |
+| 1. P0 安全与主链修复 | 3/4 | In Progress|  |
 | 2. 动态选题与有界循环 | 0/5 | Not started | - |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
