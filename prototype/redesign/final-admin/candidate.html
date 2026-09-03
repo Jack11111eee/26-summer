@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>测评端候选 · 对话测评（素色对话台）</title>
+<link rel="stylesheet" href="candidate.css">
+</head>
+<body class="candidate">
+
+  <!-- 动态浅色背景（同款雾团引擎，CSS 侧调轻） -->
+  <div class="bg"><i class="blob b1"></i></div>
+
+  <div class="cand">
+    <header class="cand-top">
+      <div class="cand-brand">
+        <span class="cand-chip">胜任力系统</span>
+        <div>
+          <div class="cand-title">AI Agent 开发工程师</div>
+          <div class="cand-meta">CONVERSATION ASSESSMENT · ROUND 2 · 8 QUESTIONS</div>
+        </div>
+      </div>
+      <div class="cand-actions">
+        <button class="btn">帮助</button>
+        <button class="btn">退出测评</button>
+      </div>
+    </header>
+
+    <div class="cand-body">
+
+      <!-- 左：对话流 -->
+      <div class="cand-conv">
+
+        <section class="intro">
+          <div class="intro-kicker">ASSESSMENT BRIEF · 本轮概览</div>
+          <div class="intro-title">对话测评 · 第 2 轮</div>
+          <div class="intro-sub">8 道开放题 · 预计 25 分钟。请围绕真实经历作答，无需刻意润色；面试官 AI 会基于你的回答继续追问。</div>
+        </section>
+
+        <section class="q">
+          <div class="q-head">
+            <span class="q-kicker">Q 01 · <b>行为类</b></span>
+            <span class="q-tags"><span class="q-tag">认知复杂度</span><span class="q-tag">问题定位</span></span>
+          </div>
+          <div class="q-text">请描述一次你在设计 Agent 工作流时，遇到工具调用结果与预期不一致的情况。你当时是如何定位并处理的？</div>
+        </section>
+
+        <section class="a">
+          <div class="a-head">
+            <span class="a-kicker">你的作答 · <b>李明</b></span>
+            <span class="a-time">09:12 · 第 1 题</span>
+          </div>
+          <div class="a-text">当时我们让 Agent 调用搜索工具去补齐知识库缺口，但返回的结果经常与领域文档矛盾。我先核对了几条失败调用日志，发现不是模型理解错了，而是工具把「召回阈值」设得太低，混进了大量不相关片段。我先把阈值调高、加了一层相关性过滤，再给 Agent 补了一条『冲突时优先采信领域文档』的系统提示，之后误召回率明显下降。</div>
+        </section>
+
+        <section class="note">
+          <div class="note-kicker">评估注记 · <b>LIVE</b></div>
+          已捕捉到关键行为链：假设校验 → 日志定位 → 参数调整 → 规则补充。正在提取「问题定位」证据。
+        </section>
+
+        <section class="q cur">
+          <div class="q-head">
+            <span class="q-kicker">Q 02 · <b>场景类</b> · 当前</span>
+            <span class="q-tags"><span class="q-tag">方案权衡</span></span>
+          </div>
+          <div class="q-text">假设团队需要把现有 RAG 问答系统改造成支持多轮工具调用的 Agent。你会如何拆分任务、排定优先级？请给出你的思考路径。</div>
+        </section>
+
+        <!-- 输入区：sticky 常驻底部，对应 Q 02 -->
+        <div class="compose">
+          <div class="compose-label">正在回答 · <b>Q 02 · 方案权衡</b></div>
+          <textarea placeholder="写下你的回答（可参考 STARR 结构：情境 / 任务 / 行动 / 结果 / 反思）…"></textarea>
+          <div class="compose-foot">
+            <span class="compose-hint"><b>Enter</b> 发送 · <b>Shift+Enter</b> 换行 · 回答将实时进入评估</span>
+            <div class="compose-actions">
+              <button class="btn">跳过此题</button>
+              <button class="btn primary">发送</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 右：测评进度栏 -->
+      <aside class="cand-rail">
+
+        <section class="rail-card">
+          <div class="rail-title">测评进度</div>
+          <div class="rail-progress-num">03<span> / 08</span></div>
+          <div class="rail-bar"><i></i></div>
+        </section>
+
+        <section class="rail-card">
+          <div class="rail-title">已覆盖能力维度</div>
+          <div class="dim done"><i class="dot"></i>结构化表达 <span class="st">已完成</span></div>
+          <div class="dim done"><i class="dot"></i>问题定位 <span class="st">已完成</span></div>
+          <div class="dim done"><i class="dot"></i>方案权衡 <span class="st">已完成</span></div>
+          <div class="dim cur"><i class="dot"></i>协作沟通 <span class="st">评估中</span></div>
+          <div class="dim"><i class="dot"></i>学习迁移 <span class="st">待触达</span></div>
+          <div class="dim"><i class="dot"></i>韧性 <span class="st">待触达</span></div>
+        </section>
+
+        <section class="rail-card">
+          <div class="rail-title">提示</div>
+          <div class="rail-foot">回答没有标准答案。面试官 AI 会顺着你的思路追问，请尽量展开「当时情境 → 你做了什么 → 结果如何」。</div>
+        </section>
+
+      </aside>
+    </div>
+
+    <footer class="cand-foot">
+      <span>候选人 · 李明</span>
+      <span>评估中 · 第 2 / 4 环节</span>
+      <span class="f-right">ASSESSMENT v2.4 · AI 在线面试官</span>
+    </footer>
+  </div>
+
+<script>
+/* 雾团轨迹：80% 确定性 Lissajous/organic + 15% 低频噪声 + 5% 平滑微扰
+   连续时间（不归零），全程平滑正弦，无跳变、无突加减速；大周期 ≈ 55s
+   —— 与管理端共用同一引擎，仅透明度/颜色由 candidate.css 调轻 */
+(function () {
+  var els = Array.prototype.slice.call(document.querySelectorAll('.blob'));
+  var T = 55, vw = window.innerWidth, vh = window.innerHeight;
+  var HALF = 420;  /* 840px 雾团半径的一半，使 translate 对准元素中心 */
+  var ANCHOR = [[.5, .5, .30, .18]];
+  var cfg = els.map(function (_, i) {
+    var d = ANCHOR[i];
+    var r = function (a, b) { return a + Math.random() * (b - a); };
+    return {
+      cx: vw * d[0], cy: vh * d[1], ax: vw * d[2], ay: vh * d[3],
+      kx: [1.00, 2.07, 2.91], ky: [1.00, 1.63, 2.47],   /* 略偏离整数倍 → 不对称 */
+      wx: [0.68, 0.20, 0.12], wy: [0.66, 0.22, 0.12],
+      px: [r(0, 6.28), r(0, 6.28), r(0, 6.28)],
+      py: [r(0, 6.28), r(0, 6.28), r(0, 6.28)],
+      nf: [1 / 1.9, 1 / 3.1],                            /* 噪声：周期 ~104s / ~170s */
+      np: [r(0, 6.28), r(0, 6.28), r(0, 6.28), r(0, 6.28)],
+      jx: 0, jy: 0, jtx: r(-1, 1), jty: r(-1, 1), jtt: 0, jtk: r(0, 1.4)
+    };
+  });
+  window.addEventListener('resize', function () {
+    vw = window.innerWidth; vh = window.innerHeight;
+    cfg.forEach(function (c, i) {
+      var d = ANCHOR[i];
+      c.cx = vw * d[0]; c.cy = vh * d[1]; c.ax = vw * d[2]; c.ay = vh * d[3];
+    });
+  });
+  var t0 = null, last = 0;
+  function frame(ts) {
+    if (t0 === null) { t0 = ts; last = ts; }
+    var dt = Math.min((ts - last) / 1000, 0.1);
+    last = ts;
+    var t = (ts - t0) / 1000;
+    var th = 2 * Math.PI * t / T;
+    for (var i = 0; i < els.length; i++) {
+      var c = cfg[i];
+      /* 微小随机扰动：慢速重定向 + 指数平滑（≈5%） */
+      c.jtt += dt;
+      if (c.jtt > c.jtk) { c.jtx = Math.random() * 2 - 1; c.jty = Math.random() * 2 - 1; c.jtt = 0; c.jtk = 0.8 + Math.random() * 1.2; }
+      var sm = 1 - Math.exp(-dt * 1.6);
+      c.jx += (c.jtx - c.jx) * sm;
+      c.jy += (c.jty - c.jy) * sm;
+      /* 确定性主轨迹（≈80%） */
+      var mx = 0, my = 0;
+      for (var k = 0; k < 3; k++) {
+        mx += c.wx[k] * Math.sin(c.kx[k] * th + c.px[k]);
+        my += c.wy[k] * Math.sin(c.ky[k] * th + c.py[k]);
+      }
+      /* 低频噪声（≈15%） */
+      var no  = 0.6 * Math.sin(2 * Math.PI * t * c.nf[0] / T + c.np[0]) + 0.4 * Math.sin(2 * Math.PI * t * c.nf[1] / T + c.np[1]);
+      var noy = 0.6 * Math.sin(2 * Math.PI * t * c.nf[1] / T + c.np[2]) + 0.4 * Math.sin(2 * Math.PI * t * c.nf[0] / T + c.np[3]);
+      var x = c.cx + c.ax * (mx + 0.15 * no  + 0.05 * c.jx);
+      var y = c.cy + c.ay * (my + 0.15 * noy + 0.05 * c.jy);
+      els[i].style.transform = 'translate(' + (x - HALF).toFixed(1) + 'px,' + (y - HALF).toFixed(1) + 'px)';
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

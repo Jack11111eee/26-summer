@@ -1,0 +1,22 @@
+{
+  "source_path": "/Users/huaxinzhang/Desktop/trifles/26-summer-sem/design/技术方案概述.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "实验技术方案概述：AI驱动的岗位胜任力测评与人才画像系统",
+  "summary": "Upstream technical-plan overview for the AI-driven competency assessment and talent profiling system: teaching goals, three-layer architecture, JD parsing, multi-turn AI assessment, profile generation, and data-compliance rules.",
+  "scope": [
+    "系统总体架构（前端交互层、后端逻辑层、AI能力层）",
+    "岗位JD解析与胜任力模型构建（硬技能/软技能/经验要求提取、能力权重分配）",
+    "AI动态测评与多轮对话（面试题生成、对话历史列表、动态追问、系统提示词角色设定）",
+    "立体人才画像生成（能力打分、优势短板分析、提升建议、能力雷达图可视化）",
+    "迭代闭环设计（胜任力模型、测评框架、测评与评价过程持续改进）",
+    "数据获取合规性（禁用恶意爬虫、手动输入/文件上传、浏览器插件辅助提取）",
+    "实验目标与能力培养（AI应用开发、提示词工程、全栈开发流程、数据合规意识）",
+    "交付物与考核标准（全流程演示、源代码与API接口文档、实验报告/答辩）"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": 2,
+  "notes": "Manifest-declared DOC (precedence 2). Repo convention: upstream requirements input (上游需求输入) subordinate to SSOT design/final-design/总设计文档.md; conflicts resolve to SSOT. Content reads as a hybrid of teaching-oriented requirements and technical-architecture description (system layers, module implementation flows, deliverables), which alone would compete between PRD and SPEC; typed DOC per manifest so the SSOT remains the single extraction authority. Filename hash suffix is a deterministic fallback digest of the source path (SHA-256 not computable without execution tools); the source_path field is authoritative."
+}

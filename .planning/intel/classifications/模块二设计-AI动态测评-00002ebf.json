@@ -1,0 +1,31 @@
+{
+  "source_path": "/Users/huaxinzhang/Desktop/trifles/26-summer-sem/design/final-design/模块二设计-AI动态测评.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "模块二设计：AI 有界动态测评",
+  "summary": "《总设计文档.md》（唯一 SSOT）第三部分的模块二分块摘录：题库、题量配额与动态选题、会话实例与追问、难度路径状态机、证据判定、SSE 传输与幂等、计时恢复、表单与 Tools 契约。",
+  "scope": [
+    "题库 question_bank（分类树、绑定字段、等值备用题、难度-等级映射）",
+    "题量与配额（ordinary/integrated 计数、required 刚性例外、开考前可测量性检查）",
+    "动态选题四层结构（合法过滤/硬约束/配额/排序）",
+    "assessment_question 实例与 followup 追问",
+    "难度路径状态机（升级/降级/恢复/跳级护栏）",
+    "证据判定（evidence_sufficient、stable_evidence）",
+    "answer_state / score_state 两层状态",
+    "SSE 对话传输与幂等（idempotency_key、乐观版本号）",
+    "上下文三层（原始证据/交互上下文/导航摘要）",
+    "计时与恢复（全场 40 分钟、单题 20 分钟、6 小时 ABANDONED）",
+    "form_instance 表单生命周期、gate 与 extract_form_facts",
+    "Tools 阶段白名单与失败人工接管",
+    "状态事件表（append-only）",
+    "模块二重构注意事项"
+  ],
+  "cross_refs": [
+    "design/final-design/总设计文档.md",
+    "design/final-design/模块一设计-岗位JD解析与胜任力模型构建.md"
+  ],
+  "locked": false,
+  "precedence": 1,
+  "notes": "Content reads as a technical spec (state machines, schemas, SSE/idempotency contracts), but manifest and repo convention declare this file a subordinate excerpt (分块摘录) of the SSOT 总设计文档.md; typed DOC per manifest at lowest precedence so the SSOT remains the single extraction authority and content is not double-extracted."
+}

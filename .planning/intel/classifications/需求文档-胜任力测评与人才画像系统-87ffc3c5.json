@@ -1,0 +1,20 @@
+{
+  "source_path": "/Users/huaxinzhang/Desktop/trifles/26-summer-sem/design/需求文档-胜任力测评与人才画像系统.md",
+  "type": "PRD",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "AI驱动的岗位胜任力测评与人才画像系统需求",
+  "summary": "Upstream requirements for an AI-driven job competency assessment and talent profiling system: JD parsing, dynamic AI assessment generation, interactive dialogue testing, talent profile reports, data-compliance constraints, and deliverables.",
+  "scope": [
+    "岗位JD解析与胜任力模型构建",
+    "AI动态测评框架与题目生成",
+    "交互式多轮对话测评",
+    "人才画像报告（能力雷达图、优势短板分析、提升建议）",
+    "数据获取合规性（浏览器插件提取、本地文件/开源工具导入）",
+    "交付物与考核标准（全流程演示、API文档、答辩）"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": 2,
+  "notes": "Manifest-declared PRD (precedence 2). Repo convention: upstream requirements input (上游需求输入) subordinate to SSOT design/final-design/总设计文档.md; conflicts resolve to SSOT. Filename hash suffix is a deterministic fallback digest of the source path (SHA-256 not computable without execution tools); the source_path field is authoritative."
+}
