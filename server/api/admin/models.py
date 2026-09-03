@@ -99,14 +99,15 @@ def confirm_model(model_id: str, background: BackgroundTasks, admin: dict = Depe
     if row["status"] == "stalled":
         raise HTTPException(status.HTTP_409_CONFLICT, "模型处于滞留状态，请先完成等级裁决")
 
+    # WR-04：UPDATE confirmed 与 INSERT task 行同一事务——插行失败（磁盘满/DB busy）
+    # 时 confirmed 一并回滚，避免出现"confirmed 但无 task 行"的不可恢复态（readiness
+    # 第 3 项查不到行 → 按实际题量判定 → 永久 INCOMPLETE）
     conn.execute(
         "UPDATE competency_model SET status='confirmed', confirmed_by=?, confirmed_at=? WHERE model_id=?",
         (admin["user_id"], now_iso(), model_id),
     )
-    conn.commit()
-
     # 题库生成任务行（D-12）：confirm 后插 QUEUED，生成任务开始/结束更新自身行；
-    # 自身小事务先落库，确保即使后台任务异常，三态仍真实可查
+    # 先于 add_task 落库，确保即使后台任务异常，三态仍真实可查
     from ...services.pipeline import new_id
     conn.execute(
         "INSERT INTO question_bank_task(task_id, position_id, model_id, model_version,"
