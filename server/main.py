@@ -12,6 +12,9 @@ from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# CR-05：.env.example 公开提交的默认密钥字面量（含空串），启动期拒绝
+_INSECURE_JWT_DEFAULTS = {"", "change-me-in-.env"}
+
 
 def _load_env() -> None:
     """极简 .env 加载（KEY=VALUE，忽略注释与空行），不引第三方依赖。"""
@@ -27,6 +30,7 @@ def _load_env() -> None:
 
 _load_env()
 
+from . import config  # noqa: E402  (须在 .env 加载后读取 JWT_SECRET)
 from .db import init_db  # noqa: E402  (须在 .env 加载后导入，DB_PATH 才生效)
 from .api import auth  # noqa: E402
 from .api import assessment  # noqa: E402
@@ -52,6 +56,12 @@ app.add_middleware(
 
 @app.on_event("startup")
 def _startup() -> None:
+    # CR-05：启动期 fail-closed——拒绝以公开默认密钥签发/校验 token（HS256 对称密钥
+    # 公开即离线伪造；测试 processes 由各自测试文件显式设 JWT_SECRET=test-secret）
+    if config.JWT_SECRET in _INSECURE_JWT_DEFAULTS:
+        raise RuntimeError(
+            "JWT_SECRET 未配置或为公开默认值：拒绝启动（请在 .env 或环境变量设置强随机密钥）"
+        )
     init_db()
 
 

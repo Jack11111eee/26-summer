@@ -37,10 +37,13 @@ def _current_user(cred: HTTPAuthorizationCredentials | None = Depends(bearer)) -
         payload = jwt.decode(cred.credentials, config.JWT_SECRET, algorithms=[config.JWT_ALGORITHM])
     except JWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "token 无效或已过期")
+    sub = payload.get("sub")  # CR-05：签名正确但缺 sub 的 token 401，而非 KeyError→500
+    if not sub:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "token 无效或已过期")
     conn = get_conn()
     row = conn.execute(
         "SELECT user_id, username, role, is_active FROM user WHERE user_id=?",
-        (payload["sub"],),
+        (sub,),
     ).fetchone()
     if row is None or not row["is_active"]:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "账号不存在或已停用")
