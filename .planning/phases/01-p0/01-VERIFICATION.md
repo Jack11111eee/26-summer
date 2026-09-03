@@ -124,11 +124,9 @@ human_verification: []
 
 [全部完成 — 2026-09-03 人工 UAT 三项全部通过（01-HUMAN-UAT.md）：1) UI 主链浏览器走查（finish→报告页，真实雷达图与逐题明细）；2) 开考被拒 409 中文提示走查；3) admin 完成测评进报告页不被 route guard 弹回]
 
-### Gaps Summary
+## Acknowledged Gaps
 
-**无失败 truth。** 五条 Success Criteria 全部经代码检查与独立复跑的测试证明：越权矩阵（10 用例）、主链串行+护栏+三态（11 用例）、m5/m6/m7 回归（7+41+5）全绿，前端构建通过，DDL 幂等，eval 冒烟符合预期预种子行为。
-
-01-REVIEW.md 的 4 Critical 经代码核实属实，但均在 Success Criteria 字面范围之外（retry 入口、连接卫生、审计字段保护、既有路由 FK seam），按 GSD gates 属 advisory——已列为 Warning 供后续阶段与 code-review 跟踪消费，不构成本阶段 gap。唯一无法自动化裁决的是三项 UI 层走查（视觉渲染、提示文案、admin 浏览器流程），已列入 human_verification 待人工确认。
+无。01-REVIEW.md 的 4 Critical 经代码核实属实但均在五条 Success Criteria 字面之外（retry 入口、连接卫生、审计字段保护、既有路由 FK seam），归 Warning 供后续阶段消费（见 Anti-Patterns Found）。
 
 ---
 
