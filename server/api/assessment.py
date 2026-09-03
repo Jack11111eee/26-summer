@@ -351,7 +351,9 @@ def get_report_by_session(session_id: str, user: dict = Depends(require_login)) 
         (session_id,),
     ).fetchone()
     if rid is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "报告尚未生成")
+        # WR-05：与 load_owned_report 的 404 文案统一——"未生成"与"已生成但属他人"
+        # 只差在文案即构成存在性 oracle（D-01：统一不存在语义）
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "报告不存在")
     r = load_owned_report(conn, rid["report_id"], user, allow_admin_read=True)
     return json.loads(r["report_json"])
 
