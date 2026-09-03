@@ -2,9 +2,9 @@
 
 - **授权人**：用户（本项目所有者）
 - **受权执行者**：Claude Code 主会话（编排者；重活由 GSD 子代理执行）
-- **生效**：2026-09-03，用户在原对话中确认后落盘；落盘即生效，git 原子 commit 存证
+- **生效**：**用户显式批准后**（说「按这个授权来」，或新会话粘贴 §7 启动 prompt）。落盘本身不构成生效——批准前本章程仅为草案。生效时刻记入本文件与 memory（automation-charter-active.md 的 Status 段），git 原子 commit 存证
 - **适用范围**：Phase 2–6 全流程，直至本 milestone（SSOT v2.0 契约重构）收尾完成
-- **配套文件**：操作剧本 `MILESTONE-PLAYBOOK.md`（怎么干）；本文件只定授权边界（能干什么、不能干什么）
+- **配套文件**：操作剧本 `MILESTONE-PLAYBOOK.md`（怎么干，含 §7 新会话启动 prompt）；本文件只定授权边界（能干什么、不能干什么）
 - **冲突裁决**：本文件与任何GSD 工作流指引冲突时，以本文件为准；CLAUDE.md 与 SSOT 治理高于本文件
 
 ## 0. 一句话
@@ -60,12 +60,3 @@ GSD 标准步骤（discuss → plan → 审查 → execute → verify → review
 - **变更**：分权范围的任何增减须经用户明确确认后更新本文件并 commit。
 - **撤回**：用户说「撤回自动化授权」即全量回到逐事确认模式，本章程 §1 失效，§2/§3（本来就是底线）不变。
 - **终止**：milestone 收尾完成（playbook §5）后授权自动终止。
-
-## 7. 新会话启动 prompt（复制即用）
-
-```text
-读取 .planning/AUTOMATION-CHARTER.md 与 .planning/MILESTONE-PLAYBOOK.md，严格按其中授权边界与流程执行。
-进度权威：.planning/ROADMAP.md（Phase 1 已完成）。从 Phase 2 循环第 1 步（/gsd-discuss-phase 2）起跑，
-停在硬关口 A（plan 审查打包呈现）等我批准。我已授权例行关口由你按章程代确认并记 DECISIONS.md；
-硬关口与红线条款无条件停车。权限模式已放宽，无人值守段无需我确认。
-```
