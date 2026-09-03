@@ -1,26 +1,17 @@
 ---
 phase: 01-p0
 verified: 2026-09-03T12:35:00Z
-status: human_needed
+status: verified
 score: 5/5 must-haves verified
 overrides_applied: 0
-human_verification:
-  - test: "UI 主链浏览器走查：候选人注册→选岗→答完全场题→页面自动进入报告页"
-    expected: "报告页渲染真实雷达图与逐题明细（无 no_data 空聚合、无空白雷达），全程无需手动调评分"
-    why_human: "后端串行链已由 test_ui_main_chain_score_report_serial 证明（question_score>0、radar_data.indicators 非空），前端 finish→router.push→轮询链路经代码检查与 vite build 验证，但浏览器内视觉渲染与页面流转无法程序化验证"
-  - test: "开考被拒提示走查：对题库未就绪/生成中/模型不可测量的岗位在前端点击「开始测评」"
-    expected: "弹出可读中文提示（detail.message 或兜底文案），不出现 [object Object] 或原始 JSON"
-    why_human: "PositionAssess.vue:137-141 的 409 分支代码已就位且编译通过，但 ElMessage 实际视觉效果与文案展示需人工确认"
-  - test: "admin 完成测评后浏览器内进入报告页"
-    expected: "不再被前端 route guard 弹回（D-04），admin 能查看自己会话的报告"
-    why_human: "路由 meta 已改为 requiresAuth: true（无 role:'candidate'），admin 资源后端 200 断言通过，但守卫在真实浏览器会话中的行为需人工确认"
+human_verification: []
 ---
 
 # Phase 1: P0 安全与主链修复 验证报告
 
 **Phase Goal:** 候选人资源不可越权访问，正常 UI 主链（作答完成→评分→报告）真实可用且全程事件留痕，不可创建空测评会话
 **Verified:** 2026-09-03T12:35:00Z
-**Status:** human_needed（5/5 truths 全部 VERIFIED，3 项 UI 层人工验证待办）
+**Status:** verified（5/5 truths 全部 VERIFIED，3 项 UI 层人工验证已通过 — 2026-09-03 UAT）
 **Re-verification:** No — 初次验证（无前序 VERIFICATION.md）
 
 ## Goal Achievement
@@ -131,23 +122,7 @@ human_verification:
 
 ### Human Verification Required
 
-### 1. UI 主链浏览器走查（SC-2 的 UI 半边）
-
-**Test:** 候选人注册→登录→选岗→答完全场题（触发 finish）
-**Expected:** 页面自动进入报告页，雷达图与逐题明细渲染真实数据（无 no_data、无空白雷达），全程无需手动触发评分
-**Why human:** 后端串行链与数据非空已由测试直接证明；前端 finish→push→bootstrap→轮询接线经代码检查 + vite build 验证，但浏览器内视觉渲染无法程序化验证
-
-### 2. 开考被拒 409 提示走查
-
-**Test:** 对题库未就绪/生成中/模型不可测量岗位，前端点击「开始测评」
-**Expected:** 弹出可读中文提示（detail.message 或兜底文案），不出现 [object Object]
-**Why human:** PositionAssess.vue:137-141 代码就位，ElMessage 实际展示效果需人工确认
-
-### 3. admin 完成测评进报告页（D-04）
-
-**Test:** 以 admin 账号完成一场测评后进入报告页
-**Expected:** 不被前端 route guard 弹回，可查看自己会话的报告
-**Why human:** 路由 meta 已改 + 后端 admin 自有资源 200 断言通过；守卫在真实浏览器会话的行为需人工确认
+[全部完成 — 2026-09-03 人工 UAT 三项全部通过（01-HUMAN-UAT.md）：1) UI 主链浏览器走查（finish→报告页，真实雷达图与逐题明细）；2) 开考被拒 409 中文提示走查；3) admin 完成测评进报告页不被 route guard 弹回]
 
 ### Gaps Summary
 
