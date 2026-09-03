@@ -123,3 +123,14 @@ Milestone 收尾循环（§5）——Phase 6 关账后一次性：
 - 重活在子代理：gsd-executor/researcher/planner/verifier/security-auditor 都是全新上下文，不继承本会话历史。
 - 每 phase 关账时邀请用户 `/compact`（章程 §1）——新 phase 从近净窗口起跑。
 - compaction 损失细节但不丢状态：`.planning/` 是唯一权威。
+
+## 7. 新会话启动 prompt（复制即用）
+
+前置：确认章程已生效（AUTOMATION-CHARTER.md「生效」条款 + memory Status 段均显示用户已批准；未批准则向用户请求批准，不得默认）。
+
+```text
+读取 .planning/AUTOMATION-CHARTER.md 与 .planning/MILESTONE-PLAYBOOK.md，严格按其中授权边界与流程执行。
+进度权威：.planning/ROADMAP.md（Phase 1 已完成）。从下一个未开始 phase 的循环第 1 步（/gsd-discuss-phase <n>）起跑，
+停在硬关口 A（plan 审查打包呈现）等我批准。我已授权例行关口由你按章程代确认并记 DECISIONS.md；
+硬关口与红线条款无条件停车。权限模式已放宽，无人值守段无需我确认。
+```
