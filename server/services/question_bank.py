@@ -69,12 +69,17 @@ def _insert_question(conn, *, scope: str, position_id: str | None, item: dict,
 
 def _update_task_status(conn, position_id: str, model_id: str, task_status: str,
                         error_msg: str | None = None) -> None:
-    """更新该 (position, model) 最新 task 行状态（D-12：RUNNING/SUCCEEDED/FAILED 自维护）。"""
+    """更新该 (position, model) 最新 task 行状态（D-12：RUNNING/SUCCEEDED/FAILED 自维护）。
+
+    WR-12：finished_at 的 CASE 补 ELSE finished_at——否则非终态更新（如 retry 后的
+    RUNNING）会把已终态行的 finished_at 抹成 NULL；排序补 rowid DESC 作 created_at
+    并列时的 tie-break，与 started_at 的 COALESCE 保护对称。
+    """
     conn.execute(
         "UPDATE question_bank_task SET status=?, started_at=COALESCE(started_at, CASE ? WHEN 'RUNNING' THEN ? END),"
-        " finished_at=CASE WHEN ? IN ('SUCCEEDED','FAILED') THEN ? END, error_msg=?"
+        " finished_at=CASE WHEN ? IN ('SUCCEEDED','FAILED') THEN ? ELSE finished_at END, error_msg=?"
         " WHERE task_id=(SELECT task_id FROM question_bank_task"
-        " WHERE position_id=? AND model_id=? ORDER BY created_at DESC LIMIT 1)",
+        " WHERE position_id=? AND model_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1)",
         (task_status, task_status, now_iso(), task_status, now_iso(), error_msg,
          position_id, model_id),
     )
