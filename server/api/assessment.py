@@ -3,7 +3,7 @@ import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
-from ..core.security import require_login
+from ..core.security import load_owned_report, load_owned_session, require_login
 from ..db import get_conn
 from ..services.interview import decide_next_action
 from ..services.pipeline import new_id, now_iso
@@ -95,16 +95,10 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
 
 
 @router.get("/sessions/{session_id}")
-def get_session(session_id: str) -> dict:
+def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
     """会话状态：当前题 = 第一个未作答（answered_at IS NULL）的题。"""
     conn = get_conn()
-    s = conn.execute(
-        "SELECT session_id, status, position_id, model_version FROM assessment_session"
-        " WHERE session_id=?",
-        (session_id,),
-    ).fetchone()
-    if s is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+    s = load_owned_session(conn, session_id, user, allow_admin_read=True)
     total = conn.execute(
         "SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (session_id,)
     ).fetchone()["c"]
@@ -119,7 +113,10 @@ def get_session(session_id: str) -> dict:
         (session_id,),
     ).fetchone()
     return {
-        **dict(s),
+        "session_id": s["session_id"],
+        "status": s["status"],
+        "position_id": s["position_id"],
+        "model_version": s["model_version"],
         "current_question": dict(cur) if cur else None,
         "answered_count": answered,
         "total_count": total,
@@ -127,7 +124,7 @@ def get_session(session_id: str) -> dict:
 
 
 @router.post("/sessions/{session_id}/answer")
-def submit_answer(session_id: str, body: dict) -> dict:
+def submit_answer(session_id: str, body: dict, user: dict = Depends(require_login)) -> dict:
     """提交回答：精炼落库 → interview 决策 → 落 assistant 消息 → 推进题目/会话状态。"""
     question_id = body.get("question_id")
     answer = body.get("answer", "")
@@ -135,11 +132,7 @@ def submit_answer(session_id: str, body: dict) -> dict:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 question_id 或 answer")
 
     conn = get_conn()
-    s = conn.execute(
-        "SELECT status FROM assessment_session WHERE session_id=?", (session_id,)
-    ).fetchone()
-    if s is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+    s = load_owned_session(conn, session_id, user)
     if s["status"] != "in_progress":
         raise HTTPException(status.HTTP_409_CONFLICT, f"会话已结束（{s['status']}）")
     q = conn.execute(
@@ -214,11 +207,7 @@ def submit_form(session_id: str, body: dict, user: dict = Depends(require_login)
     if not form_type or payload is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 form_type 或 payload")
     conn = get_conn()
-    s = conn.execute(
-        "SELECT 1 FROM assessment_session WHERE session_id=?", (session_id,)
-    ).fetchone()
-    if s is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+    load_owned_session(conn, session_id, user)
     form_id = new_id("form")
     conn.execute(
         "INSERT INTO form_submission(form_id, session_id, user_id, form_type, payload_json, created_at)"
@@ -231,14 +220,10 @@ def submit_form(session_id: str, body: dict, user: dict = Depends(require_login)
 
 
 @router.post("/sessions/{session_id}/score")
-def score_session_endpoint(session_id: str) -> dict:
+def score_session_endpoint(session_id: str, user: dict = Depends(require_login)) -> dict:
     """终局打分：会话内所有已答题逐题评分，落 question_score。"""
     conn = get_conn()
-    s = conn.execute(
-        "SELECT status FROM assessment_session WHERE session_id=?", (session_id,)
-    ).fetchone()
-    if s is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+    load_owned_session(conn, session_id, user)
     total = conn.execute(
         "SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (session_id,)
     ).fetchone()["c"]
@@ -257,54 +242,45 @@ def _generate_report_task(session_id: str) -> None:
 
 
 @router.post("/sessions/{session_id}/report", status_code=status.HTTP_202_ACCEPTED)
-def request_report(session_id: str, background: BackgroundTasks) -> dict:
+def request_report(session_id: str, background: BackgroundTasks, user: dict = Depends(require_login)) -> dict:
     """触发报告生成（异步，前端轮询 GET /reports?session_id= 获取结果）。"""
     conn = get_conn()
-    s = conn.execute(
-        "SELECT status FROM assessment_session WHERE session_id=?", (session_id,)
-    ).fetchone()
-    if s is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+    load_owned_session(conn, session_id, user)
     background.add_task(_generate_report_task, session_id)
     return {"session_id": session_id, "status": "generating"}
 
 
 @router.get("/reports/by-session/{session_id}")
-def get_report_by_session(session_id: str) -> dict:
+def get_report_by_session(session_id: str, user: dict = Depends(require_login)) -> dict:
     """按会话取最新报告（前端轮询入口）。未生成 → 404。"""
     conn = get_conn()
-    row = conn.execute(
-        "SELECT report_json FROM report WHERE session_id=? ORDER BY created_at DESC LIMIT 1",
+    rid = conn.execute(
+        "SELECT report_id FROM report WHERE session_id=? ORDER BY created_at DESC LIMIT 1",
         (session_id,),
     ).fetchone()
-    if row is None:
+    if rid is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "报告尚未生成")
-    return json.loads(row["report_json"])
+    r = load_owned_report(conn, rid["report_id"], user, allow_admin_read=True)
+    return json.loads(r["report_json"])
 
 
 @router.get("/reports/{report_id}")
-def get_report(report_id: str) -> dict:
+def get_report(report_id: str, user: dict = Depends(require_login)) -> dict:
     """按 report_id 取报告完整 JSON。"""
     conn = get_conn()
-    row = conn.execute(
-        "SELECT report_json FROM report WHERE report_id=?", (report_id,)
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "报告不存在")
-    return json.loads(row["report_json"])
+    r = load_owned_report(conn, report_id, user, allow_admin_read=True)
+    return json.loads(r["report_json"])
 
 
 @router.post("/reports/{report_id}/feedback", status_code=status.HTTP_201_CREATED)
-def submit_feedback(report_id: str, body: dict) -> dict:
+def submit_feedback(report_id: str, body: dict, user: dict = Depends(require_login)) -> dict:
     """候选人对某能力项评分提异议（07 §11 ② 反馈可回溯）。"""
     item_id = body.get("item_id")
     feedback_text = body.get("feedback_text", "").strip()
     if not item_id or not feedback_text:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 item_id 或 feedback_text")
     conn = get_conn()
-    r = conn.execute("SELECT 1 FROM report WHERE report_id=?", (report_id,)).fetchone()
-    if r is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "报告不存在")
+    load_owned_report(conn, report_id, user)
     it = conn.execute("SELECT 1 FROM competency_item WHERE item_id=?", (item_id,)).fetchone()
     if it is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "能力项不存在")

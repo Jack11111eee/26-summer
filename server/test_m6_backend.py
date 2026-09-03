@@ -264,9 +264,14 @@ def _test_feedback_api(ctx: dict) -> None:
     conn = get_conn()
     rpt_row = conn.execute("SELECT report_id FROM report WHERE session_id=?",
                            (ctx["session_id"],)).fetchone()
+    # submit_feedback 新签名（所有权校验）：直调需补传种子用户 dict
+    seed_user = {
+        "user_id": ctx["user_id"], "username": "cand_m6", "role": "candidate", "is_active": 1,
+    }
     result = submit_feedback(
         rpt_row["report_id"],
         {"item_id": ctx["items"][0]["item_id"], "feedback_text": "Python 分给低了"},
+        user=seed_user,
     )
     check("返回 feedback_id", bool(result["feedback_id"]))
     check("status=pending", result["status"] == "pending")
