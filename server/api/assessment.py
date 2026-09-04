@@ -286,15 +286,15 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
                      payload={"seal_reason": "answered"})
         # 裁决发生在封存时机（§13.2 EVIDENCE_EVALUATED）：轻量 stable 判据
         # sufficient_in_row ≥ 2（A2 决议——本会话该 item 充分观察计数，Phase 2 轻量版）
-        stable = _stable_evidence_light(session_id, question_id,
-                                         decision["evidence_sufficient"])
+        stable = _stable_evidence_light(conn, session_id, question_id,
+                                        decision["evidence_sufficient"])
         append_event(conn, session_id=session_id, event_type="EVIDENCE_EVALUATED",
                      actor_type="system", assessment_question_id=question_id,
                      payload={"evidence_sufficient": decision["evidence_sufficient"],
                               "stable_evidence": stable})
         # 封存点推进难度状态机（02-03：§11.2 降级判据 2——followup 后仍不充分
         # 即 followup_ambiguous；实例发生过 followup 才可能满足，首答即 next 不算）
-        followup_happened = _instance_followup_count(question_id) > 0
+        followup_happened = _instance_followup_count(conn, question_id) > 0
         _advance_difficulty_state(
             conn, session_id, question_id, decision, stable=stable,
             followup_ambiguous=bool(followup_happened
@@ -361,30 +361,27 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
             "score_live": decision["score_live"]}
 
 
-def _stable_evidence_light(session_id: str, question_id: str,
-                            current_sufficient: bool) -> bool:
+def _stable_evidence_light(conn, session_id: str, question_id: str,
+                           current_sufficient: bool) -> bool:
     """stable_evidence 轻量版（A2 决议——Phase 2 难度导航用，Phase 5 完整裁决留白）。
 
     判据 = 本会话同 item 的充分观察计数 sufficient_in_row ≥ 2（两个不同实例
     的独立有效观察）。当前结论按「含本次」计数：本次充分且同 item 既有充分
     观察达 1 次 → stable。事件表 OBSERVATION_CLASSIFIED payload 的布尔聚合。
+    WR-01：接调用方主 conn（决策事务内自读自写——不另开连接读到陈旧状态）。
     """
     if not current_sufficient:
         return False
-    item_id = _question_item_id(question_id)
+    item_id = _question_item_id(conn, question_id)
     if item_id is None:
         return False
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            "SELECT e.payload_json FROM assessment_state_event e"
-            " JOIN assessment_question aq ON aq.question_id=e.assessment_question_id"
-            " WHERE e.session_id=? AND e.event_type='OBSERVATION_CLASSIFIED'"
-            " AND aq.item_id=?",
-            (session_id, item_id),
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT e.payload_json FROM assessment_state_event e"
+        " JOIN assessment_question aq ON aq.question_id=e.assessment_question_id"
+        " WHERE e.session_id=? AND e.event_type='OBSERVATION_CLASSIFIED'"
+        " AND aq.item_id=?",
+        (session_id, item_id),
+    ).fetchall()
     sufficient_cnt = 0
     for r in rows:
         try:
@@ -397,29 +394,27 @@ def _stable_evidence_light(session_id: str, question_id: str,
     return sufficient_cnt >= 2
 
 
-def _instance_followup_count(question_id: str) -> int:
-    """实例内 followup 次数（D-25 迁列后的单行读——难度状态机降级判据 2 用）。"""
-    conn = get_conn()
-    try:
-        row = conn.execute(
-            "SELECT followup_count FROM assessment_question WHERE question_id=?",
-            (question_id,),
-        ).fetchone()
-        return row["followup_count"] if row else 0
-    finally:
-        conn.close()
+def _instance_followup_count(conn, question_id: str) -> int:
+    """实例内 followup 次数（D-25 迁列后的单行读——难度状态机降级判据 2 用）。
+
+    WR-01：接调用方主 conn（同事务自读自写，消除双连接交错窗口）。
+    """
+    row = conn.execute(
+        "SELECT followup_count FROM assessment_question WHERE question_id=?",
+        (question_id,),
+    ).fetchone()
+    return row["followup_count"] if row else 0
 
 
-def _question_item_id(question_id: str) -> str | None:
-    """取实例的 item_id（02-01 列回填后可用；NULL（legacy/未回填）返回 None）。"""
-    conn = get_conn()
-    try:
-        row = conn.execute(
-            "SELECT item_id FROM assessment_question WHERE question_id=?", (question_id,)
-        ).fetchone()
-        return row["item_id"] if row else None
-    finally:
-        conn.close()
+def _question_item_id(conn, question_id: str) -> str | None:
+    """取实例的 item_id（02-01 列回填后可用；NULL（legacy/未回填）返回 None）。
+
+    WR-01：接调用方主 conn（同事务自读自写，消除双连接交错窗口）。
+    """
+    row = conn.execute(
+        "SELECT item_id FROM assessment_question WHERE question_id=?", (question_id,)
+    ).fetchone()
+    return row["item_id"] if row else None
 
 
 # §11.2「不计入普通失败」七类（技术/无障碍/题目无效/模型不确定/合理质疑/
