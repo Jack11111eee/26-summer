@@ -89,7 +89,7 @@ Plans:
 
 **Wave 5** *(blocked on 02-02 + 02-03 + 02-04)* — 评分链原子收尾
 
-- [ ] 02-05-PLAN.md — 评分链契约修正（50/50 废除 + score_state 六态口径生产三态 + 分母规则落聚合（SCORED 进 / REFUSED 单列 / INVALIDATED 警告）+ answer_key 空判 INVALIDATED + final_score 四消费点切换后 DROP + m6/m5 断言重写 + eval 冒烟）—— REF-5.1/5.2/5.3/8.1
+- [x] 02-05-PLAN.md — 评分链契约修正（50/50 废除 + score_state 六态口径生产三态 + 分母规则落聚合（SCORED 进 / REFUSED 单列 / INVALIDATED 警告）+ answer_key 空判 INVALIDATED + final_score 四消费点切换后 DROP + m6/m5 断言重写 + eval 冒烟）—— REF-5.1/5.2/5.3/8.1
 
 > 计划顺序说明：ROADMAP 原列表序号不变（02-01→02-02→02-03→02-04→02-05 语义身份保持），执行 wave 按【文件冲突】重排为 01→02→04→03→05——02-02 与 02-04 共改 server/api/assessment.py 与 test_m5_backend.py（两文件均在两者 files_modified），不能同 wave 并行（原建议 wave 2 并行存在真实 files_modified 冲突）；02-03 依赖 02-04 的 answer_state 分类（七类排除）需其后。
 
@@ -190,7 +190,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
-| 2. 动态选题与有界循环 | 4/5 | In Progress|  |
+| 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-04 |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |

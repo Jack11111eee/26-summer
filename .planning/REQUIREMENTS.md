@@ -75,9 +75,9 @@
 
 #### 矩阵 §5 评分与报告（REF-5.1~5.11）
 
-- [ ] **REF-5.1** [结构·核心] score_live 仅导航；废弃 50/50 合成（synthetic final_score 不得用于聚合）→ Phase 2
-- [ ] **REF-5.2** [结构] 客观题 answer_key 空属题库缺陷 → 判题库无效而非满分（漏洞见 REF-8.1）→ Phase 2
-- [ ] **REF-5.3** [结构] 拒答 REFUSED=0 特殊状态值，不进能力等级分母，只进行为/完整度聚合 → Phase 2
+- [x] **REF-5.1** [结构·核心] score_live 仅导航；废弃 50/50 合成（synthetic final_score 不得用于聚合）→ Phase 2
+- [x] **REF-5.2** [结构] 客观题 answer_key 空属题库缺陷 → 判题库无效而非满分（漏洞见 REF-8.1）→ Phase 2
+- [x] **REF-5.3** [结构] 拒答 REFUSED=0 特殊状态值，不进能力等级分母，只进行为/完整度聚合 → Phase 2
 - [ ] **REF-5.4** [结构] item_measurement 统一裁决（废弃按题数均分；冲突取低留人工标记）→ Phase 5
 - [ ] **REF-5.5** [结构] 缺失补算 IMPUTED（r 比例 + 特殊标记 + 覆盖率展示；O=∅ → NO_VALID_OBSERVATION）→ Phase 5
 - [ ] **REF-5.6** [结构] required 缺失 → report_status=PROVISIONAL + HUMAN_REVIEW_REQUIRED → Phase 5
@@ -105,7 +105,7 @@
 
 #### 矩阵 §8 矩阵外发现（REF-8.1~8.8）
 
-- [ ] **REF-8.1** [结构] 空 answer_key 客观题恒满分漏洞（并入 REF-5.2）→ Phase 2
+- [x] **REF-8.1** [结构] 空 answer_key 客观题恒满分漏洞（并入 REF-5.2）→ Phase 2
 - [ ] **REF-8.2** [一般] completed 会话仍可重复评分/报告（POST /score、/report 无状态护栏）→ Phase 1
 - [ ] **REF-8.3** [一般] 报告后台任务异常静默 pass（FAILED 态应可见，前端可区分"生成中/失败"）→ Phase 5
 - [ ] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4

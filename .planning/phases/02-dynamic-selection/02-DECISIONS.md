@@ -97,6 +97,15 @@ Phase 1 完成于章程生效前（2026-09-03），无 DECISIONS 文件。Phase 
 - 决定：`server/_dbg_{difficulty,e2e,loop,spy}.py` 四个未提交未跟踪调试脚本随 worktree remove 一并清除（主仓 git ls-files 零副本）；executor SUMMARY 已登记需用户删除——实际已随目录消失，用户无需操作；SUMMARY 文本保留（历史记录不回改）
 - 依据：[02-008c] 同口径先例
 
+## 2026-09-04 · §③ execute 收束（wave 5/5）
+
+**[02-011] wave 5（02-05 评分链契约修正）完成与合入——§③ 全部 5 wave 收束**
+- 步骤：§③ execute wave 5/5（最终 wave）
+- 决定：单次派发完成（5 commits，worktree a4f41d8 合入 410bacd）；抽查契约全过（DROP 幂等嗅探 + COALESCE 合并在 DROP 段之前（db.py:448-460 段序核实）/ scoring.py "0.5 +" 零残留 / INSERT 列清单 score_state 在 final_score 不在 / aggregation 三路分流 + refusals/missing_warnings / report 切 qs.score_final / 业务代码 final_score 零引用（grep 非 test 非 db.py 零命中））；后测门全绿（scoring 7 + difficulty 10 + selection 9 + interview 12 + migration 8 + weights 5 + m5 7 + p0_security 10 + p0_chain 11 + question_bank 25 + m6 43 = 147 项）+ 仓库根二次 init_db 幂等（列集无 final_score）+ eval 冒烟临时库退出码 0（executor 报告）
+- 依据：章程 §3 wave 簿记。**零偏差零超范围**（8 文件 diff ⊆ files_modified）；A8 次序合同（ADD score_state → COALESCE 合并 → DROP final_score）02-01 锁定至本 wave 原子收口
+- §③ 状态：5/5 plans 全部合入（2758afc / 79e4198 / 8875c0d / 9c19e7c / 410bacd），进入 §④ verify
+
+
 
 ## 遗留项（带入后续 phase 的 Info/非阻断项）
 
