@@ -161,14 +161,20 @@ def _snapshot_target_difficulty(conn, session_id: str) -> dict[str, tuple[str, s
 
 
 def _apply_snapshot_difficulty(pool: list[dict],
-                               snapshot_targets: dict[str, tuple[str, str]]) -> list[dict]:
-    """按 item 的 snapshot 目标难度过滤候选池（02-03 难度承接）。
+                               snapshot_targets: dict[str, tuple[str, str]]) -> tuple[list[dict], dict[str, str]]:
+    """按 item 的 snapshot 目标难度过滤候选池（02-03 难度承接）。返回 (过滤后池, 难度源注记)。
+
+    WR-03：difficulty_source 审计键的数据源——{question_id: source}：
+      - snapshot_target：题库有该 item 目标档行（精确承接）
+      - snapshot_fallback_lower：无目标档行 → 落回不高于目标档的最高可得档（妥协派发）
+      - （pool_default：item 无 snapshot——调用方对未过滤行默认记；不在本返回值内）
 
     - 题库有目标档行 → 该 item 只留目标档（其余难度行出池）
     - 无目标档行 → 落回该 item 可得最高档（不高于目标档——跳级禁止，
       plan <interfaces>：无则落回题库已有最高可得档）
     - 候选行按 model_item_id 优先归属 item，回退 (std_name, category) 键匹配
     """
+    sources: dict[str, str] = {}
     # item_id → 该 item 的候选行（双口径归属，model_item_id 优先）
     by_item: dict[str, list[dict]] = {}
     for c in pool:
@@ -182,6 +188,8 @@ def _apply_snapshot_difficulty(pool: list[dict],
         target_rows = [c for c in item_pool if c["difficulty"] == target]
         if target_rows:
             keep_ids = {c["question_id"] for c in target_rows}
+            for qid in keep_ids:
+                sources[qid] = "snapshot_target"
         else:
             ceiling = _DIFF_ORDER[target]
             ranked = sorted(
@@ -192,10 +200,12 @@ def _apply_snapshot_difficulty(pool: list[dict],
                 continue  # 无不高于目标的行 → 不动（保持未过滤原池，不静默断路径）
             keep_ids = {c["question_id"] for c in ranked
                         if c["difficulty"] == ranked[0]["difficulty"]}
+            for qid in keep_ids:
+                sources[qid] = "snapshot_fallback_lower"
         drop_ids = {c["question_id"] for c in item_pool} - keep_ids
         if drop_ids:
             pool = [c for c in pool if c["question_id"] not in drop_ids]
-    return pool
+    return pool, sources
 
 def _load_model_items(conn, model_id: str) -> list[dict]:
     """模型非 gate items（tier=importance；item_id 优先绑定口径）。"""
@@ -320,14 +330,15 @@ def _select_next_question_locked(conn, session_id: str) -> dict | None:
     # ---------- 普通选题（四层依序） ----------
     uncovered_required = _uncovered_required_items(items, candidates, used_bank_ids)
     seed = _stable_seed(session_id)
-    picked, layer, tier = _pick_ordinary(candidates, items, instances, used_bank_ids, n,
-                                         uncovered_required, seed,
-                                         snapshot_targets=snapshot_targets)
+    picked, layer, tier, difficulty_sources = _pick_ordinary(
+        candidates, items, instances, used_bank_ids, n,
+        uncovered_required, seed, snapshot_targets=snapshot_targets)
     if picked is None:
         # 可选池耗尽且未达计划（题库量不足）→ 返回 None 由 API 层判断收尾
         return None
     return _instantiate(conn, session, picked, layer=layer, used_bank_ids=used_bank_ids,
-                         nth=total_instances + 1, tier=tier, seed=seed)
+                         nth=total_instances + 1, tier=tier, seed=seed,
+                         difficulty_source=difficulty_sources.get(picked["question_id"]))
 
 
 def _uncovered_required_items(items: list[dict], candidates: list[dict],
@@ -406,8 +417,8 @@ def _pick_ordinary(candidates: list[dict], items: list[dict], instances: list[di
                    used_bank_ids: set[str], n: int,
                    uncovered_required: list[dict],
                    seed: int, snapshot_targets: dict[str, tuple[str, str]] | None = None
-                   ) -> tuple[dict | None, str, str | None]:
-    """四层普通选题：返回 (picked, layer, tier)。
+                   ) -> tuple[dict | None, str, str | None, dict[str, str]]:
+    """四层普通选题：返回 (picked, layer, tier, difficulty_sources)。
 
     层①过滤在候选池加载时完成（_load_candidate_rows）；层②③④在此执行：
     ② required 硬约束——uncovered required 的题在配额（category/tier）剩余
@@ -421,11 +432,12 @@ def _pick_ordinary(candidates: list[dict], items: list[dict], instances: list[di
     """
     pool = [c for c in candidates if c["question_id"] not in used_bank_ids]
     if not pool:
-        return None, "fallback", None
+        return None, "fallback", None, {}
 
-    # 层①难度承接（02-03）：按 item 过滤候选难度
+    # 层①难度承接（02-03）：按 item 过滤候选难度；WR-03 返回难度源注记（审计键）
+    difficulty_sources: dict[str, str] = {}
     if snapshot_targets:
-        pool = _apply_snapshot_difficulty(pool, snapshot_targets)
+        pool, difficulty_sources = _apply_snapshot_difficulty(pool, snapshot_targets)
 
     quotas = plan_quotas(n, _available_counts(candidates))
     # 已建实例的 (category, tier) 计数（配额实时扣减）
@@ -450,17 +462,17 @@ def _pick_ordinary(candidates: list[dict], items: list[dict], instances: list[di
     req_pool = [c for c in pool if _item_key(c) in required_keys and _quota_remaining(c)]
     if req_pool:
         picked = _sort_pool(req_pool, seed)[0]
-        return picked, "required_first", picked.get("tier") or "plus"
+        return picked, "required_first", picked.get("tier") or "plus", difficulty_sources
 
     # 层③+层④：配额剩余池 → 排序三键取首
     quota_pool = [c for c in pool if _quota_remaining(c)]
     if quota_pool:
         picked = _sort_pool(quota_pool, seed)[0]
-        return picked, "quota", picked.get("tier") or "plus"
+        return picked, "quota", picked.get("tier") or "plus", difficulty_sources
 
     # 配额槽位全满：大类总量达标即计划完成（readiness 保证题库足量时必达 N；
     # 未达 N 即题库量不足口径——由 API 层触发 finish，不越配额补位）
-    return None, "quota", None
+    return None, "quota", None, difficulty_sources
 
 
 def _available_counts(candidates: list[dict]) -> dict[str, dict[str, int]]:
@@ -492,8 +504,14 @@ def _sort_pool(pool: list[dict], seed: int) -> list[dict]:
 
 def _instantiate(conn, session: dict, picked: dict, *, layer: str,
                  used_bank_ids: set[str], nth: int, seed: int, tier: str | None = None,
-                 exception_item: dict | None = None) -> dict:
-    """选中后同事务：INSERT 实例 + QUESTION_SELECTED/QUESTION_ACTIVATED 事件 → commit。"""
+                 exception_item: dict | None = None,
+                 difficulty_source: str | None = None) -> dict:
+    """选中后同事务：INSERT 实例 + QUESTION_SELECTED/QUESTION_ACTIVATED 事件 → commit。
+
+    WR-03：difficulty_source 审计键（snapshot_target / snapshot_fallback_lower /
+    pool_default——null 视作 pool_default 不落键，保持旧行 selection_reason 形态
+    兼容）；纯可观测键，不改选题行为。
+    """
     session_id = session["session_id"]
     now = now_iso()
 
@@ -524,6 +542,8 @@ def _instantiate(conn, session: dict, picked: dict, *, layer: str,
     }
     if exception_item is not None:
         reason["item_id"] = exception_item["item_id"]
+    if difficulty_source is not None:
+        reason["difficulty_source"] = difficulty_source
 
     seq = nth
     aq_id = new_id("aq")
