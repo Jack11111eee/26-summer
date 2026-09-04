@@ -207,6 +207,33 @@ def test_unique_index_created():
     assert _q("SELECT 1 FROM sqlite_master WHERE type='index' AND name='uq_aq_session_seq'")
 
 
+def test_unique_index_is_unique():
+    """双路径：uq_aq_session_seq 必须为 UNIQUE 索引（老库 ALTER 路径与 _DDL 直建路径一致）。"""
+    init_db()
+    for row in _q("PRAGMA index_list(assessment_question)"):
+        if row["name"] == "uq_aq_session_seq":
+            assert row["unique"] == 1, "uq_aq_session_seq 必须为 UNIQUE 索引（Q2 决议）"
+            break
+    else:
+        raise AssertionError("uq_aq_session_seq 不存在于老库路径")
+
+    fresh_db = os.path.join(tempfile.mkdtemp(), "new_unique.db")
+    original = db_module.DB_PATH
+    db_module.DB_PATH = fresh_db
+    try:
+        init_db()
+    finally:
+        db_module.DB_PATH = original
+    conn = sqlite3.connect(fresh_db)
+    try:
+        indexes = conn.execute("PRAGMA index_list(assessment_question)").fetchall()
+        row = next((r for r in indexes if r[1] == "uq_aq_session_seq"), None)
+        assert row is not None, "_DDL 直建路径缺 uq_aq_session_seq"
+        assert row[2] == 1, "_DDL 直建路径的 uq_aq_session_seq 必须为 UNIQUE（与迁移路径一致）"
+    finally:
+        conn.close()
+
+
 def test_new_db_direct_path():
     """新库路径：_DDL 直建含全部新列（Pitfall 2 双轨）；二次 init_db 幂等。"""
     fresh_db = os.path.join(tempfile.mkdtemp(), "new_direct.db")

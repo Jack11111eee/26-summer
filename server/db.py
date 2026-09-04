@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS assessment_question (
   selection_policy_version TEXT,
   path_state_snapshot     TEXT
 );
-CREATE INDEX IF NOT EXISTS uq_aq_session_seq ON assessment_question(session_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_aq_session_seq ON assessment_question(session_id, seq);
 
 CREATE TABLE IF NOT EXISTS assessment_message (
   message_id        TEXT PRIMARY KEY,
