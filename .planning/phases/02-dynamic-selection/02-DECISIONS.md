@@ -105,6 +105,15 @@ Phase 1 完成于章程生效前（2026-09-03），无 DECISIONS 文件。Phase 
 - 依据：章程 §3 wave 簿记。**零偏差零超范围**（8 文件 diff ⊆ files_modified）；A8 次序合同（ADD score_state → COALESCE 合并 → DROP final_score）02-01 锁定至本 wave 原子收口
 - §③ 状态：5/5 plans 全部合入（2758afc / 79e4198 / 8875c0d / 9c19e7c / 410bacd），进入 §④ verify
 
+## 2026-09-04 · §④ verify
+
+**[02-012] verify 通过（5/5 Truths VERIFIED）+ gsd-verify-work 对话式 UAT 适配为 gsd-verifier goal-backward**
+- 步骤：§④ verify
+- 决定：02-VERIFICATION.md（commit b8e91a5）——五条 Observable Truths 全 VERIFIED（代码级 file:line 核对 + 13 项独立进程实跑全绿：selection 9 + difficulty 10 + interview 12 + scoring 7 + migration 8 + weights 5 + m5 7 + p0_security 10 + p0_chain 11 + m7 5 + m6 43 + question_bank 25 + eval 冒烟 passed）；两项非阻断归档 Acknowledged Gaps（①层④ chain 后继排序键退化——chain_followed 恒不进排序权重仅审计正确，SC 无此行为断言，Phase 4/5 消化 ②真实 LLM 观察层质量验证属售后收口 D-027，列 human_verification）
+- 依据：剧本 §④「goal-backward 核验所有成功标准；全部通过 → 续 ⑤；非阻断 → 记档带入下一关口包」
+- **流程适配说明**：`/gsd-verify-work` 技能本体是对话式 UAT（一次一测等用户回应）——无人值守段不适用；按剧本 §④ 定义与 Phase 1 先例（01-VERIFICATION.md 为权威载体）改派 gsd-verifier 产出同结构 goal-backward 报告。验证内容/标准/处置规则零减损；Phase 2 无前端改动（UI 人工走查面不适用，Human Verification Required 节已如实记录售后项）
+
+
 
 
 ## 遗留项（带入后续 phase 的 Info/非阻断项）
