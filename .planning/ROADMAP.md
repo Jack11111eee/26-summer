@@ -73,7 +73,7 @@ Plans:
 
 **Wave 1** — schema 基线（后续全部依赖）
 
-- [ ] 02-01-PLAN.md — 表结构演进内嵌迁移（三表 ALTER 双轨：assessment_question 实例列 + (session_id,seq) 唯一索引 / question_score.score_state + final_score 合并不 DROP / observable_level 锚点回填 §9.4）+ 权重口径 7:3 三落点（config/aggregate 零比率保护/aggregation 回归断言）—— REF-2.7/2.9/3.7/5.7
+- [x] 02-01-PLAN.md — 表结构演进内嵌迁移（三表 ALTER 双轨：assessment_question 实例列 + (session_id,seq) 唯一索引 / question_score.score_state + final_score 合并不 DROP / observable_level 锚点回填 §9.4）+ 权重口径 7:3 三落点（config/aggregate 零比率保护/aggregation 回归断言）—— REF-2.7/2.9/3.7/5.7
 
 **Wave 2** *(blocked on 02-01)* — 选题主体
 
@@ -190,7 +190,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
-| 2. 动态选题与有界循环 | 0/5 | Not started | - |
+| 2. 动态选题与有界循环 | 1/5 | In Progress|  |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |
