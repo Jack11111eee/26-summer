@@ -455,10 +455,13 @@ def paused_overlap_seconds(conn, session_id: str, *, since: str, now: str) -> fl
 ### 5. 幂等两阶段 + 乐观锁 UPDATE（03-03）
 ```python
 # 依据：实验 4——UNIQUE 三键 IntegrityError 拦双插 + UPDATE rowcount=0 即 stale revision
+# W1 修订（修订轮 1）：COMMITTED 命中先比 request_hash——同 key 异 payload 不得回放旧快照。
+# 本骨架以 03-03-PLAN.md <interfaces> 为准（RESEARCH 为旧基线——hash 比对分支已并入下方）：
 def check_idempotency(conn, session_id: str, endpoint: str, key: str,
                       request_hash: str) -> dict | None:
-    """命中 COMMITTED 返回快照 dict（直接回放）；PENDING → 409 进行中；None → 首次。"""
-    row = conn.execute("SELECT status, response_snapshot FROM idempotency_record"
+    """命中 COMMITTED 且 hash 一致返回快照 dict（直接回放）；hash 不一致 409
+    IDEMPOTENCY_KEY_REUSED；PENDING → 409 进行中；None → 首次。"""
+    row = conn.execute("SELECT status, request_hash, response_snapshot FROM idempotency_record"
                        " WHERE session_id=? AND endpoint=? AND idempotency_key=?",
                        (session_id, endpoint, key)).fetchone()
     if row is None:
@@ -469,6 +472,9 @@ def check_idempotency(conn, session_id: str, endpoint: str, key: str,
                      (new_id("idem"), session_id, endpoint, key, request_hash, now_iso()))
         return None
     if row["status"] == "COMMITTED":
+        if row["request_hash"] != request_hash:
+            raise HTTPException(409, detail={"error_code": "IDEMPOTENCY_KEY_REUSED",
+                                             "message": "幂等键已用于不同请求内容"})
         return json.loads(row["response_snapshot"])   # 重复请求：byte-级快照直接返回（200 JSON）
     raise HTTPException(409, detail={"error_code": "REQUEST_IN_PROGRESS",
                                     "message": "同幂等键请求处理中"})
@@ -717,7 +723,7 @@ def _truncate_history(history: list[dict], max_tokens: int) -> list[dict]:
 2. **Q2 — form_instance 全链（DDL/快照形态/render 插入点/六维序/gate 列形 + _gate_check 迁移）**
    - Resolved: Code Examples #2/#3 + Pitfall 3/4 + D-29~D-32 逐条落点。render_form 插入锚 = assessment.py:323-334（submit_answer picked-None 分支）+ :343-353（legacy 对称分支——两者都要改）+ select 直接 None 的另两处（:315/:343 selection 内部 return None 不动——扩展点在 API 层）。六维校验序 = 所有权→状态→revision→必填→枚举→长度（廉价先行）。gate 五列 ALTER + 人工覆盖四列（D-31 全集）。_gate_check 迁移双源（gate 行优先 → form_submission 兜底——Pitfall 4 详述）。
 3. **Q3 — 幂等（三键索引形态 / 快照回放形态 / 409 响应体）**
-   - Resolved: UNIQUE(session_id, endpoint, idempotency_key) 复合三键索引（不是单列 hash——D-36 字面「key 唯一」在作用域语义下即三键唯一；实验 4 验证同 key 不同 endpoint 放行=语义正确）。重复请求 = 200 JSON 快照直返（A1/Pitfall 5 推荐 + sse.js 形态 B 天然消费）。409 响应体 = `{error_code: 'QUESTION_REVISION_CONFLICT'/'REQUEST_IN_PROGRESS'/'SESSION_PAUSED', message}` 三态沿用 WR-01 惯例。乐观锁 = UPDATE WHERE revision=? rowcount（Code Examples #5）。
+   - Resolved: UNIQUE(session_id, endpoint, idempotency_key) 复合三键索引（不是单列 hash——D-36 字面「key 唯一」在作用域语义下即三键唯一；实验 4 验证同 key 不同 endpoint 放行=语义正确）。重复请求 = 200 JSON 快照直返（A1/Pitfall 5 推荐 + sse.js 形态 B 天然消费）。409 响应体 = `{error_code: 'QUESTION_REVISION_CONFLICT'/'REQUEST_IN_PROGRESS'/'SESSION_PAUSED'/'IDEMPOTENCY_KEY_REUSED', message}` 四态沿用 WR-01 惯例（W1 修订：同 key 异 payload 拒绝回放）。乐观锁 = UPDATE WHERE revision=? rowcount（Code Examples #5）。
 4. **Q4 — 计时区间（DDL/事务边界/单题超时 SQL/6h 挂载点/周期扫描形态）**
    - Resolved: DDL + 部分唯一索引（Pattern 3）+ 闭/开 helper Python merge（Code Examples #4）+ 单题超时 Python 计算（**SQL SUM 双计陷阱实验 5 已证**——不推荐 SQL 形态）。与 submit_answer 主事务交错：闭旧开新在主事务**内**（小 UPDATE/INSERT，同事务无交错——不存在独立事务并发窗口）；SQLite 单写者纪律 = 单事务多写合并（append_event 同款契约）。6h 挂载点= load_owned_session 相邻（每次会话访问点——load_owned_session 是全部会话端点的公共入口：answer/get/form/pause）。周期扫描 = 不推荐线程（D-005；A3）——「惰性为主」与 D-41「择惰性为主」一致。
 5. **Q5 — 消息分列 + 滑窗（接入点/落点/常量/mock 全量）**
