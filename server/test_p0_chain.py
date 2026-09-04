@@ -67,10 +67,15 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
         (pid, "后端开发工程师", "active", now),
     )
     items = [
-        {"std_name": "Python", "category": "hard_skill", "importance": "required", "weight": 0.3},
-        {"std_name": "MySQL", "category": "hard_skill", "importance": "required", "weight": 0.25},
-        {"std_name": "沟通能力", "category": "soft_skill", "importance": "preferred", "weight": 0.2},
-        {"std_name": "后端开发经验", "category": "experience", "importance": "required", "weight": 0.25},
+        {"std_name": "Python", "category": "hard_skill", "importance": "required", "weight": 0.3, "gate": 0},
+        {"std_name": "MySQL", "category": "hard_skill", "importance": "required", "weight": 0.25, "gate": 0},
+        {"std_name": "沟通能力", "category": "soft_skill", "importance": "required", "weight": 0.2, "gate": 0},
+        # 冲突协调（required soft）：D-09 种子补齐——新配额 N=10 → soft 3 需
+        # required tier 候选（沟通能力原 preferred 单层不够）
+        {"std_name": "冲突协调", "category": "soft_skill", "importance": "required", "weight": 0.15, "gate": 0},
+        # 后端开发经验挂 gate=1（SSOT §9.1：experience 走表单/简历事实核验，
+        # 不再占普通题——02-02 起无普通题实例，改 gate 保住报告非 no_data 语义）
+        {"std_name": "后端开发经验", "category": "experience", "importance": "required", "weight": 0.1, "gate": 1},
     ]
     model_json = {"position_id": pid, "version": 1, "items": items}
     conn.execute(
@@ -82,7 +87,8 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
         conn.execute(
             "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
             " importance, weight, gate) VALUES(?,?,?,?,?,?,?,?)",
-            (new_id("c"), mid, it["std_name"], it["category"], 3, it["importance"], it["weight"], 0),
+            (new_id("c"), mid, it["std_name"], it["category"], 3, it["importance"], it["weight"],
+             int(it.get("gate", 0))),
         )
     conn.commit()
     conn.close()
@@ -124,6 +130,10 @@ def _seed_question_bank(pid: str) -> None:
          "讲一次跨团队沟通的经历。", None, "背景/冲突/结果")
     _add("position", pid, "沟通能力", "soft_skill", "medium", "subjective",
          "遇到意见分歧怎么处理？", None, "倾听/数据/共识")
+    # 冲突协调：D-09 种子补齐（N=10 → soft 配额 3 且 required tier 需候选——
+    # 仅加 required soft item 题行，不改测试结构）
+    _add("position", pid, "冲突协调", "soft_skill", "medium", "subjective",
+         "讲一次你化解团队冲突的经历。", None, "起因/方法/结果")
 
     _add("general", None, "后端开发经验", "experience", None, "subjective",
          "介绍你最近一个后端项目。", None, "角色/规模/成果")
@@ -150,20 +160,26 @@ _LONG_ANSWER = (
 
 
 def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
-    """把一场会话全部题答完（长回答触发 next/finish），返回题目列表。"""
-    questions = _q(
-        "SELECT question_id FROM assessment_question WHERE session_id=? ORDER BY seq", (sid,),
-    )
-    assert questions, "会话应有题目"
-    for i, q in enumerate(questions, start=1):
+    """把一场会话全部题答完（长回答触发 next/finish），返回题目列表。
+
+    02-02 动态选题：改为每轮 GET /sessions/{id} 取 current_question → POST answer
+    循环（零预选后预读 assessment_question 必空）；GET 返回 None 即完卷。
+    """
+    questions: list[dict] = []
+    while True:
+        r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+        assert r.status_code == 200, r.text
+        cur = r.json()["current_question"]
+        if cur is None:
+            break
+        questions.append(cur)
         r = client.post(
             f"/api/assessment/sessions/{sid}/answer",
-            json={"question_id": q["question_id"], "answer": _LONG_ANSWER},
+            json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
             headers=headers,
         )
         assert r.status_code == 200, r.text
-        expected = "finish" if i == len(questions) else "next"
-        assert r.json()["action"] == expected, f"第{i}题应 {expected}，实得 {r.json()['action']}"
+        assert r.json()["action"] in ("next", "finish"), r.text
     sess = _q("SELECT status FROM assessment_session WHERE session_id=?", (sid,))[0]
     assert sess["status"] == "completed"
     return questions
@@ -386,11 +402,13 @@ def test_in_progress_report_rejected():
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
 
-    # 只答 1 题，不 finish
-    q = _q("SELECT question_id FROM assessment_question WHERE session_id=? ORDER BY seq", (sid,))[0]
+    # 只答 1 题，不 finish（02-02：GET current_question 取题——零预选后预读必空）
+    r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+    assert r.status_code == 200, r.text
+    q_id = r.json()["current_question"]["question_id"]
     r = client.post(
         f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": q["question_id"], "answer": _LONG_ANSWER},
+        json={"question_id": q_id, "answer": _LONG_ANSWER},
         headers=headers,
     )
     assert r.status_code == 200, r.text
@@ -487,7 +505,7 @@ def test_question_bank_generating_blocks_session():
 def test_question_bank_incomplete_blocks_session():
     """题库不完整（task SUCCEEDED 但题库仅 1 题，配额不满）→ 409 QUESTION_BANK_INCOMPLETE。"""
     pid, mid = _seed_position_with_confirmed_model()
-    # 仅插 1 题（远低于 CATEGORY_QUOTA hard 6 / soft 2 / experience 2）
+    # 仅插 1 题（远低于新配额：N=10 → hard 7 / soft 3， esperienza/qualification 不占题）
     conn = get_conn()
     conn.execute(
         "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"

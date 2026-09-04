@@ -138,7 +138,7 @@ def _auth_headers(username: str = "m5_candidate") -> dict:
 # ---------- 测试 ----------
 
 def test_session_creation_and_question_selection():
-    """建会话：锚定 confirmed 模型，选题满足配额与排序规则。"""
+    """建会话：锚定 confirmed 模型；零预选（SC-1 动态选题，02-02 后口径）。"""
     pid, mid = _seed_position_with_confirmed_model()
     _seed_question_bank(pid)
     headers = _auth_headers()
@@ -146,29 +146,16 @@ def test_session_creation_and_question_selection():
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["question_count"] == 10  # hard6 + soft2 + exp2 = 10，qualification 走表单
+    # 02-02 动态选题：建会话零预选；question_count 键删除（不返回预选数）
+    assert "question_count" not in body
     assert body["estimated_duration_minutes"] == 20
 
     sid = body["session_id"]
     sess = _q("SELECT * FROM assessment_session WHERE session_id=?", (sid,))[0]
     assert sess["status"] == "in_progress"
     assert sess["model_version"] == 1
-
-    # 题序：类目内 required 优先、难度递进
-    qs = _q(
-        "SELECT aq.seq, b.category, b.difficulty, b.std_name FROM assessment_question aq"
-        " JOIN question_bank b ON b.question_id=aq.bank_question_id WHERE aq.session_id=?"
-        " ORDER BY aq.seq", (sid,),
-    )
-    cats = {}
-    for q in qs:
-        cats.setdefault(q["category"], []).append(q)
-    assert len(cats["hard_skill"]) == 6
-    assert len(cats["soft_skill"]) == 2
-    assert len(cats["experience"]) == 2
-    # Python（required, weight 高）应排在 MySQL 之前
-    hard_names = [q["std_name"] for q in cats["hard_skill"]]
-    assert hard_names.index("Python") < hard_names.index("MySQL")
+    # 会话创建后 assessment_question 行数为 0（SC-1 首断言）
+    assert _q("SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (sid,))[0]["c"] == 0
 
 
 def test_session_state():
@@ -177,12 +164,14 @@ def test_session_state():
     headers = _auth_headers("m5_state_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
 
+    # 首次 GET 触发首题派发（动态选题）
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "in_progress"
     assert body["answered_count"] == 0
-    assert body["total_count"] == 10
+    # total_count 口径：计划数 N + 例外数 E（首查 = N，无例外）
+    assert body["total_count"] == config.ORDINARY_PLAN_N
     assert body["current_question"]["seq"] == 1
 
 
@@ -211,46 +200,72 @@ def test_objective_scoring():
 
 
 def test_answer_flow_and_scoring():
-    """答题闭环：followup→next→…→finish；终局打分落 question_score；合成 50/50。"""
+    """答题闭环：followup→next→…→finish；终局打分落 question_score；合成 50/50。
+
+    02-02 动态选题：逐题 GET 取 current_question（无预取列表——零预选后
+    预读 assessment_question 必空）。
+    """
     pid, mid = _seed_position_with_confirmed_model()
     _seed_question_bank(pid)
     headers = _auth_headers("m5_flow_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
 
-    questions = _q(
-        "SELECT aq.question_id, b.qtype FROM assessment_question aq"
-        " JOIN question_bank b ON b.question_id=aq.bank_question_id"
-        " WHERE aq.session_id=? ORDER BY aq.seq", (sid,),
-    )
+    def _current_q() -> dict | None:
+        r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+        assert r.status_code == 200, r.text
+        return r.json()["current_question"]
+
+    # 整场类别构成按新配额（N=10 → hard 7 / soft 3；experience 不进普通选题）
+    long_answer = "我熟练使用 def 定义函数，也了解装饰器、生成器、上下文管理器等进阶用法，做过性能优化。"
 
     # 第一题：短回答触发 followup，再长回答 next
-    q1 = questions[0]["question_id"]
+    q1 = _current_q()
+    assert q1 is not None
     r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": q1, "answer": "不知道"}, headers=headers)
+                    json={"question_id": q1["question_id"], "answer": "不知道"}, headers=headers)
     assert r.status_code == 200, r.text
     assert r.json()["action"] == "followup"
 
-    long_answer = "我熟练使用 def 定义函数，也了解装饰器、生成器、上下文管理器等进阶用法，做过性能优化。"
     r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": q1, "answer": long_answer}, headers=headers)
+                    json={"question_id": q1["question_id"], "answer": long_answer}, headers=headers)
     assert r.json()["action"] == "next"
-    assert r.json()["next_question_id"] == questions[1]["question_id"]
+    assert r.json()["next_question_id"] is not None
 
-    # 剩余题全部长回答，最后一题应 finish
-    for i, q in enumerate(questions[1:], start=2):
+    # 剩余题全部长回答：逐题 GET current_question → POST answer，直到 finish
+    while True:
+        cur = _current_q()
+        if cur is None:
+            break
         r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                        json={"question_id": q["question_id"], "answer": long_answer * 2},
+                        json={"question_id": cur["question_id"], "answer": long_answer * 2},
                         headers=headers)
         assert r.status_code == 200, r.text
-        expected = "finish" if i == len(questions) else "next"
-        assert r.json()["action"] == expected, f"第{i}题应 {expected}，实得 {r.json()}"
+        if r.json()["action"] == "finish":
+            break
+
+    # 整场类别断言（SC-2）：hard=7 / soft=3（N=10 配额），experience 不出现
+    qs = _q(
+        "SELECT aq.seq, b.category, b.std_name FROM assessment_question aq"
+        " JOIN question_bank b ON b.question_id=aq.bank_question_id WHERE aq.session_id=?"
+        " ORDER BY aq.seq", (sid,),
+    )
+    cats: dict[str, list] = {}
+    for q in qs:
+        cats.setdefault(q["category"], []).append(q)
+    from server.services.question_selection import largest_remainder_73
+    plan_hard, plan_soft = largest_remainder_73(config.ORDINARY_PLAN_N)
+    assert len(cats.get("hard_skill", [])) == plan_hard, cats
+    assert len(cats.get("soft_skill", [])) == plan_soft, cats
+    # experience/qualification 不在普通选题（SC-2 前半）
+    assert "experience" not in cats, cats
+    assert "qualification" not in cats, cats
 
     sess = _q("SELECT status FROM assessment_session WHERE session_id=?", (sid,))[0]
     assert sess["status"] == "completed"
 
     # 重复作答已答题 → 409
     r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": q1, "answer": long_answer}, headers=headers)
+                    json={"question_id": q1["question_id"], "answer": long_answer}, headers=headers)
     assert r.status_code == 409
 
     # 终局打分：completed 会话被服务层护栏拒绝（REF-8.2，与 report 行无关）
@@ -261,7 +276,6 @@ def test_answer_flow_and_scoring():
     # → B-1 分支 c，202 入队；服务端串行执行 score→generate，不经 Python 直调掩盖）
     r = client.post(f"/api/assessment/sessions/{sid}/report", headers=headers)
     assert r.status_code == 202, r.text
-    # scored_count 等价断言 = question_score 行数 == expected_scored（见下方 _q 断言）
 
     # question_score 落库：Python 客观题命中 def → 5 分；主观题 mock score_final=3
     rows = _q(
@@ -281,7 +295,7 @@ def test_answer_flow_and_scoring():
         (sid, *item_names),
     )[0]["c"]
     assert len(rows) == expected_scored
-    assert len(rows) >= 7  # 本测试种子下 Python链3+MySQL链2+沟通1+后端经验1 可匹配
+    assert len(rows) >= 7  # 本测试种子下 Python链3+MySQL链2+沟通1 可匹配
     obj = [r for r in rows if r["qtype"] == "objective"]
     subj = [r for r in rows if r["qtype"] == "subjective"]
     assert all(r["score_live"] is None for r in obj)

@@ -77,7 +77,7 @@ Plans:
 
 **Wave 2** *(blocked on 02-01)* — 选题主体
 
-- [ ] 02-02-PLAN.md — 四层动态选题替换一次性预选（select_next_question 全量重写；岗位级 N + 7:3 最大余数 + tier ceil 公式纯函数；required 刚性例外；readiness 第 5 步同源换新；legacy 会话续答兜底；N 默认值 checkpoint 呈报）—— REF-3.1/3.2/3.6/4.1
+- [x] 02-02-PLAN.md — 四层动态选题替换一次性预选（select_next_question 全量重写；岗位级 N + 7:3 最大余数 + tier ceil 公式纯函数；required 刚性例外；readiness 第 5 步同源换新；legacy 会话续答兜底；N 默认值 checkpoint 呈报）—— REF-3.1/3.2/3.6/4.1
 
 **Wave 3** *(blocked on 02-01 + 02-02)* — 回答状态两层化（与 02-02 共改 assessment.py/test_m5_backend.py，文件冲突故串行——见下方计划顺序说明）
 
@@ -190,7 +190,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
-| 2. 动态选题与有界循环 | 1/5 | In Progress|  |
+| 2. 动态选题与有界循环 | 2/5 | In Progress|  |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |

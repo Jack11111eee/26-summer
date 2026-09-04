@@ -7,7 +7,7 @@ from ..core.security import load_owned_report, load_owned_session, require_login
 from ..db import get_conn
 from ..services.interview import decide_next_action
 from ..services.pipeline import new_id, now_iso
-from ..services.question_selection import select_questions_for_session
+from ..services.question_selection import select_next_question
 from ..services.readiness import check_session_readiness
 from ..services.refine import refine_user_input
 from ..services.report import generate_report
@@ -74,9 +74,9 @@ def get_confirmed_model(position_id: str) -> dict:
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
 def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
-    """创建测评会话：锚定 confirmed 模型最新版 + 从题库选题落 assessment_question。
+    """创建测评会话：锚定 confirmed 模型最新版（动态选题——SC-1 零预选）。
 
-    选题走 services.question_selection（07 §6.3 代码执行可审计）。
+    首题在首次 GET /answer 时由 select_next_question 派发（02-02，SSOT §10.6）。
     """
     position_id = body.get("position_id")
     if not position_id:
@@ -101,30 +101,22 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
         (session_id, user["user_id"], position_id, model["model_id"], model["version"],
          "in_progress", now, now),
     )
-    questions = select_questions_for_session(position_id, json.loads(model["model_json"]))
-    for i, q in enumerate(questions, start=1):
-        conn.execute(
-            "INSERT INTO assessment_question(question_id, session_id, bank_question_id, seq, created_at)"
-            " VALUES(?,?,?,?,?)",
-            (new_id("aq"), session_id, q["question_id"], i, now),
-        )
+    # 动态选题（02-02，SC-1）：创建时不预选——每次 action=next 由
+    # select_next_question 即时选题实例化；此处只落会话 + SESSION_CREATED 事件
     # 状态迁移留痕：与 INSERT 会话同一事务（SSOT §13.1 快照与事件同事务）
     append_event(conn, session_id=session_id, event_type="SESSION_CREATED",
                  from_state=None, to_state="in_progress",
                  actor_type="candidate", actor_id=user["user_id"])
     conn.commit()
-    return {"session_id": session_id, "question_count": len(questions),
+    return {"session_id": session_id,
             "estimated_duration_minutes": 20}
 
 
 @router.get("/sessions/{session_id}")
 def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
-    """会话状态：当前题 = 第一个未作答（answered_at IS NULL）的题。"""
+    """会话状态：当前题 = 未封存最新实例（动态派发 / legacy 旧 seq 兜底）。"""
     conn = get_conn()
     s = load_owned_session(conn, session_id, user, allow_admin_read=True)
-    total = conn.execute(
-        "SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (session_id,)
-    ).fetchone()["c"]
     answered = conn.execute(
         "SELECT COUNT(*) c FROM assessment_question WHERE session_id=? AND answered_at IS NOT NULL",
         (session_id,),
@@ -135,6 +127,33 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         " WHERE aq.session_id=? AND aq.answered_at IS NULL ORDER BY aq.seq LIMIT 1",
         (session_id,),
     ).fetchone()
+    if cur is None and s["status"] == "in_progress":
+        # 动态派发（02-02）：无未答实例且会话进行中 → select_next_question 派发新实例
+        picked = select_next_question(session_id)
+        if picked is not None and not picked.get("legacy"):
+            conn2 = get_conn()
+            try:
+                cur = conn2.execute(
+                    "SELECT aq.question_id, aq.seq, b.stem, b.category, b.qtype, b.difficulty"
+                    " FROM assessment_question aq JOIN question_bank b ON b.question_id=aq.bank_question_id"
+                    " WHERE aq.question_id=?",
+                    (picked["question_id"],),
+                ).fetchone()
+            finally:
+                conn2.close()
+        # legacy 兜底（Q5）：{'legacy': True} 或旧未答行形态 → 走上面旧 ORDER BY seq
+        # 查询结果（cur 已取——legacy 会话已被该查询覆盖；无行则保持 None 不 500）
+    # total_count 口径（02-02）：计划数 N + 已发生例外数 E（answer 行数不再作分母）
+    from .. import config as _config
+    if s["status"] == "completed":
+        total = answered
+    else:
+        exceptions = conn.execute(
+            "SELECT COUNT(*) c FROM assessment_question WHERE session_id=?"
+            " AND selection_reason IS NOT NULL AND json_extract(selection_reason,'$.layer')='exception'",
+            (session_id,),
+        ).fetchone()["c"]
+        total = _config.ORDINARY_PLAN_N + exceptions
     return {
         "session_id": s["session_id"],
         "status": s["status"],
@@ -206,6 +225,7 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
 
     # 4. 推进题目/会话状态（事件行与快照 UPDATE 同事务，随下述最终 commit 落库）
     next_question_id = None
+    _is_legacy_session = False
     if decision["action"] in ("next", "finish"):
         conn.execute(
             "UPDATE assessment_question SET answered_at=? WHERE question_id=?",
@@ -215,23 +235,63 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
                      from_state="active", to_state="answered",
                      actor_type="candidate", actor_id=user["user_id"],
                      assessment_question_id=question_id)
-    if decision["action"] == "finish":
-        conn.execute(
-            "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
-            (now_iso(), session_id),
-        )
-        append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
-                     from_state="in_progress", to_state="completed", actor_type="system")
+    if decision["action"] == "followup":
+        # followup：实例内子轮次，不推进实例状态（02-04 迁 followup_count 列）
+        conn.commit()
     else:
-        nxt = conn.execute(
-            "SELECT question_id FROM assessment_question"
-            " WHERE session_id=? AND answered_at IS NULL ORDER BY seq LIMIT 1",
-            (session_id,),
-        ).fetchone()
-        next_question_id = nxt["question_id"] if nxt else None
+        # 先提交本事务再选题（Anti-pattern 1 / 单写者纪律：select_next_question
+        # 自取连接自持事务，llm_trace 已在 :192 commit 后写库，此处 commit 保证
+        # 决策与选出实例分属两个事务，无锁冲突）
+        conn.commit()
+        # 02-02 动态选题：finish 不再由决策 is_last 直接判定（migration 期决策的
+        # is_last 基于静态预选——动态实例化下第 N-1 题作答时第 N 题尚未实例化），
+        # 改以「选题返回 None（可选池耗尽）」为 finish 唯一触发源（02-04 裁决层
+        # 再统一移入调用点）
+        picked = select_next_question(session_id)
+        _is_legacy_session = bool(picked and picked.get("legacy"))
+        if picked is None:
+            # 可选池耗尽（普通计划 + required 例外全完成）→ finish 收尾
+            conn.execute(
+                "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+                (now_iso(), session_id),
+            )
+            append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                         from_state="in_progress", to_state="completed", actor_type="system")
+            conn.commit()
+            return {"action": "finish", "reply": decision["reply"],
+                    "question_id": question_id, "next_question_id": None,
+                    "score_live": decision["score_live"]}
+        if picked.get("legacy"):
+            # legacy 会话（Q5）：旧预选行按 seq 继续派发——走旧查询，不进四层；
+            # 旧行为语义保持：决策 next/finish 按原样透出（旧行耗尽时如上提前 return）
+            nxt = conn.execute(
+                "SELECT question_id FROM assessment_question"
+                " WHERE session_id=? AND answered_at IS NULL ORDER BY seq LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            if nxt is None:
+                conn.execute(
+                    "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+                    (now_iso(), session_id),
+                )
+                append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                             from_state="in_progress", to_state="completed", actor_type="system")
+                conn.commit()
+                return {"action": "finish", "reply": decision["reply"],
+                        "question_id": question_id, "next_question_id": None,
+                        "score_live": decision["score_live"]}
+            next_question_id = nxt["question_id"]
+        else:
+            next_question_id = picked["question_id"]
     conn.commit()
 
-    return {"action": decision["action"], "reply": decision["reply"],
+    # 02-02 动态选题：决策的 finish（is_last 旧口径）在池未耗尽时降级为
+    # next——finish 唯一触发源是选题返回 None（见上分支）；legacy 会话按旧
+    # 语义透出决策 action
+    action = decision["action"]
+    if action == "finish" and next_question_id is not None and not _is_legacy_session:
+        action = "next"
+    return {"action": action, "reply": decision["reply"],
             "question_id": question_id, "next_question_id": next_question_id,
             "score_live": decision["score_live"]}
 

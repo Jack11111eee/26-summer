@@ -48,19 +48,19 @@
 
 #### 矩阵 §3 题库与选题（REF-3.1~3.9）
 
-- [ ] **REF-3.1** [结构] 岗位级 N + 7:3 最大余数 + tier 0.8/0.6/1.7 公式（废弃固定 CATEGORY_QUOTA）→ Phase 2
-- [ ] **REF-3.2** [结构] 四层动态选题替换 create_session 一次性预选 → Phase 2
+- [x] **REF-3.1** [结构] 岗位级 N + 7:3 最大余数 + tier 0.8/0.6/1.7 公式（废弃固定 CATEGORY_QUOTA）→ Phase 2
+- [x] **REF-3.2** [结构] 四层动态选题替换 create_session 一次性预选 → Phase 2
 - [ ] **REF-3.3** [结构] experience/qualification 出普通题库，改走表单 → Phase 3
 - [ ] **REF-3.4** [一般] 题库绑定 model/version；升版须重建题库否则阻止开考 → Phase 4
 - [ ] **REF-3.5** [P0] 开考前可测量性检查（题库 readiness/配额可行/表单 schema；不通过阻止开考+管理员待办）→ Phase 1
-- [ ] **REF-3.6** [一般] required 刚性例外（每 item 最多一次、仅 medium/hard）→ Phase 2
+- [x] **REF-3.6** [一般] required 刚性例外（每 item 最多一次、仅 medium/hard）→ Phase 2
 - [ ] **REF-3.7** [结构] 难度→1-5 等级锚点映射（easy[2,3]/medium[3,4]/hard[4,5]，observable_level 列）→ Phase 2
 - [ ] **REF-3.8** [延后] 等值备用题组 —— SSOT 未列入 §28 硬项，矩阵标低优先
 - [ ] **REF-3.9** [延后] 综合题槽位 —— 综合题生成 Prompt 待讨论（SSOT 附录 A / D-030），实现后排
 
 #### 矩阵 §4 会话运行时（REF-4.1~4.12）
 
-- [ ] **REF-4.1** [结构] 动态实例化（每呈现题面新实例；followup 为实例内子轮次）→ Phase 2
+- [x] **REF-4.1** [结构] 动态实例化（每呈现题面新实例；followup 为实例内子轮次）→ Phase 2
 - [ ] **REF-4.2** [结构] 难度路径状态机（升/降/滞回恢复；不计普通失败；跳级禁止）→ Phase 2
 - [ ] **REF-4.3** [结构] evidence_sufficient/stable_evidence 结构化观察维度 + 代码布尔裁决 → Phase 2
 - [ ] **REF-4.4** [结构] answer_state 11 态 + score_state 8 态两层分离 → Phase 2

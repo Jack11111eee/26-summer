@@ -5,10 +5,12 @@ check_session_readiness 在 create_session 的 INSERT 会话前预检：不通�
 
 三态检查失败名（QUESTION_BANK_GENERATING / QUESTION_BANK_INCOMPLETE /
 MODEL_NOT_MEASURABLE）只在本函数统一返回（D-11）。
-配额口径用 question_selection.CATEGORY_QUOTA（现行口径，勿用 config.CATEGORY_RATIO 旧口径）。
+配额口径用 question_selection.plan_quotas（SSOT §10.1-10.3：岗位级 N + 7:3 最大
+余数 + tier 0.8/0.6/1.7 公式，与运行时选题同源——防两处公式漂移，WR-15 教训）。
 """
 from ..db import get_conn
-from .question_selection import CATEGORY_QUOTA
+from .. import config
+from .question_selection import ORDINARY_CATEGORIES, plan_quotas
 
 
 def _question_count_by_category(conn, position_id: str) -> dict[str, int]:
@@ -44,7 +46,7 @@ def check_session_readiness(position_id: str) -> dict | None:
     2) 模型 confirmed + items 非空（items 空 → MODEL_NOT_MEASURABLE，REF-8.5）
     3) 题库 readiness（question_bank_task 驱动 → GENERATING / INCOMPLETE）
     4) required item 至少一题覆盖（缺 → INCOMPLETE）
-    5) 配额可行（现行 CATEGORY_QUOTA 口径；不足 → INCOMPLETE）
+    5) 配额可行（§10.1-10.3 N + 7:3 + tier 目标比对题库实际量；不足 → INCOMPLETE）
     6) 综合题槽位（no-op：Phase 2-4 填充）
     7) qualification 表单 schema（no-op：Phase 3 填充）
     """
@@ -107,21 +109,48 @@ def _check_session_readiness_locked(conn, position_id: str) -> dict | None:
     ).fetchall()
     missing_required = [r["std_name"] for r in required_items if r["std_name"] not in covered]
     # CR-04：配额只在模型实际含该类目时才要求——SSOT §8「若某大类无有效能力项，
-    # 现有大类归一到 1.00」——纯软技能/纯硬技能岗位是合法形态，题库生成只按本模型
-    # items 产题，对缺失类目硬性配额会把合法岗位永久锁死在 QUESTION_BANK_INCOMPLETE
+    # 现有大类归一到 1.00」——纯软技能/纯硬技能岗位是合法形态（纯单类时大类配额
+    # 归一并入该类，见 plan_quotas 退化处理）
     needed_categories = {
         r["category"] for r in conn.execute(
             "SELECT DISTINCT category FROM competency_item WHERE model_id=? AND gate=0",
             (model["model_id"],),
         ).fetchall()
     }
+    # tier 可用量：只统计模型实际含类目的普通题（题库行 tier 近似——item 归属按
+    # std_name+category 匹配 competency_item importance）
+    available: dict[str, dict[str, int]] = {}
+    for category in needed_categories:
+        if category not in ORDINARY_CATEGORIES:
+            continue  # experience/qualification 走表单，不占普通配额
+        tiers: dict[str, int] = {"required": 0, "preferred": 0, "plus": 0}
+        rows = conn.execute(
+            "SELECT COALESCE(ci.importance, 'plus') AS tier, COUNT(*) c"
+            " FROM question_bank qb"
+            " LEFT JOIN competency_item ci ON ci.model_id=?"
+            " AND ci.std_name=qb.std_name AND ci.category=qb.category"
+            " WHERE qb.status='active' AND qb.category=?"
+            " AND (qb.scope='general' OR (qb.scope='position' AND qb.position_id=?))"
+            " GROUP BY COALESCE(ci.importance, 'plus')",
+            (model["model_id"], category, position_id),
+        ).fetchall()
+        for r in rows:
+            tiers[r["tier"]] = r["c"]
+        available[category] = tiers
+
+    n = config.ORDINARY_PLAN_N
+    quotas = plan_quotas(n, available)
     gaps: list[str] = []
-    for category, quota in CATEGORY_QUOTA.items():
+    for category, tier_targets_map in quotas.items():
         if category not in needed_categories:
-            continue  # 模型不含该类目：不要求配额
+            continue  # 模型不含该类目：不要求配额（CR-04）
         have = counts.get(category, 0)
-        if have < quota:
-            gaps.append(f"{category} {have}/{quota}")
+        target_total = sum(tier_targets_map.values())
+        # §10.3 优先级预检：题量不足时先保 required 再保 preferred——即 clamp 后
+        # 的目标能被满足即可（plan_quotas 的 tier_targets 已按可用量 clamp，
+        # 缺口在类目总量级呈现）
+        if have < min(target_total, sum(available[category].values())):
+            gaps.append(f"{category} {have}/{target_total}")
     if missing_required or gaps:
         detail = "该岗位题库不完整，不可开考"
         if missing_required:

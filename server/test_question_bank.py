@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 from server.db import get_conn, init_db  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
 from server.services.question_bank import generate_question_bank  # noqa: E402
-from server.services.question_selection import select_questions_for_session  # noqa: E402
 from server.services.prompts import question_gen, interviewer, refine, score  # noqa: E402
 
 PASS, FAIL = 0, 0
@@ -123,24 +122,60 @@ def test_idempotent(pid: str, mid: str) -> None:
     check("题量不变仍为 9", n == 9, f"实际 {n}")
 
 
-def test_selection(pid: str, model: dict) -> None:
-    print("[3] 选题算法")
-    qs = select_questions_for_session(pid, model)
-    by_cat = {}
-    for q in qs:
-        by_cat.setdefault(q["category"], []).append(q)
-    check("硬技能 5 题（Python 链 3 + Redis 链 2）", len(by_cat.get("hard_skill", [])) == 5,
-          f"实际 {len(by_cat.get('hard_skill', []))}")
-    check("软技能 2 题（整链入选）", len(by_cat.get("soft_skill", [])) == 2)
-    check("经验 1 题（题库仅 1 道，配额 2 取不满）", len(by_cat.get("experience", [])) == 1)
-    check("门槛不占题", "qualification" not in by_cat)
-    check("总量 8 题 = 硬 5 + 软 2 + 经验 1", len(qs) == 8, f"实际 {len(qs)}")
-    py_chain = [q for q in qs if q["std_name"] == "Python"]
-    check("Python 链按难度递进 easy→medium→hard",
-          [q["difficulty"] for q in py_chain] == ["easy", "medium", "hard"])
-    hard = by_cat.get("hard_skill", [])
-    check("硬技能 required(Python) 先于 preferred(Redis)",
-          hard and hard[0]["std_name"] == "Python")
+def test_selection(pid: str, mid: str, model: dict) -> None:
+    """[3] 动态选题（02-02：select_next_question 服务级断言，脚本式保持）。"""
+    print("[3] 选题算法（动态四层）")
+    from server.services.question_selection import (
+        largest_remainder_73,
+        plan_quotas,
+        select_next_question,
+    )
+    from server import config
+    # 测试用 N（沿用 config 常量——Anti-pattern 4：测试值非生产默认语义）
+    n = config.ORDINARY_PLAN_N
+
+    # 配额纯函数（§10.2 表 + §10.3 公式）
+    check("7:3 最大余数 N=9/10/11/15 四样例",
+          [largest_remainder_73(k) for k in (9, 10, 11, 15)]
+          == [(6, 3), (7, 3), (8, 3), (11, 4)])
+    hard_n, soft_n = largest_remainder_73(n)
+    qs_targets = plan_quotas(n, {"hard_skill": {"required": 9, "preferred": 9, "plus": 9},
+                                 "soft_skill": {"required": 9, "preferred": 9, "plus": 9}})
+    check(f"plan_quotas 类目总量 = 7:3 分配（N={n} → hard {hard_n} / soft {soft_n}）",
+          sum(qs_targets["hard_skill"].values()) == hard_n
+          and sum(qs_targets["soft_skill"].values()) == soft_n)
+
+    # 直插最小 session 种子后调 select_next_question（服务级，不跑完整 API）
+    conn = get_conn()
+    sid = new_id("s")
+    now = now_iso()
+    conn.execute(
+        "INSERT INTO user(user_id, username, password_hash, role, created_at) VALUES(?,?,?,?,?)",
+        (new_id("u"), "qb_sel_user", "x", "candidate", now_iso()))
+    uid = conn.execute("SELECT user_id FROM user WHERE username='qb_sel_user'").fetchone()["user_id"]
+    conn.execute(
+        "INSERT INTO assessment_session(session_id, user_id, position_id, model_id,"
+        " model_version, status, started_at, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (sid, uid, pid, mid, 1, "in_progress", now, now))
+    conn.commit()
+
+    picked = select_next_question(sid)
+    check("select_next_question 返回首题实例（非 None）", picked is not None)
+    row = conn.execute(
+        "SELECT aq.question_id, aq.selection_reason, b.category, b.std_name"
+        " FROM assessment_question aq JOIN question_bank b"
+        " ON b.question_id=aq.bank_question_id WHERE aq.session_id=? ORDER BY aq.seq DESC LIMIT 1",
+        (sid,)).fetchone()
+    check("首题实例已落库（question_id 一致）",
+          row is not None and row["question_id"] == picked["question_id"])
+    reason = json.loads(row["selection_reason"])
+    check("selection_reason 七键 + nth 结构（D-18）",
+          {"layer", "predicate", "category", "tier", "chain_followed", "weight", "seed", "nth"}
+          <= set(reason.keys()))
+    check("首题为普通类目（hard/soft，experience/qualification 剔除）",
+          row["category"] in ("hard_skill", "soft_skill"))
+    check("首题 tier 为模型 item 归属（required 优先）",
+          reason["layer"] in ("required_first", "quota"))
 
 
 def test_prompts() -> None:
@@ -192,7 +227,7 @@ if __name__ == "__main__":
     pid, mid, model = _seed_model()
     test_generation(pid, mid)
     test_idempotent(pid, mid)
-    test_selection(pid, model)
+    test_selection(pid, mid, model)
     test_prompts()
     print(f"\n结果: {PASS} 通过, {FAIL} 失败")
     sys.exit(1 if FAIL else 0)

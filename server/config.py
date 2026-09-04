@@ -42,6 +42,9 @@ LLM_RETRY = 2
 CLEAN_MIN_REQ_LEN = 30
 
 # ---- 模块二：测评（07 文档 §8/§14-7）----
+# 岗位级普通题计划数 N（SSOT §10.1/§31-1）：普通主问题配额的基数，
+# 与 7:3 最大余数 + tier 公式共同决定每次会话的选题目标。
+ORDINARY_PLAN_N = 10  # 生产默认值——2026-09-04 关口 A 用户裁决（02-DECISIONS [02-007]）
 # 用户输入超过该 token 数（近似 len/2）才走 P-refine 精炼
 REFINE_MIN_TOKENS = int(os.environ.get("REFINE_MIN_TOKENS", "500"))
 # 单题追问上限（07 §7.2）
