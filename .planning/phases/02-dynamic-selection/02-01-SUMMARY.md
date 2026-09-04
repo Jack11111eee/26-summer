@@ -146,7 +146,10 @@ None - no external service configuration required.
 - f_followup 语义注意：followup_count 迁至 assessment_question 列（D-25），02-03 改 _count_followups 读列
 - 无阻塞
 
-## Self-Check: PENDING
+## Self-Check: PASSED
+
+- 文件存在：db.py / config.py / aggregate.py / test_phase2_migration.py / test_phase2_weights.py / 02-01-SUMMARY.md 全 FOUND
+- 提交存在：29f55c6 / 14afc7d / 702787a / 8b002c5 / 38792f8 / cbb5f09 全 FOUND（git log 对齐）
 
 ---
 *Phase: 02-dynamic-selection*
