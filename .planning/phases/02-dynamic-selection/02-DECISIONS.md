@@ -113,6 +113,23 @@ Phase 1 完成于章程生效前（2026-09-03），无 DECISIONS 文件。Phase 
 - 依据：剧本 §④「goal-backward 核验所有成功标准；全部通过 → 续 ⑤；非阻断 → 记档带入下一关口包」
 - **流程适配说明**：`/gsd-verify-work` 技能本体是对话式 UAT（一次一测等用户回应）——无人值守段不适用；按剧本 §④ 定义与 Phase 1 先例（01-VERIFICATION.md 为权威载体）改派 gsd-verifier 产出同结构 goal-backward 报告。验证内容/标准/处置规则零减损；Phase 2 无前端改动（UI 人工走查面不适用，Human Verification Required 节已如实记录售后项）
 
+## 2026-09-04 · §⑤ code-review + fix
+
+**[02-013] code-review 完成（standard 深度 23 文件）+ Critical/Warning 全量自动修复**
+- 步骤：§⑤ code-review（剧本默认每 phase 跑；本 phase 涉及 SQL/事务/LLM 边界面）
+- 决定：REVIEW.md（commit c6aa9c0）——Critical 2 / Warning 8 / Info 6；按章程 §1 自动 --fix：gsd-code-fixer worktree 10 findings 逐项原子提交（93cfa61~fb0c72a）合入 b6399e6，全量回归门 151 项全绿（interview 13 + difficulty 13 + selection 9 + scoring 7 + migration 8 + weights 5 + m5 7 + p0_security 10 + p0_chain 11 + question_bank 25 + m6 43）；新增回归测试 5（CR 双项均红→绿验证）；REVIEW-FIX.md（all_fixed）随合并提交
+- 依据：章程 §1「code-review findings Critical/Warning → 自动运行 --fix（原子提交）」
+
+**[02-013a] WR-04 行为路径不修——SSOT 裁决项移交 Phase 3 关口包**
+- 决定：例外补选（§10.5 刚性「仅 medium 优先/hard 兜底」）与难度状态机（§11.2 降级后避免高难度）存在设计张力；fixer 仅落 selection_reason 张力注记键（exception_tension_note，commit 26af147）——**零行为变更**。行为级裁决（是否让例外补选尊重 snapshot 难度）属 SSOT 语义取舍 → 硬关口 2 范畴，带入 Phase 3 关口包第 5 项（遗留项处置）呈报用户
+- 依据：关口 A 裁决 3「顺带收敛」射程；SSOT 修改权 exclusively 属用户
+
+**[02-013b] Info 6 项搁置记档（章程 §1：不跑 --fix --all）**
+- 决定：IN-01（chain_followed 排序退化——02-VERIFICATION 已记，Phase 4/5 消化）/ IN-02（build_interview_context 死导出——随 REF-7.4）/ IN-03（_looks_like_regex 边界用例表）/ IN-04（aggregate.py 评审清单核对提醒——本轮实际含在该 phase diff 内，已审）/ IN-05（断言优先级括号）/ IN-06（estimated_duration_minutes 魔数——Phase 4 参数化）。全部带入 Phase 3 DECISIONS 遗留区，不阻断
+- 依据：章程 §1「Info 搁置记档，不跑 --fix --all」
+
+
+
 
 
 
