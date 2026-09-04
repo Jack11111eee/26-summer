@@ -316,6 +316,27 @@ def test_migration_resets_counters_table_driven():
             assert snap["current_difficulty"] == "medium", f"{name}: 对照例不应迁移，实得 {snap}"
 
 
+def test_criterion_composite_output():
+    """WR-05：降级复合触发（fail≥2 且 followup_ambiguous 同立）时 criterion 输出
+    组合态（两判据名拼接），不再谎报单一原因；单判据照旧各归其名。"""
+    from server.services.difficulty import _criterion_for
+
+    ev = "DIFFICULTY_LOWERED"
+    # 复合：fail=2 + famb=True → 拼接态
+    snap = _make_snap(current_difficulty="medium", fail_same_difficulty=2,
+                      followup_ambiguous=True)
+    assert _criterion_for(snap, ev) == \
+        "two_consecutive_below_anchor+followup_still_ambiguous", \
+        _criterion_for(snap, ev)
+    # 单判据 1：仅 fail≥2
+    snap = _make_snap(current_difficulty="medium", fail_same_difficulty=2)
+    assert _criterion_for(snap, ev) == "two_consecutive_below_anchor"
+    # 单判据 2：仅 famb
+    snap = _make_snap(current_difficulty="medium", fail_same_difficulty=1,
+                      followup_ambiguous=True)
+    assert _criterion_for(snap, ev) == "followup_still_ambiguous"
+
+
 def test_residual_followup_ambiguous_not_carried_after_migration():
     """CR-02 残留计数可达坏序列（hard→medium 迁移路）：hard 因 followup_ambiguous
     降级 medium → medium 一道七类排除（is_valid_failure=False）+ 一次普通失败——
@@ -515,7 +536,10 @@ def test_events_payload_and_same_transaction():
     for key in ("criterion", "evidence_counts", "from_difficulty", "to_difficulty"):
         assert key in payload, f"payload 缺 {key}: {payload}"
     assert payload["from_difficulty"] == "medium" and payload["to_difficulty"] == "easy", payload
-    assert payload["criterion"] in ("two_consecutive_below_anchor", "followup_still_ambiguous"), payload
+    # WR-05：criterion 允许组合态（复合触发时 fail 与 famb 拼接——不再谎报单一原因）
+    _valid_criteria = ("two_consecutive_below_anchor", "followup_still_ambiguous",
+                       "two_consecutive_below_anchor+followup_still_ambiguous")
+    assert payload["criterion"] in _valid_criteria, payload
     assert isinstance(payload["evidence_counts"], dict), payload
     # 事件行 from/to 与 payload 一致（§13.1 迁移事件必填）
     assert ev["from_state"] == "medium" and ev["to_state"] == "easy"

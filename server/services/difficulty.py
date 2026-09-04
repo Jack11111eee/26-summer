@@ -34,6 +34,9 @@ from .state_events import append_event
 # 降级判据摘要常量（事件 payload 的 criterion 值——Pitfall 5 审计可解释）
 CRITERION_TWO_BELOW = "two_consecutive_below_anchor"
 CRITERION_FOLLOWUP = "followup_still_ambiguous"
+# WR-05：复合触发（fail≥2 与 followup_ambiguous 同时成立）的组合态——单一
+# 原因在复合场景下信息不完整，拼接两判据名保持可解释
+CRITERION_TWO_BELOW_AND_FOLLOWUP = "two_consecutive_below_anchor+followup_still_ambiguous"
 CRITERION_ONE_SUFFICIENT = "one_sufficient_observation"
 CRITERION_SUFFICIENT_STABLE = "sufficient_and_stable"
 CRITERION_HYSTERESIS_TWO = "hysteresis_two_sufficient"
@@ -85,10 +88,18 @@ def next_difficulty(snap: dict, *, evidence_sufficient: bool, stable_evidence: b
 
 
 def _criterion_for(snap: dict, event_type: str) -> str:
-    """事件 payload 的 criterion 摘要（Pitfall 5——判据可解释，非仅 event_type）。"""
+    """事件 payload 的 criterion 摘要（Pitfall 5——判据可解释，非仅 event_type）。
+
+    WR-05：降级复合触发（fail≥2 且 followup_ambiguous 同成立）输出组合态——
+    单一原因在复合场景谎报（fail 检查在前会吞掉 ambiguous 信号）。事件
+    payload 为 append-only（不可 UPDATE），仅 generating 侧单点修正。
+    """
     if event_type == "DIFFICULTY_LOWERED":
-        return (CRITERION_TWO_BELOW if snap.get("fail_same_difficulty", 0) >= 2
-                else CRITERION_FOLLOWUP)
+        fail_hit = snap.get("fail_same_difficulty", 0) >= 2
+        famb_hit = snap.get("followup_ambiguous", False)
+        if fail_hit and famb_hit:
+            return CRITERION_TWO_BELOW_AND_FOLLOWUP
+        return CRITERION_TWO_BELOW if fail_hit else CRITERION_FOLLOWUP
     if event_type == "DIFFICULTY_RAISED" and snap.get("current_difficulty") == "easy":
         return CRITERION_ONE_SUFFICIENT
     if event_type == "DIFFICULTY_RAISED":
