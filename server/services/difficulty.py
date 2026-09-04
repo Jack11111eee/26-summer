@@ -29,6 +29,8 @@ path_state_snapshot 七键 JSON（D-20，Claude's Discretion 建议形态）：
 """
 import json
 
+from .state_events import append_event
+
 # 降级判据摘要常量（事件 payload 的 criterion 值——Pitfall 5 审计可解释）
 CRITERION_TWO_BELOW = "two_consecutive_below_anchor"
 CRITERION_FOLLOWUP = "followup_still_ambiguous"
@@ -143,11 +145,11 @@ def update_path_state(conn, *, session_id: str, item_id: str, sealed_question_id
     refused 三路封存之后）；followup 路径（实例未封存）不触发。
     """
     row = conn.execute(
-        "SELECT aq.path_state_snapshot, aq.difficulty FROM assessment_question aq"
-        " JOIN question_bank b ON b.question_id=aq.bank_question_id"
-        " WHERE aq.session_id=? AND aq.item_id=? AND aq.closed_at IS NOT NULL"
-        " ORDER BY aq.closed_at DESC, aq.created_at DESC LIMIT 1",
-        (session_id, item_id),
+        "SELECT path_state_snapshot FROM assessment_question"
+        " WHERE session_id=? AND item_id=? AND closed_at IS NOT NULL"
+        " AND question_id<>?"
+        " ORDER BY seq DESC LIMIT 1",
+        (session_id, item_id, sealed_question_id),
     ).fetchone()
     if row is not None and row["path_state_snapshot"]:
         try:
@@ -157,11 +159,12 @@ def update_path_state(conn, *, session_id: str, item_id: str, sealed_question_id
     else:
         snap = None
     if snap is None:
-        # 首次：按该 item 实例的实际难度初始化（无实例难度时 easy 起始）
-        start = (row["difficulty"] if row is not None and row["difficulty"] else "easy")
+        # 初始 snapshot：起始 easy（§11 无 alternative 起始难度规定——plan
+        # <interfaces> Simplicity：沿题库 easy 起始 + chain 惯例；不取实例
+        # 行 difficulty——那是选题层第④层排序的结果，不是路径状态）
         snap = {
             "item_id": item_id,
-            "current_difficulty": start,
+            "current_difficulty": "easy",
             "sufficient_in_row": 0,
             "stable_ever": False,
             "fail_same_difficulty": 0,

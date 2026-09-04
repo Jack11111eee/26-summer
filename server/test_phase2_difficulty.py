@@ -292,8 +292,9 @@ def _answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
 
 
 def test_events_payload_and_same_transaction():
-    """一 item 连续两题低分（长但空——followup 后强制 next，有效失败）→ 封存后：
-    DIFFICULTY_LOWERED 事件 payload 四键 + 最新封存实例行 snapshot current_difficulty == 事件 to_state。"""
+    """item 先升到 medium（充分证据）再连续两道低分（followup 后强制 next，有效失败）
+    → 封存后 DIFFICULTY_LOWERED：payload 四键（criterion/evidence_counts/from/to）+
+    最新封存实例行 snapshot current_difficulty == 事件 to_state（§13.1 同事务）。"""
     pid, _mid = _seed_position_with_confirmed_model()
     _seed_question_bank(pid)
     headers = _auth_headers("p2_diff_lower")
@@ -302,52 +303,70 @@ def test_events_payload_and_same_transaction():
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
 
-    # 逐题作答：答到 Python item 的两个不同实例各一次「有效失败」
-    # （每实例 followup 两次后强制 next = 封存 → 一个 fail；同难度两实例 → 降级）
-    python_answered = 0
-    seen_first_downgrade = False
+    # 答 1 题（充分证据 → easy→medium 升级）锁定 target item
+    cur = _cur_q(sid, headers)
+    assert cur is not None
+    _answer(sid, headers, cur["question_id"], _EVIDENCE)
+    raised = _q(
+        "SELECT assessment_question_id FROM assessment_state_event"
+        " WHERE session_id=? AND event_type='DIFFICULTY_RAISED'", (sid,))
+    assert raised, "一次充分证据应触发 easy→medium（DIFFICULTY_RAISED）"
+    item_id = _q("SELECT item_id FROM assessment_question WHERE question_id=?",
+                 (raised[0]["assessment_question_id"],))[0]["item_id"]
+    assert item_id, "升级行须挂 item_id"
+
+    # 该 item 后续两实例均长但空（followup×2 后强制 next = 封存 = 有效失败）
+    fails_on_item = 0
+    lowered = None
     for _ in range(20):
+        evs = _q(
+            "SELECT event_type FROM assessment_state_event WHERE session_id=?"
+            " AND event_type='DIFFICULTY_LOWERED'", (sid,))
+        if evs:
+            lowered = evs[0]
+            break
         cur = _cur_q(sid, headers)
         if cur is None:
             break
-        if cur.get("difficulty") == "easy" and "Python" in cur["stem"]:
-            pass  # Python easy 题走长但空路径
-        # 长但空答案：每题 followup×2 → 强制 next（封存 = 一次有效失败）
-        resp = _answer(sid, headers, cur["question_id"], _LONG_EMPTY)
-        n_followups = 1
-        while resp["action"] == "followup" and n_followups < 3:
+        # 该 item 的实例只上不充分答案；其他 item 保持沉默推进
+        row = _q("SELECT item_id FROM assessment_question WHERE question_id=?",
+                 (cur["question_id"],))[0]
+        if row["item_id"] == item_id:
             resp = _answer(sid, headers, cur["question_id"], _LONG_EMPTY)
-            n_followups += 1
-        # 封存后查询该实例 snapshot 与 DIFFICULTY_* 事件
-        evs = _q(
-            "SELECT event_type, from_state, to_state, payload_json, assessment_question_id"
-            " FROM assessment_state_event WHERE session_id=? AND event_type LIKE 'DIFFICULTY_%'"
-            " ORDER BY sequence_no", (sid,))
-        if evs:
-            seen_first_downgrade = True
-            ev = [e for e in evs if e["event_type"] == "DIFFICULTY_LOWERED"][0]
-            payload = json.loads(ev["payload_json"])
-            for key in ("criterion", "evidence_counts", "from_difficulty", "to_difficulty"):
-                assert key in payload, f"payload 缺 {key}: {payload}"
-            assert payload["from_difficulty"] == "easy" and payload["to_difficulty"] == "medium" \
-                or payload["from_difficulty"] == ev["from_state"], payload
-            # 同事务断言：事件存在即该实例行 snapshot 已更新（current == 事件 to_state）
-            rows = _q(
-                "SELECT path_state_snapshot FROM assessment_question"
-                " WHERE question_id=?", (ev["assessment_question_id"],))
-            assert rows and rows[0]["path_state_snapshot"], \
-                "DIFFICULTY 事件行对应实例必须已有 snapshot（同事务）"
-            snap = json.loads(rows[0]["path_state_snapshot"])
-            assert snap.get("current_difficulty") == ev["to_state"], \
-                f"snapshot current_difficulty 应 == 事件 to_state，实得 {snap}"
-            break
-        python_answered += 1
-    assert seen_first_downgrade, \
-        "连续有效失败应触发 DIFFICULTY_LOWERED（长但空两实例封存）"
+            n_followups = 1
+            while resp["action"] == "followup" and n_followups < 3:
+                resp = _answer(sid, headers, cur["question_id"], _LONG_EMPTY)
+                n_followups += 1
+            fails_on_item += 1
+        else:
+            _answer(sid, headers, cur["question_id"], _EVIDENCE)
+    assert lowered is not None, \
+        f"medium 两连有效失败应触发 DIFFICULTY_LOWERED（关联 item fail 计 {fails_on_item}）"
+
+    ev = _q(
+        "SELECT event_type, from_state, to_state, payload_json, assessment_question_id"
+        " FROM assessment_state_event WHERE session_id=? AND event_type='DIFFICULTY_LOWERED'"
+        " ORDER BY sequence_no", (sid,))[0]
+    payload = json.loads(ev["payload_json"])
+    for key in ("criterion", "evidence_counts", "from_difficulty", "to_difficulty"):
+        assert key in payload, f"payload 缺 {key}: {payload}"
+    assert payload["from_difficulty"] == "medium" and payload["to_difficulty"] == "easy", payload
+    assert payload["criterion"] in ("two_consecutive_below_anchor", "followup_still_ambiguous"), payload
+    assert isinstance(payload["evidence_counts"], dict), payload
+    # 事件行 from/to 与 payload 一致（§13.1 迁移事件必填）
+    assert ev["from_state"] == "medium" and ev["to_state"] == "easy"
+    # 同事务断言：事件存在即该实例行 snapshot 已更新（current == 事件 to_state）
+    rows = _q("SELECT path_state_snapshot FROM assessment_question WHERE question_id=?",
+              (ev["assessment_question_id"],))
+    assert rows and rows[0]["path_state_snapshot"], \
+        "DIFFICULTY 事件行对应实例必须已有 snapshot（同事务）"
+    snap = json.loads(rows[0]["path_state_snapshot"])
+    assert snap.get("current_difficulty") == ev["to_state"], \
+        f"snapshot current_difficulty 应 == 事件 to_state {ev['to_state']}，实得 {snap}"
 
 
 def test_selection_reads_snapshot():
-    """item 有 snapshot(current_difficulty=medium) → 下一实例 difficulty=='medium'（承接）。"""
+    """item 有 snapshot(current_difficulty=medium) → 该 item 后续实例 difficulty=='medium'（承接）。"""
     pid, mid = _seed_position_with_confirmed_model()
     _seed_question_bank(pid)
     headers = _auth_headers("p2_diff_sel")
@@ -361,8 +380,6 @@ def test_selection_reads_snapshot():
     assert cur is not None
     _answer(sid, headers, cur["question_id"], _EVIDENCE)
 
-    # 断言：出现升过级的 item 其 snapshot current_difficulty='medium'，
-    # 且该 item 的下一实例 difficulty=='medium'
     raised = _q(
         "SELECT assessment_question_id FROM assessment_state_event"
         " WHERE session_id=? AND event_type='DIFFICULTY_RAISED'", (sid,))
@@ -372,12 +389,33 @@ def test_selection_reads_snapshot():
         "SELECT item_id, path_state_snapshot FROM assessment_question WHERE question_id=?", (qid,))
     assert item_rows and item_rows[0]["item_id"], "升级行须挂 item_id"
     item_id = item_rows[0]["item_id"]
+    snap = json.loads(item_rows[0]["path_state_snapshot"])
+    assert snap.get("current_difficulty") == "medium", snap
 
-    # 选题层承接：该 item 下一实例 difficulty == medium
-    nxt = _q(
-        "SELECT difficulty FROM assessment_question"
-        " WHERE session_id=? AND item_id=? AND question_id<>? AND difficulty IS NOT NULL"
-        " ORDER BY seq", (sid, item_id, qid))
-    assert nxt, "该 item 升级后应有后续实例（snapshot 承接后）"
-    assert all(row["difficulty"] == "medium" for row in nxt), \
-        f"升级后该 item 实例难度应为 medium，实得 {nxt}"
+    # 选题层承接：持续作答直到该 item 再派发——该实例 difficulty 应 == medium
+    # （snapshot 过滤后 easy 行出池；其余 item 正常答完不干扰）
+    carried = None
+    for _ in range(12):
+        rows = _q(
+            "SELECT difficulty FROM assessment_question"
+            " WHERE session_id=? AND item_id=? AND question_id<>? AND difficulty IS NOT NULL"
+            " ORDER BY seq", (sid, item_id, qid))
+        if rows:
+            carried = rows
+            break
+        cur = _cur_q(sid, headers)
+        if cur is None:
+            break
+        row = _q("SELECT item_id FROM assessment_question WHERE question_id=?",
+                 (cur["question_id"],))[0]
+        if row["item_id"] == item_id:
+            carried_now = _q("SELECT difficulty FROM assessment_question WHERE question_id=?",
+                             (cur["question_id"],))
+            # 若该实例即承接实例（question_id≠qid）：记下并断言
+            if cur["question_id"] != qid:
+                carried = carried_now
+                break
+        _answer(sid, headers, cur["question_id"], _EVIDENCE)
+    assert carried, "该 item 升级后应有后续实例（snapshot 承接后）"
+    assert all(row["difficulty"] == "medium" for row in carried), \
+        f"升级后该 item 实例难度应为 medium，实得 {carried}"

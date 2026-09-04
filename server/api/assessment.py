@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from ..core.security import load_owned_report, load_owned_session, require_login
 from ..db import get_conn
+from ..services.difficulty import update_path_state
 from ..services.interview import decide_next_action
 from ..services.pipeline import new_id, now_iso
 from ..services.question_selection import select_next_question
@@ -263,6 +264,10 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
                      actor_type="system", assessment_question_id=question_id,
                      payload={"evidence_sufficient": decision["evidence_sufficient"],
                               "stable_evidence": False})
+        # 封存点推进难度状态机（02-03：refused 是七类排除之一——is_valid_failure=False，
+        # 计数器不动，但 snapshot 推进保持审计链完整）
+        _advance_difficulty_state(conn, session_id, question_id, decision, stable=False,
+                                  followup_ambiguous=False)
     elif _out_action in ("next", "finish"):
         now_seal = now_iso()
         # answered 封存语义补全（D-25 三路统一：closed_at + seal_reason='answered'）
@@ -287,6 +292,13 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
                      actor_type="system", assessment_question_id=question_id,
                      payload={"evidence_sufficient": decision["evidence_sufficient"],
                               "stable_evidence": stable})
+        # 封存点推进难度状态机（02-03：§11.2 降级判据 2——followup 后仍不充分
+        # 即 followup_ambiguous；实例发生过 followup 才可能满足，首答即 next 不算）
+        followup_happened = _instance_followup_count(question_id) > 0
+        _advance_difficulty_state(
+            conn, session_id, question_id, decision, stable=stable,
+            followup_ambiguous=bool(followup_happened
+                                    and not decision["evidence_sufficient"]))
     if _out_action == "followup" or decision["action"] == "confirm":
         # followup：实例内子轮次，不推进实例状态（followup_count 已自增）
         # confirm：拒答首次确认（D-24 控制类一次性确认话术），同样不推进实例状态
@@ -385,6 +397,19 @@ def _stable_evidence_light(session_id: str, question_id: str,
     return sufficient_cnt >= 2
 
 
+def _instance_followup_count(question_id: str) -> int:
+    """实例内 followup 次数（D-25 迁列后的单行读——难度状态机降级判据 2 用）。"""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT followup_count FROM assessment_question WHERE question_id=?",
+            (question_id,),
+        ).fetchone()
+        return row["followup_count"] if row else 0
+    finally:
+        conn.close()
+
+
 def _question_item_id(question_id: str) -> str | None:
     """取实例的 item_id（02-01 列回填后可用；NULL（legacy/未回填）返回 None）。"""
     conn = get_conn()
@@ -395,6 +420,49 @@ def _question_item_id(question_id: str) -> str | None:
         return row["item_id"] if row else None
     finally:
         conn.close()
+
+
+# §11.2「不计入普通失败」七类（技术/无障碍/题目无效/模型不确定/合理质疑/
+# 明确拒答/攻击性事件）——answer_state 分类驱动排除，非候选人源性失败
+# 不触发降级计数（is_valid_failure=False → advance_snapshot 计数器不动）
+_EXCLUDED_FAILURE_STATES = (
+    "TECHNICAL_OR_ACCESS_BARRIER",  # 技术故障 + 无障碍（§11.2 同前一条）
+    "ITEM_INVALID",                 # 题目无效
+    "MODEL_UNCERTAIN",              # 模型不确定
+    "PROCESS_CHALLENGE",            # 合理流程质疑
+    "DECLINED",                     # 明确拒答
+    "CONDUCT_EVENT",                # 攻击性事件
+    "PROMPT_INJECTION",             # 攻击性事件（注入归攻击类——§11.4 处理原则同路）
+)
+
+
+def _advance_difficulty_state(conn, session_id: str, question_id: str,
+                               decision: dict, stable: bool,
+                               followup_ambiguous: bool) -> None:
+    """封存点推进难度状态机（§11.2——一次实例内不升降级，封存后才算一次观察）。
+
+    update_path_state 不 commit（同事务由调用者最终 commit）；item_id NULL
+    （legacy/未回填实例）跳过——无 item 归属即无难度路径。followup_ambiguous：
+    本实例发生过 followup 且证据仍不充分（长但空路径）→ 降级判据 2。
+    """
+    row = conn.execute(
+        "SELECT aq.item_id, ci.required_level FROM assessment_question aq"
+        " LEFT JOIN competency_item ci ON ci.item_id=aq.item_id"
+        " WHERE aq.question_id=?", (question_id,),
+    ).fetchone()
+    if row is None or not row["item_id"]:
+        return
+    answer_state = decision.get("answer_state", "")
+    observation = {
+        "answer_state": answer_state,
+        "evidence_sufficient": bool(decision.get("evidence_sufficient")),
+        "stable_evidence": stable,
+        "is_valid_failure": answer_state not in _EXCLUDED_FAILURE_STATES,
+        "followup_ambiguous": followup_ambiguous,
+    }
+    update_path_state(conn, session_id=session_id, item_id=row["item_id"],
+                       sealed_question_id=question_id, observation=observation,
+                       required_level=row["required_level"])
 
 
 @router.post("/sessions/{session_id}/forms/submit", status_code=status.HTTP_201_CREATED)
