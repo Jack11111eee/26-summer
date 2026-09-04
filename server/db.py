@@ -203,11 +203,10 @@ CREATE TABLE IF NOT EXISTS question_score (
   item_id        TEXT NOT NULL REFERENCES competency_item,
   score_live     INTEGER,
   score_final    INTEGER,
-  final_score    INTEGER,
   evidence_quote TEXT,
   reason         TEXT,
   created_at     TEXT NOT NULL,
-  -- ============ Phase 2 v2 新列（SSOT §12.4；final_score 旧列保留至 02-05 消费点切换后）============
+  -- ============ Phase 2 v2 新列（SSOT §12.4——02-05 消费点切换后 final_score 旧列已 DROP）============
   score_state    TEXT NOT NULL DEFAULT 'SCORED'
 );
 
@@ -435,12 +434,13 @@ def _migrate_assessment_question_v2(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_question_score_v2(conn: sqlite3.Connection) -> None:
-    """Phase 2（SSOT §12.4）：question_score 加 score_state + final_score→score_final 合并。
+    """Phase 2（SSOT §12.4）：question_score 加 score_state + final_score→score_final 合并 + DROP。
 
     - score_state 存量行回填 'SCORED'（语义正确：旧行均为正常评分）。
     - final_score 旧列值合并进 score_final（COALESCE 保序：final_score 优先）；
-      合并后【不 DROP】final_score——02-05 消费点全切换后才 DROP + _DDL 去列
-      （A8 次序：wave 1-4 期间 scoring.py 的 INSERT 仍写 final_score，窗口内两列可审计对照）。
+    - 合并后 DROP final_score 列——A8 次序合同收尾（02-05 消费点全切换后才
+      DROP + _DDL 去列；scoring/aggregation/report 三消费面与测试断言已切
+      score_final 口径）；幂等嗅探：列存在才 DROP。
     """
     cols = {r[1] for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
     if not cols:
@@ -450,10 +450,13 @@ def _migrate_question_score_v2(conn: sqlite3.Connection) -> None:
             "ALTER TABLE question_score ADD COLUMN score_state TEXT NOT NULL DEFAULT 'SCORED'"
         )
     if "final_score" in cols:
-        # 合并语义：final_score 有值优先（终局评分历史事实），否则保留 score_final 原值
+        # 合并语义：final_score 有值优先（终局评分历史事实）——DROP 之前完成
         conn.execute(
             "UPDATE question_score SET score_final=COALESCE(final_score, score_final)"
         )
+        # A8 次序合同（02-01 锁定 → 02-05 收尾）：消费点切换完成后才 DROP——
+        # 幂等嗅探：上方 "in cols" 即列存在才执行（二次 init_db 直接跳过）
+        conn.execute("ALTER TABLE question_score DROP COLUMN final_score")
 
 
 def init_db() -> None:

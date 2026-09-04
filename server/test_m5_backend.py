@@ -302,8 +302,10 @@ def test_answer_flow_and_scoring():
     subj = [r for r in rows if r["qtype"] == "subjective"]
     assert all(r["score_live"] is None for r in obj)
     assert any(r["score_final"] == 5 for r in obj)  # 至少 def 命中
-    # 主观题：score_live=3(mock) 与 score_final=3(mock) 合成 3
-    assert all(r["score_live"] == 3 and r["final_score"] == 3 for r in subj)
+    assert all(r["score_state"] == "SCORED" for r in rows)  # 本测试种子下无拒答/无效题
+    # 主观题（02-05）：score_live=3(参考) 与 score_final=3(mock) 独立落库（无合成路径）
+    assert all(r["score_live"] == 3 and r["score_final"] == 3 and r["score_state"] == "SCORED"
+               for r in subj)
 
 
 def test_form_submission():
