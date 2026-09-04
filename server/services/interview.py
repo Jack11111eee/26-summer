@@ -205,11 +205,20 @@ def decide_next_action(session_id: str, question_id: str, user_message: str) -> 
     history = [dict(r) for r in history_rows]
 
     # 1) 观察层：LLM 结构化观察 → InterviewObservation（aggregate.py:77 同款消费先例）
-    result = call_llm_json(
-        "interviewer", session_id, INTERVIEWER_SYSTEM,
-        _build_user_prompt(session, question, history, user_message, _is_last),
-        mock_fn=_mock_interview,
-    )
+    # CR-01：call_llm_json 重试全败 raise RuntimeError——观察层捕获降级 MODEL_UNCERTAIN
+    # （与 ValidationError 降级同语义：§11.5 不卡死，答题主链不 500、审计链完整）
+    try:
+        result = call_llm_json(
+            "interviewer", session_id, INTERVIEWER_SYSTEM,
+            _build_user_prompt(session, question, history, user_message, _is_last),
+            mock_fn=_mock_interview,
+        )
+    except RuntimeError:
+        result = {
+            "answer_state": "MODEL_UNCERTAIN",
+            "observation": {"relevance": False, "specificity": 0, "attribution": False},
+            "reason": "LLM 调用失败（重试全败），降级 MODEL_UNCERTAIN（§11.5 不卡死会话）",
+        }
     try:
         parsed = InterviewObservation(**result)
     except ValidationError:

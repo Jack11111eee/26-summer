@@ -3,16 +3,17 @@ import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
+from .. import config as _config
 from ..core.security import load_owned_report, load_owned_session, require_login
 from ..db import get_conn
 from ..services.difficulty import update_path_state
 from ..services.interview import decide_next_action
 from ..services.pipeline import new_id, now_iso
-from ..services.question_selection import select_next_question
+from ..services.question_selection import exception_granted_items, select_next_question
 from ..services.readiness import check_session_readiness
 from ..services.refine import refine_user_input
 from ..services.report import generate_report
-from ..services.scoring import score_session
+from ..services.scoring import MAX_ANSWER_LEN, score_session
 from ..services.state_events import append_event
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
@@ -57,13 +58,15 @@ def get_confirmed_model(position_id: str) -> dict:
     conn = get_conn()
     # WR-10：join position 校验 status='active'——与列表接口的 active 过滤一致，
     # 不向任意登录用户泄露未上架岗位的胜任力模型配置
-    row = conn.execute(
-        "SELECT m.model_id, m.version, m.model_json FROM competency_model m"
-        " JOIN position p ON p.position_id=m.position_id"
-        " WHERE m.position_id=? AND m.status='confirmed' AND p.status='active'"
-        " ORDER BY m.version DESC LIMIT 1",
-        (position_id,),
+    # WR-08：模型行改走 _latest_confirmed_model 单源实现（与 create_session 同口径，
+    # 相关子查询取每岗位 MAX(version)——原 ORDER BY LIMIT 1 为第二套实现形态）；
+    # active 校验单独先行（单源函数不含 position join）
+    pos = conn.execute(
+        "SELECT status FROM position WHERE position_id=?", (position_id,)
     ).fetchone()
+    if pos is None or pos["status"] != "active":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型")
+    row = _latest_confirmed_model(conn, position_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型")
     d = dict(row)
@@ -88,7 +91,8 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型，无法开考")
 
     # 开考前可测量性检查（§10.4）：不通过拒绝创建会话（杜绝 0 题会话静默开考，REF-3.5/8.5）
-    result = check_session_readiness(position_id)
+    # WR-06：readiness 复用上面已取的 model 行（单源——锚定同一 confirmed 版本）
+    result = check_session_readiness(position_id, model=model)
     if result:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": result["error_code"],
@@ -145,15 +149,12 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         # legacy 兜底（Q5）：{'legacy': True} 或旧未答行形态 → 走上面旧 ORDER BY seq
         # 查询结果（cur 已取——legacy 会话已被该查询覆盖；无行则保持 None 不 500）
     # total_count 口径（02-02）：计划数 N + 已发生例外数 E（answer 行数不再作分母）
-    from .. import config as _config
+    # WR-02：例外计数与 selection 层同口径（_exception_granted_items 单源——
+    # selection_reason 解析失败时事件兜底，分母与实发题数不漂移）
     if s["status"] == "completed":
         total = answered
     else:
-        exceptions = conn.execute(
-            "SELECT COUNT(*) c FROM assessment_question WHERE session_id=?"
-            " AND selection_reason IS NOT NULL AND json_extract(selection_reason,'$.layer')='exception'",
-            (session_id,),
-        ).fetchone()["c"]
+        exceptions = len(exception_granted_items(conn, session_id))
         total = _config.ORDINARY_PLAN_N + exceptions
     return {
         "session_id": s["session_id"],
@@ -175,6 +176,11 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     answer = raw_answer.strip() if isinstance(raw_answer, str) else ""
     if not question_id or not answer:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 question_id 或 answer")
+    # WR-07：输入长度上限对齐评分侧 MAX_ANSWER_LEN=64*1024（同口径单源）——
+    # 超大 payload 直达精炼/LLM 会撑爆上下文且撞 CR-01 降级面，输入侧统一 422
+    if len(answer) > MAX_ANSWER_LEN:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"回答过长（>{MAX_ANSWER_LEN} 字符），请精简后提交")
 
     conn = get_conn()
     s = load_owned_session(conn, session_id, user)
@@ -286,15 +292,15 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
                      payload={"seal_reason": "answered"})
         # 裁决发生在封存时机（§13.2 EVIDENCE_EVALUATED）：轻量 stable 判据
         # sufficient_in_row ≥ 2（A2 决议——本会话该 item 充分观察计数，Phase 2 轻量版）
-        stable = _stable_evidence_light(session_id, question_id,
-                                         decision["evidence_sufficient"])
+        stable = _stable_evidence_light(conn, session_id, question_id,
+                                        decision["evidence_sufficient"])
         append_event(conn, session_id=session_id, event_type="EVIDENCE_EVALUATED",
                      actor_type="system", assessment_question_id=question_id,
                      payload={"evidence_sufficient": decision["evidence_sufficient"],
                               "stable_evidence": stable})
         # 封存点推进难度状态机（02-03：§11.2 降级判据 2——followup 后仍不充分
         # 即 followup_ambiguous；实例发生过 followup 才可能满足，首答即 next 不算）
-        followup_happened = _instance_followup_count(question_id) > 0
+        followup_happened = _instance_followup_count(conn, question_id) > 0
         _advance_difficulty_state(
             conn, session_id, question_id, decision, stable=stable,
             followup_ambiguous=bool(followup_happened
@@ -361,30 +367,27 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
             "score_live": decision["score_live"]}
 
 
-def _stable_evidence_light(session_id: str, question_id: str,
-                            current_sufficient: bool) -> bool:
+def _stable_evidence_light(conn, session_id: str, question_id: str,
+                           current_sufficient: bool) -> bool:
     """stable_evidence 轻量版（A2 决议——Phase 2 难度导航用，Phase 5 完整裁决留白）。
 
     判据 = 本会话同 item 的充分观察计数 sufficient_in_row ≥ 2（两个不同实例
     的独立有效观察）。当前结论按「含本次」计数：本次充分且同 item 既有充分
     观察达 1 次 → stable。事件表 OBSERVATION_CLASSIFIED payload 的布尔聚合。
+    WR-01：接调用方主 conn（决策事务内自读自写——不另开连接读到陈旧状态）。
     """
     if not current_sufficient:
         return False
-    item_id = _question_item_id(question_id)
+    item_id = _question_item_id(conn, question_id)
     if item_id is None:
         return False
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            "SELECT e.payload_json FROM assessment_state_event e"
-            " JOIN assessment_question aq ON aq.question_id=e.assessment_question_id"
-            " WHERE e.session_id=? AND e.event_type='OBSERVATION_CLASSIFIED'"
-            " AND aq.item_id=?",
-            (session_id, item_id),
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = conn.execute(
+        "SELECT e.payload_json FROM assessment_state_event e"
+        " JOIN assessment_question aq ON aq.question_id=e.assessment_question_id"
+        " WHERE e.session_id=? AND e.event_type='OBSERVATION_CLASSIFIED'"
+        " AND aq.item_id=?",
+        (session_id, item_id),
+    ).fetchall()
     sufficient_cnt = 0
     for r in rows:
         try:
@@ -397,29 +400,27 @@ def _stable_evidence_light(session_id: str, question_id: str,
     return sufficient_cnt >= 2
 
 
-def _instance_followup_count(question_id: str) -> int:
-    """实例内 followup 次数（D-25 迁列后的单行读——难度状态机降级判据 2 用）。"""
-    conn = get_conn()
-    try:
-        row = conn.execute(
-            "SELECT followup_count FROM assessment_question WHERE question_id=?",
-            (question_id,),
-        ).fetchone()
-        return row["followup_count"] if row else 0
-    finally:
-        conn.close()
+def _instance_followup_count(conn, question_id: str) -> int:
+    """实例内 followup 次数（D-25 迁列后的单行读——难度状态机降级判据 2 用）。
+
+    WR-01：接调用方主 conn（同事务自读自写，消除双连接交错窗口）。
+    """
+    row = conn.execute(
+        "SELECT followup_count FROM assessment_question WHERE question_id=?",
+        (question_id,),
+    ).fetchone()
+    return row["followup_count"] if row else 0
 
 
-def _question_item_id(question_id: str) -> str | None:
-    """取实例的 item_id（02-01 列回填后可用；NULL（legacy/未回填）返回 None）。"""
-    conn = get_conn()
-    try:
-        row = conn.execute(
-            "SELECT item_id FROM assessment_question WHERE question_id=?", (question_id,)
-        ).fetchone()
-        return row["item_id"] if row else None
-    finally:
-        conn.close()
+def _question_item_id(conn, question_id: str) -> str | None:
+    """取实例的 item_id（02-01 列回填后可用；NULL（legacy/未回填）返回 None）。
+
+    WR-01：接调用方主 conn（同事务自读自写，消除双连接交错窗口）。
+    """
+    row = conn.execute(
+        "SELECT item_id FROM assessment_question WHERE question_id=?", (question_id,)
+    ).fetchone()
+    return row["item_id"] if row else None
 
 
 # §11.2「不计入普通失败」七类（技术/无障碍/题目无效/模型不确定/合理质疑/

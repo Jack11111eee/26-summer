@@ -34,7 +34,8 @@ SCORE_STATES = (
 
 # WR-14：answer_key 长度上限与候选人回答截断长度（防病态正则灾难性回溯）
 _MAX_KEY_LEN = 512
-_MAX_ANSWER_LEN = 64 * 1024
+MAX_ANSWER_LEN = 64 * 1024  # WR-07：输入侧（assessment）与评分侧同口径公开设定的上限
+_MAX_ANSWER_LEN = MAX_ANSWER_LEN  # 旧私有名（模块内既有引用保持）
 
 
 def _score_objective(answer_key: str, answer: str) -> tuple[int, str]:

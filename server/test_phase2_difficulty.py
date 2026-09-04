@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.db import init_db, get_conn  # noqa: E402
 from server.main import app  # noqa: E402
-from server.services.difficulty import next_difficulty  # noqa: E402
+from server.services.difficulty import next_difficulty, update_path_state  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
 
 init_db()  # TestClient 不触发 startup 事件，显式建表
@@ -196,6 +196,191 @@ def test_path_unavailable_event():
                         f"easy→hard 直迁不可产生（跳级禁止），输入 {ev_suf}/{ev_stable}/{s_in_row}/{s_ever}"
 
 
+# ---------- CR-02 回归：跨难度迁移清档内计数（换档即换「同难度」分母） ----------
+
+def _cr02_seed_refs() -> None:
+    """直插 user/position/competency_model/question_bank 引用行（外键依赖）。"""
+    conn = get_conn()
+    now = now_iso()
+    conn.execute("INSERT OR IGNORE INTO user(user_id, username, password_hash, role, created_at)"
+                 " VALUES(?,?,?,?,?)", ("u_cr02", "u_cr02", "x", "candidate", now))
+    conn.execute("INSERT OR IGNORE INTO position(position_id, name, status, created_at)"
+                 " VALUES(?,?,?,?)", ("p_cr02", "CR-02 岗位", "active", now))
+    conn.execute(
+        "INSERT OR IGNORE INTO competency_model(model_id, position_id, version, status,"
+        " model_json, created_at) VALUES(?,?,?,?,?,?)",
+        ("m_cr02", "p_cr02", 1, "confirmed", "{}", now))
+    conn.execute(
+        "INSERT OR IGNORE INTO question_bank(question_id, scope, position_id, std_name,"
+        " category, difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("qb_cr02", "position", "p_cr02", "CR-02 std", "hard_skill", "medium",
+         "subjective", "CR-02 占位题", None, "判据", "human", "active", now))
+    conn.commit()
+    conn.close()
+
+
+def _cr02_new_session(sid: str) -> None:
+    """建一条外键自洽的会话行（CR-02 直测 update_path_state 用，不走 API）。"""
+    _cr02_seed_refs()
+    conn = get_conn()
+    now = now_iso()
+    conn.execute(
+        "INSERT INTO assessment_session(session_id, user_id, position_id, model_id,"
+        " model_version, status, started_at, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (sid, "u_cr02", "p_cr02", "m_cr02", 1, "in_progress", now, now))
+    conn.commit()
+    conn.close()
+
+
+def _cr02_seal(sid: str, seq: int, pre_snap: dict | None, obs: dict) -> str:
+    """插入前置封实行（载 pre_snap）+ 本封存实例并推进状态机，返回本实例 question_id。
+
+    update_path_state 读「除本实例外最新的封存行」——pre_snap 写在 seq 行、本实例为
+    seq+1 行（同 session seq 单调递增保证读到 pre_snap 指定行）；pre_snap=None 视作
+    该 item 首封存（无前置行——update_path_state 初始 easy）。本实例行初值不带
+    snapshot（由 update_path_state 写入）。bank 引用共享 qb_cr02。
+    """
+    conn = get_conn()
+    now = now_iso()
+    if pre_snap is not None:
+        conn.execute(
+            "INSERT INTO assessment_question(question_id, session_id, bank_question_id, seq,"
+            " question_type, item_id, status, path_state_snapshot, closed_at, created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (new_id("aq"), sid, "qb_cr02", seq, "ordinary", "item_cr02", "sealed",
+             json.dumps(pre_snap, ensure_ascii=False), now, now))
+    qid = new_id("aq")
+    conn.execute(
+        "INSERT INTO assessment_question(question_id, session_id, bank_question_id, seq,"
+        " question_type, item_id, status, path_state_snapshot, closed_at, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (qid, sid, "qb_cr02", seq + 1, "ordinary", "item_cr02", "sealed",
+         None, now, now))
+    conn.commit()
+    update_path_state(conn, session_id=sid, item_id="item_cr02",
+                      sealed_question_id=qid, observation=obs, required_level=3)
+    conn.commit()
+    conn.close()
+    return qid
+
+
+def _cr02_latest_snap(sid: str) -> dict:
+    """会话【最后插入】实例行的 snapshot（MAX(rowid)——插入序，与 seq 取值无关）。"""
+    rows = _q("SELECT path_state_snapshot FROM assessment_question"
+             " WHERE session_id=? AND rowid=(SELECT MAX(rowid) FROM assessment_question"
+             " WHERE session_id=?)", (sid, sid))
+    return json.loads(rows[0]["path_state_snapshot"])
+
+
+def test_migration_resets_counters_table_driven():
+    """update_path_state 迁移段表驱动：迁移后 snapshot 的 fail_same_difficulty=0、
+    followup_ambiguous=False；降 easy 时 sufficient_in_row=0（CR-02 坏序列防回归）。"""
+    # 表驱动：每 case 组装「迁移触发前的 snapshot 形态」落为上一封存行，直接调
+    # update_path_state 后断言新 snapshot 计数器清零（持 conn 的 DB 集成路）。
+    # case: (名, 前置 snapshot, 本封存 observation, 期望迁移 level 或 None)
+    cases = [
+        # medium fail=2 → 降 easy：fail 清零（旧代码带 fail=2 落 easy 档残留）
+        ("medium-fail2-lower", _make_snap(current_difficulty="medium", fail_same_difficulty=2),
+         {"evidence_sufficient": False, "is_valid_failure": True}, "easy"),
+        # medium fail=1 + followup_ambiguous=True → 降 easy（判据 2 触发）：ambiguous 清零
+        ("medium-famb-lower", _make_snap(current_difficulty="medium", fail_same_difficulty=1,
+                                         followup_ambiguous=True),
+         {"evidence_sufficient": False, "is_valid_failure": True}, "easy"),
+        # easy 两次充分 → 升 medium：迁移动作存在（升档无 sufficient 清零——仅降 easy 适用）
+        ("easy-raise", _make_snap(current_difficulty="easy", sufficient_in_row=2),
+         {"evidence_sufficient": True, "is_valid_failure": True}, "medium"),
+        # 无迁移：计数器照常推进（对照——迁移清理不误伤无迁移路径；fail 起 0，
+        # 推进到 1 即普通一次失败——起 1 会推到 2 直接触发降级，不成为对照）
+        ("medium-no-migration", _make_snap(current_difficulty="medium", fail_same_difficulty=0),
+         {"evidence_sufficient": False, "is_valid_failure": True}, None),
+    ]
+    for name, pre_snap, obs, exp_level in cases:
+        sid = new_id("sess")
+        _cr02_new_session(sid)
+        _cr02_seal(sid, 1, pre_snap, obs)
+        snap = _cr02_latest_snap(sid)
+        if exp_level is not None:
+            assert snap["current_difficulty"] == exp_level, \
+                f"{name}: 期望迁移到 {exp_level}，实得 {snap}"
+            assert snap["fail_same_difficulty"] == 0, \
+                f"{name}: 迁移后 fail_same_difficulty 应清零（换档换分母），实得 {snap}"
+            assert snap["followup_ambiguous"] is False, \
+                f"{name}: 迁移后 followup_ambiguous 应清零（判据 2 不跨档携带），实得 {snap}"
+            if exp_level == "easy":
+                assert snap["sufficient_in_row"] == 0, \
+                    f"{name}: 降 easy 后 sufficient_in_row 应清零（滞回按新档累计），实得 {snap}"
+        else:
+            assert snap["fail_same_difficulty"] == 1, \
+                f"{name}: 无迁移路径 fail 计数照常推进（对照），实得 {snap}"
+            assert snap["current_difficulty"] == "medium", f"{name}: 对照例不应迁移，实得 {snap}"
+
+
+def test_criterion_composite_output():
+    """WR-05：降级复合触发（fail≥2 且 followup_ambiguous 同立）时 criterion 输出
+    组合态（两判据名拼接），不再谎报单一原因；单判据照旧各归其名。"""
+    from server.services.difficulty import _criterion_for
+
+    ev = "DIFFICULTY_LOWERED"
+    # 复合：fail=2 + famb=True → 拼接态
+    snap = _make_snap(current_difficulty="medium", fail_same_difficulty=2,
+                      followup_ambiguous=True)
+    assert _criterion_for(snap, ev) == \
+        "two_consecutive_below_anchor+followup_still_ambiguous", \
+        _criterion_for(snap, ev)
+    # 单判据 1：仅 fail≥2
+    snap = _make_snap(current_difficulty="medium", fail_same_difficulty=2)
+    assert _criterion_for(snap, ev) == "two_consecutive_below_anchor"
+    # 单判据 2：仅 famb
+    snap = _make_snap(current_difficulty="medium", fail_same_difficulty=1,
+                      followup_ambiguous=True)
+    assert _criterion_for(snap, ev) == "followup_still_ambiguous"
+
+
+def test_residual_followup_ambiguous_not_carried_after_migration():
+    """CR-02 残留计数可达坏序列（hard→medium 迁移路）：hard 因 followup_ambiguous
+    降级 medium → medium 一道七类排除（is_valid_failure=False）+ 一次普通失败——
+    不得再触发降级（旧代码：迁移不清 followup_ambiguous，残留 True 在下一次任何
+    封存即直接第二次降级，连七类排除这种非候选人源性观察也触发——双重违反 §11.2）。
+
+    注：报告原文场景 3 的 medium→easy→升回 medium 序列在 advance_snapshot 的
+    「充分证据清 famb」下自愈（升回必经充分证据）——可达的残留触发路是本测试的
+    hard→medium 路（迁移后无需充分证据即可再次封存触发）。
+    """
+    sid = new_id("sess")
+    _cr02_new_session(sid)
+
+    # ① hard 档 followup_ambiguous=True → 降级 medium（DIFFICULTY_LOWERED）
+    _cr02_seal(sid, 1, _make_snap(current_difficulty="hard", followup_ambiguous=True),
+               {"evidence_sufficient": False, "is_valid_failure": True})
+    lowered = _q("SELECT to_state FROM assessment_state_event WHERE session_id=?"
+                 " AND event_type='DIFFICULTY_LOWERED'", (sid,))
+    assert lowered, "hard followup_ambiguous 应触发降级（前置条件）"
+    assert lowered[-1]["to_state"] == "medium"
+
+    # ② medium 一道七类排除封存（MODEL_UNCERTAIN，is_valid_failure=False）：
+    #    两计数器不动、不得迁移/降级
+    snap_med = _cr02_latest_snap(sid)
+    assert snap_med["current_difficulty"] == "medium", snap_med
+    _cr02_seal(sid, 3, snap_med,
+               {"answer_state": "MODEL_UNCERTAIN", "evidence_sufficient": False,
+                "is_valid_failure": False})
+    snap2 = _cr02_latest_snap(sid)
+    assert snap2["current_difficulty"] == "medium", \
+        f"七类排除不得迁移/降级（is_valid_failure=False），实得 {snap2}"
+
+    # ③ medium 一次普通失败（fail=1 < 2，famb 应已清零）→ 不得降级：
+    #    降级事件计数应仍为 1（只有 ① 那一次）
+    _cr02_seal(sid, 5, snap2,
+               {"evidence_sufficient": False, "is_valid_failure": True,
+                "followup_ambiguous": False})
+    all_lowered = _q("SELECT COUNT(*) c FROM assessment_state_event WHERE session_id=?"
+                     " AND event_type='DIFFICULTY_LOWERED'", (sid,))
+    assert all_lowered[0]["c"] == 1, \
+        "迁移后残留 followup_ambiguous 不得在后续封存触发降级（换档即换分母），" \
+        f"实得 {all_lowered[0]['c']} 次降级"
+
+
 # ---------- 集成（事件 payload + 快照同事务 + 选题承接） ----------
 
 def _seed_position_with_confirmed_model(required_level: int = 3) -> tuple[str, str]:
@@ -351,7 +536,10 @@ def test_events_payload_and_same_transaction():
     for key in ("criterion", "evidence_counts", "from_difficulty", "to_difficulty"):
         assert key in payload, f"payload 缺 {key}: {payload}"
     assert payload["from_difficulty"] == "medium" and payload["to_difficulty"] == "easy", payload
-    assert payload["criterion"] in ("two_consecutive_below_anchor", "followup_still_ambiguous"), payload
+    # WR-05：criterion 允许组合态（复合触发时 fail 与 famb 拼接——不再谎报单一原因）
+    _valid_criteria = ("two_consecutive_below_anchor", "followup_still_ambiguous",
+                       "two_consecutive_below_anchor+followup_still_ambiguous")
+    assert payload["criterion"] in _valid_criteria, payload
     assert isinstance(payload["evidence_counts"], dict), payload
     # 事件行 from/to 与 payload 一致（§13.1 迁移事件必填）
     assert ev["from_state"] == "medium" and ev["to_state"] == "easy"
