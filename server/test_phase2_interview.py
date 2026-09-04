@@ -327,3 +327,53 @@ def test_evidence_evaluated_event_on_seal():
     assert evs, "answered 封存时机应落 EVIDENCE_EVALUATED 事件"
     payload = json.loads(evs[0]["payload_json"])
     assert "evidence_sufficient" in payload and "stable_evidence" in payload, payload
+
+
+# ---------- CR-01 回归：LLM 调用失败降级 MODEL_UNCERTAIN（§11.5 不卡死主链） ----------
+
+def test_llm_failure_degrades_model_uncertain(monkeypatch):
+    """call_llm_json 重试全败（RuntimeError）→ 决策降级 MODEL_UNCERTAIN → action=next：
+    submit_answer 不 500、实例按 answered 封存、会话可继续派发下一题（审计链完整）。"""
+    import server.services.interview as interview_mod
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("LLM 调用 interviewer 重试 3 次仍失败: mock 注入失败")
+
+    sid, headers = _new_session("p2_itv_llmfail")
+    cur = _cur_q(sid, headers)
+    qid = cur["question_id"]
+
+    monkeypatch.setattr(interview_mod, "call_llm_json", _boom)
+    r = client.post(f"/api/assessment/sessions/{sid}/answer",
+                    json={"question_id": qid, "answer": _EVIDENCE_ANSWER}, headers=headers)
+    monkeypatch.undo()
+    assert r.status_code == 200, f"LLM 失败不得 500（主链断裂），实得 {r.status_code}: {r.text}"
+
+    resp = r.json()
+    assert resp["action"] in ("next", "finish"), \
+        f"MODEL_UNCERTAIN 按规则 3 应 next 推进，实得 {resp['action']}"
+    # 决策观察留痕已落（审计链完整，非静默吞异常）
+    evs = _q("SELECT payload_json FROM assessment_state_event"
+             " WHERE session_id=? AND assessment_question_id=? AND event_type='OBSERVATION_CLASSIFIED'",
+             (sid, qid))
+    assert evs, "LLM 失败降级也应落 OBSERVATION_CLASSIFIED（观察留痕不丢）"
+    payload = json.loads(evs[0]["payload_json"])
+    assert payload.get("answer_state") == "MODEL_UNCERTAIN", payload
+    # 会话可继续：实例已封存（MODEL_UNCERTAIN 属七类排除但封存照走 answered 路），
+    # 后续 GET 派发下一题或 finish 收尾
+    r2 = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+    assert r2.status_code == 200, r2.text
+    s2 = r2.json()
+    assert s2["status"] == "in_progress" or s2["current_question"] is not None, \
+        f"降级后会话应可继续，实得 status={s2['status']}, cur={s2['current_question']}"
+    if s2["current_question"] is not None and s2["current_question"]["question_id"] != qid:
+        nxt = s2["current_question"]["question_id"]
+        r3 = client.post(f"/api/assessment/sessions/{sid}/answer",
+                         json={"question_id": nxt, "answer": _EVIDENCE_ANSWER}, headers=headers)
+        assert r3.status_code == 200, f"下一题作答应继续正常，实得 {r3.status_code}"
+    # 难度状态机侧：MODEL_UNCERTAIN 属七类排除 → is_valid_failure=False，fail 计数不动
+    rows = _q("SELECT path_state_snapshot FROM assessment_question WHERE question_id=?", (qid,))
+    assert rows and rows[0]["path_state_snapshot"], "降级封存后 snapshot 应照常推进（审计链）"
+    snap = json.loads(rows[0]["path_state_snapshot"])
+    assert snap.get("fail_same_difficulty") == 0, \
+        f"MODEL_UNCERTAIN 七类排除不得累计 fail，实得 {snap}"
