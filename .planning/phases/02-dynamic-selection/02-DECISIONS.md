@@ -84,6 +84,20 @@ Phase 1 完成于章程生效前（2026-09-03），无 DECISIONS 文件。Phase 
 - 决定：①[02-009a] 所述 files_modified 外回归适配 ②红测文案撞词（"长但空"测试文案含「具体」实义词致分类歧义——改文案消除）③ObservationDims 构造漏 attribution 键（Pydantic required 补齐）。三项均 Rule 1/3 正确性必需，已记入 02-04-SUMMARY 偏差区
 - 依据：execute-plan deviation rules；m5 :290 final_score 断言未动（归 02-05）核实无误
 
+**[02-010] wave 4（02-03 难度路径状态机）完成与合入**
+- 步骤：§③ execute wave 4/5（执行序；数据载体属 02-03）
+- 决定：单次派发完成（4 commits，worktree ab813024 合入 9c19e7c）；抽查契约全过（next_difficulty 纯函数无 conn / advance_snapshot / update_path_state 持 conn 不 commit（grep 零命中） / assessment.py 经 _advance_difficulty_state helper 在 :269/:298 两路封存分支调用、followup 零调用 / _EXCLUDED_FAILURE_STATES 七类排除 / selection 层 path_state_snapshot 读取 / test_p0_chain 未触碰——备用适配分支未激活）；后测门全绿（difficulty 10 + selection 9 + interview 12 + migration 8 + weights 5 + m5 7 + p0_security 10 + p0_chain 11 + question_bank 25 + m6 41 = 138 项）
+- 依据：章程 §3 wave 簿记。diff 文件集 4/5 ⊆ files_modified（test_p0_chain.py 计划列名但适配未激活——合法子集），零超范围
+
+**[02-010a] 执行者自愈偏差 3 项——回溯认可**
+- 决定：①difficulty.py 漏 import append_event（首次集成暴露，Rule 1 补齐）②snapshot 读取需排除当前封存行 + 按 seq 排序（否则读到当前行 NULL 快照致每次封存路径重置 easy——正确性关键修复）③红测集成设计修正（easy 不降级 → LOWERED 测试先升 medium；选题承接测试循环非目标 item）。三项均 Rule 1 正确性必需，已记入 02-03-SUMMARY 偏差区
+- 依据：execute-plan deviation rules
+
+**[02-010b] 执行者调试件处置（4 个未跟踪脚本）**
+- 决定：`server/_dbg_{difficulty,e2e,loop,spy}.py` 四个未提交未跟踪调试脚本随 worktree remove 一并清除（主仓 git ls-files 零副本）；executor SUMMARY 已登记需用户删除——实际已随目录消失，用户无需操作；SUMMARY 文本保留（历史记录不回改）
+- 依据：[02-008c] 同口径先例
+
+
 ## 遗留项（带入后续 phase 的 Info/非阻断项）
 
 - [Phase 1 REVIEW Info] IN-04 scored_count 语义、IN-08 测试共库纪律（Phase 6 REF-7.4 消化）、IN-09 append_event 并发 500–低概率知悉项

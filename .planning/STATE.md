@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 02 (动态选题与有界循环) — EXECUTING
-Plan: 第 3/5 个 plan 已合并（02-04），下一 wave 4（02-03 难度状态机）
+Plan: 第 4/5 个 plan 已合并（02-03），下一 wave 5（02-05 评分消费切换，最后一个）
 Status: Executing
 Last activity: 2026-09-04
-Progress: [████████░░] 80%
+Progress: [████████░░] 85%
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
 - **下一动作**：`/gsd-execute-phase` 续派 wave 3（02-04）→ 4（02-03）→ 5（02-05）

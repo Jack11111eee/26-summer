@@ -85,7 +85,7 @@ Plans:
 
 **Wave 4** *(blocked on 02-02 + 02-04)* — 难度状态机（需 observation 布尔 + 选题服务）
 
-- [ ] 02-03-PLAN.md — 难度路径状态机（path_state_snapshot JSON 快照 + §11.2 全判据纯函数 + DIFFICULTY_RAISED/LOWERED/RESTORED 事件同事务 + 选题层难度承接 + 七类排除清单）—— REF-4.2
+- [x] 02-03-PLAN.md — 难度路径状态机（path_state_snapshot JSON 快照 + §11.2 全判据纯函数 + DIFFICULTY_RAISED/LOWERED/RESTORED 事件同事务 + 选题层难度承接 + 七类排除清单）—— REF-4.2
 
 **Wave 5** *(blocked on 02-02 + 02-03 + 02-04)* — 评分链原子收尾
 
@@ -190,7 +190,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
-| 2. 动态选题与有界循环 | 3/5 | In Progress|  |
+| 2. 动态选题与有界循环 | 4/5 | In Progress|  |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |
