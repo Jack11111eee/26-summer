@@ -29,7 +29,7 @@
 - 步骤：plan-phase §10–12 修订循环
 - 决定：第一轮（2B/7W/4I——B1 03-01 files 与 Task 断言不一致 / B2 03-02 files_modified 漏列回归面 / B3 03-03 idempotency 两阶段缺口等）由 planner 修订；二验发现修订引入 3 个机械性 blocker（key_links YAML 缩进损坏 / 烟测脚本 get_conn FK-on 与 NOT NULL 互斥 / 路径与锚点错位），由 orchestrator 直接执行最小机械修补轮（N1-N7 共 7 项——全部 diff 级可核验，不涉计划语义），合并提交 139a477 后派 checker 第三轮复验
 - 依据：剧本 §2「plan-checker 的 BLOCK 级问题当场修正——属 fix 机制延长线，无需请示」；N1-N7 均为机械性（YAML 解析复验 5/5 通过），不构成 plan 语义变更（未触发硬关口 2）；修补轮由 orchestrator 直接执行而非重派 planner——上下文经济考量，Phase 2 无此先例但属同一 fix 机制授权范围（机械修复无新决策）
-- 附注：若第三轮复验仍有 BLOCK，按修订循环上限（3 轮）收敛或呈报
+- 附注：第三轮复验 PASS（0B/1W/5I——W1 陈旧措辞两处 452e419 修正；I2 DECISIONS.md 补列 03-04 files_modified 无冲突 / I3 行号 ±2 漂移 / I4 Cyrillic 测试名执行时归一化 / I5 计数措辞 wobble——全部不影响执行）。修订循环闭合：2B/7W/4I → 3B(mechanical) → 0B/1W → 0B/0W
 
 **[03-005] wave 结构 = 全串行 1→5**
 - 决定：接受 planner 的 files_modified 冲突实证（五计划 server/api/assessment.py 全部重叠 + submit_answer 单函数逐计划深度改造，无任何两计划可并行）；ROADMAP 已注明；REF 切分与计划语义身份不变（gate A 02 批准的编排裁量同源）
