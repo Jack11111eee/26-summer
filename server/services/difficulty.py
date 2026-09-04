@@ -112,6 +112,9 @@ def advance_snapshot(snap: dict, *, evidence_sufficient: bool, stable_evidence: 
       非候选人源性失败不得触发降级）
     - followup_ambiguous 由调用方在封存时传入（followup 后仍模糊 → 触发降级判据 2）；
       充分证据时清回 False
+    - 跨难度迁移（update_path_state 判定 new_level 后）fail_same_difficulty /
+      followup_ambiguous 清零（换档即换「同难度」分母——判据不跨档携带）；
+      降到 easy 时 sufficient_in_row 一并清零（滞回按新档重新累计）
     """
     out = dict(snap)
     if evidence_sufficient:
@@ -190,6 +193,14 @@ def update_path_state(conn, *, session_id: str, item_id: str, sealed_question_id
     )
     if new_level is not None:
         advanced["current_difficulty"] = new_level
+        # CR-02：跨难度迁移即换「同难度」分母——降级判据只描述本档内最近的
+        # 封存观察，档内计数与 followup_ambiguous 不跨档携带（否则上个难度档
+        # 的残留计数会在下一档错误触发降级/虚假 criterion）
+        advanced["fail_same_difficulty"] = 0
+        advanced["followup_ambiguous"] = False
+        if new_level == "easy":
+            # 降级到 easy 后恢复滞回按新档重新累计（不沿用降级前的升档进度）
+            advanced["sufficient_in_row"] = 0
         payload = {
             "criterion": _criterion_for(advanced, event_type),
             "evidence_counts": {
