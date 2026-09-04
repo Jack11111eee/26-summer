@@ -40,9 +40,15 @@ Phase 1 完成于章程生效前（2026-09-03），无 DECISIONS 文件。Phase 
 - 决定：忽略 gsd-tools gap-analysis 对 REQ-*（milestone 级标签）的 Not covered 行；以 REF-* 逐项核对为准（19/19 覆盖，手工 grep 确认）
 - 依据：REQ-* 是 REF-* 的分组标签非实现项；REQUIREMENTS.md 中本 phase 范围以 REF 表达；phase 1 同口径
 
-## 待用户裁决（关口包呈报）
+## 2026-09-04 · 硬关口 A 用户裁决
 
-- **ORDINARY_PLAN_N 生产默认值**（SSOT §31-1 开放参数；02-02 Task 5 checkpoint:human-verify，blocking）——agent 不代决，见关口包
+**[02-007] 关口 A 批准（含三项裁决）**
+- 步骤：plan-phase 硬关口 A（plan 审查关口包呈报后；本会话曾发生 macOS TCC 访问中断异常停车一次，用户恢复授权后继续）
+- 决定：
+  1. **ORDINARY_PLAN_N 生产默认值 = 10**（全局默认；岗位级差异化未来经 SSOT 变更流程再做）——02-02 Task 5 checkpoint 借此裁决直接放行，不再单独停车
+  2. **wave 顺序 01→02→04→03→05 批准**（plan 语义与 REF 切分不变）
+  3. **遗留项消化路径批准**——「顺带收敛」仅限各计划 files_modified 已列明范围，超出的发现即停车呈报（硬关口 3 口径）
+- 依据：用户在关口 A 的明示批复（2026-09-04）；SSOT §31-1 开放参数由用户定值；章程 §4 用户裁决留痕义务。
 
 ## 遗留项（带入后续 phase 的 Info/非阻断项）
 
