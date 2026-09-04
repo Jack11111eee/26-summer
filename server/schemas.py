@@ -64,3 +64,33 @@ class DisambiguateResult(BaseModel):
 class AggregateLevelResult(BaseModel):
     level: int = Field(ge=1, le=5)
     reason: str
+
+
+# ---- LLM#4 面试官观察输出 Schema（SSOT §11.3/§11.4，D-22）----
+# answer_state 11 态白名单（§11.4）；观察维度（§11.3 证据判定输入——
+# required_points_covered/source_span_available 属 Phase 5 证据链强化，本期保留维度不消费）
+ANSWER_STATES = Literal[
+    "VALID_EVIDENCE", "NEED_CLARIFICATION", "OFF_TOPIC", "NO_RECALL", "DECLINED",
+    "PROCESS_CHALLENGE", "CONDUCT_EVENT", "TECHNICAL_OR_ACCESS_BARRIER",
+    "PROMPT_INJECTION", "MODEL_UNCERTAIN", "ITEM_INVALID",
+]
+
+
+class ObservationDims(BaseModel):
+    relevance: bool = Field(description="与测量目标相关")
+    specificity: int = Field(ge=0, le=3)
+    attribution: bool = Field(description="有可归因事实（项目/数据/角色）")
+    required_points_covered: Optional[bool] = None
+    source_span_available: Optional[bool] = None
+    contradiction_detected: Optional[bool] = None
+    uncertainty: Optional[bool] = None
+
+
+class InterviewObservation(BaseModel):
+    answer_state: ANSWER_STATES
+    observation: ObservationDims
+    reply_suggestion: Optional[str] = None    # 可选话术建议，裁决层可弃用
+    reason: str = ""
+    # score_live 属观察层输出（REF-1.3——LLM 直产 1-5 分仅导航用途）
+    score_live: Optional[int] = Field(None, ge=1, le=5)
+    score_live_reason: Optional[str] = None

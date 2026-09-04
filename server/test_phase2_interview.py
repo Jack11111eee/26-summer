@@ -152,9 +152,9 @@ _EVIDENCE_ANSWER = (                                     # 长且含 "项目/数
     "我在电商平台项目中负责订单模块重构，通过拆分大事务重构数据表结构，"
     "把下单接口的响应时间从 800ms 降到了 200ms，并复盘成文档沉淀给团队。"
 )
-_LONG_EMPTY_ANSWER = (                                    # 长但无实义词
+_LONG_EMPTY_ANSWER = (                                    # 长但无实义词（避开 _EVIDENCE_WORDS 全词）
     "这个问题嘛，我觉得总体上来说还是挺有说道的地方的，"
-    "不过具体细节方面当时的情况也是比较复杂的，各色各样的因素交织在一起。"
+    "不过当时的情况也是比较复杂的，各色各样的因素交织在一起。"
 )
 
 
@@ -176,7 +176,8 @@ def test_pydantic_accepts_all_11_states():
               "PROCESS_CHALLENGE", "CONDUCT_EVENT", "TECHNICAL_OR_ACCESS_BARRIER",
               "PROMPT_INJECTION", "MODEL_UNCERTAIN", "ITEM_INVALID"):
         obs = InterviewObservation(answer_state=s,
-                                   observation=ObservationDims(relevance=True, specificity=1))
+                                   observation=ObservationDims(relevance=True, specificity=1,
+                                                              attribution=False))
         assert obs.answer_state == s
 
 
