@@ -58,13 +58,15 @@ def get_confirmed_model(position_id: str) -> dict:
     conn = get_conn()
     # WR-10：join position 校验 status='active'——与列表接口的 active 过滤一致，
     # 不向任意登录用户泄露未上架岗位的胜任力模型配置
-    row = conn.execute(
-        "SELECT m.model_id, m.version, m.model_json FROM competency_model m"
-        " JOIN position p ON p.position_id=m.position_id"
-        " WHERE m.position_id=? AND m.status='confirmed' AND p.status='active'"
-        " ORDER BY m.version DESC LIMIT 1",
-        (position_id,),
+    # WR-08：模型行改走 _latest_confirmed_model 单源实现（与 create_session 同口径，
+    # 相关子查询取每岗位 MAX(version)——原 ORDER BY LIMIT 1 为第二套实现形态）；
+    # active 校验单独先行（单源函数不含 position join）
+    pos = conn.execute(
+        "SELECT status FROM position WHERE position_id=?", (position_id,)
     ).fetchone()
+    if pos is None or pos["status"] != "active":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型")
+    row = _latest_confirmed_model(conn, position_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型")
     d = dict(row)
