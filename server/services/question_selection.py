@@ -129,6 +129,74 @@ def plan_quotas(n: int, categories_present: dict[str, dict[str, int]]) -> dict[s
 
 # ---------- 查询 helpers ----------
 
+# 难度档序（snapshot 承接的候选难度口径比较基准——02-03）
+_DIFF_ORDER = {"easy": 0, "medium": 1, "hard": 2}
+
+
+def _snapshot_target_difficulty(conn, session_id: str) -> dict[str, tuple[str, str]]:
+    """层①难度承接（02-03）：各 item 最新封存 snapshot 指示的候选难度口径。
+
+    返回 {item_id: (current_difficulty, predicate_note)}——一 item 一份，
+    以该 item 最后一个封存实例行上的 JSON 为准（closed_at/created_at 最新）。
+    无 snapshot 的 item 不在返回值内（首实例起始 easy 照旧——§11 无
+    alternative 起始难度规定，沿现有题库起始 + chain 惯例）。
+    """
+    rows = conn.execute(
+        "SELECT item_id, path_state_snapshot FROM assessment_question"
+        " WHERE session_id=? AND item_id IS NOT NULL AND closed_at IS NOT NULL"
+        " ORDER BY seq", (session_id,)
+    ).fetchall()
+    targets: dict[str, tuple[str, str]] = {}
+    for r in rows:  # 后行覆盖前行 → 留最新封存行
+        if not r["path_state_snapshot"]:
+            continue
+        try:
+            snap = json.loads(r["path_state_snapshot"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        current = snap.get("current_difficulty")
+        if current in ("easy", "medium", "hard"):
+            targets[r["item_id"]] = (current, "snapshot_difficulty")
+    return targets
+
+
+def _apply_snapshot_difficulty(pool: list[dict],
+                               snapshot_targets: dict[str, tuple[str, str]]) -> list[dict]:
+    """按 item 的 snapshot 目标难度过滤候选池（02-03 难度承接）。
+
+    - 题库有目标档行 → 该 item 只留目标档（其余难度行出池）
+    - 无目标档行 → 落回该 item 可得最高档（不高于目标档——跳级禁止，
+      plan <interfaces>：无则落回题库已有最高可得档）
+    - 候选行按 model_item_id 优先归属 item，回退 (std_name, category) 键匹配
+    """
+    # item_id → 该 item 的候选行（双口径归属，model_item_id 优先）
+    by_item: dict[str, list[dict]] = {}
+    for c in pool:
+        key = c.get("model_item_id") or f"kc:{_item_key(c)[0]}|{_item_key(c)[1]}"
+        if key in snapshot_targets:
+            by_item.setdefault(key, []).append(c)
+    for key, (target, _note) in snapshot_targets.items():
+        item_pool = by_item.get(key)
+        if not item_pool:
+            continue
+        target_rows = [c for c in item_pool if c["difficulty"] == target]
+        if target_rows:
+            keep_ids = {c["question_id"] for c in target_rows}
+        else:
+            ceiling = _DIFF_ORDER[target]
+            ranked = sorted(
+                (c for c in item_pool
+                 if c["difficulty"] and _DIFF_ORDER.get(c["difficulty"], -1) <= ceiling),
+                key=lambda c: _DIFF_ORDER[c["difficulty"]], reverse=True)
+            if not ranked:
+                continue  # 无不高于目标的行 → 不动（保持未过滤原池，不静默断路径）
+            keep_ids = {c["question_id"] for c in ranked
+                        if c["difficulty"] == ranked[0]["difficulty"]}
+        drop_ids = {c["question_id"] for c in item_pool} - keep_ids
+        if drop_ids:
+            pool = [c for c in pool if c["question_id"] not in drop_ids]
+    return pool
+
 def _load_model_items(conn, model_id: str) -> list[dict]:
     """模型非 gate items（tier=importance；item_id 优先绑定口径）。"""
     rows = conn.execute(
@@ -219,6 +287,8 @@ def _select_next_question_locked(conn, session_id: str) -> dict | None:
     model_id = session["model_id"]
     items = _load_model_items(conn, model_id)
     candidates = _load_candidate_rows(conn, session["position_id"], model_id)
+    # 难度承接（02-03）：各 item 最新封存 snapshot 的目标难度口径
+    snapshot_targets = _snapshot_target_difficulty(conn, session_id)
 
     used_bank_ids = {r["bank_question_id"] for r in instances}
     answered_cnt = sum(1 for r in instances if r["answered_at"] is not None)
@@ -251,7 +321,8 @@ def _select_next_question_locked(conn, session_id: str) -> dict | None:
     uncovered_required = _uncovered_required_items(items, candidates, used_bank_ids)
     seed = _stable_seed(session_id)
     picked, layer, tier = _pick_ordinary(candidates, items, instances, used_bank_ids, n,
-                                         uncovered_required, seed)
+                                         uncovered_required, seed,
+                                         snapshot_targets=snapshot_targets)
     if picked is None:
         # 可选池耗尽且未达计划（题库量不足）→ 返回 None 由 API 层判断收尾
         return None
@@ -327,7 +398,8 @@ def _item_key(item: dict) -> tuple[str, str]:
 def _pick_ordinary(candidates: list[dict], items: list[dict], instances: list[dict],
                    used_bank_ids: set[str], n: int,
                    uncovered_required: list[dict],
-                   seed: int) -> tuple[dict | None, str, str | None]:
+                   seed: int, snapshot_targets: dict[str, tuple[str, str]] | None = None
+                   ) -> tuple[dict | None, str, str | None]:
     """四层普通选题：返回 (picked, layer, tier)。
 
     层①过滤在候选池加载时完成（_load_candidate_rows）；层②③④在此执行：
@@ -336,10 +408,17 @@ def _pick_ordinary(candidates: list[dict], items: list[dict], instances: list[di
     ③ 配额——plan_quotas 目标按已实例 (category, tier) 实时扣减；
     ④ 排序三键——chain 后继 → item.weight 降序 → 稳定随机种子（Q3 决议；
       「题目质量」分项显式禁用——D-17）。
+    snapshot_targets（02-03 难度承接）：{item_id: (current_difficulty, note)}——
+    item 有 snapshot 时以其 current_difficulty 为该 item 候选难度口径（题库需
+    有该难度题行；无则落回可得最高档，不高于目标档——跳级禁止）。
     """
     pool = [c for c in candidates if c["question_id"] not in used_bank_ids]
     if not pool:
         return None, "fallback", None
+
+    # 层①难度承接（02-03）：按 item 过滤候选难度
+    if snapshot_targets:
+        pool = _apply_snapshot_difficulty(pool, snapshot_targets)
 
     quotas = plan_quotas(n, _available_counts(candidates))
     # 已建实例的 (category, tier) 计数（配额实时扣减）
