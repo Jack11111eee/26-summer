@@ -16,8 +16,9 @@ required 刚性例外（§10.5，D-19）：普通计划（N 题实例化完）�
 item → 每 item 最多一次补选（仅 medium；无 medium 才 hard，不走 easy），例外记录
 经 REQUIRED_EXCEPTION_GRANTED 事件留痕；无合法候选 → PATH_UNAVAILABLE 不静默。
 
-旧 CATEGORY_QUOTA{hard:6,soft:2,exp:2} 已废除（不留别名）；readiness 第 5 步与
-本模块共享 plan_quotas 纯函数（防两处公式漂移，WR-15 教训）。
+旧三类硬编码配额（hard 6 / soft 2 / experience 2，experience 占题）已废除
+（不留别名）；readiness 第 5 步与本模块共享 plan_quotas 纯函数（防两处公式
+漂移，WR-15 教训）。
 
 legacy 会话兜底（Q5）：入口先检测——会话已有实例且 selection_reason 全为 NULL
 （旧预选形态）→ 返回 {"legacy": True} 标记，API 层走旧 ORDER BY seq 派发，
@@ -224,10 +225,10 @@ def _select_next_question_locked(conn, session_id: str) -> dict | None:
     total_instances = len(instances)
 
     n = config.ORDINARY_PLAN_N
-    uncovered_required = _uncovered_required_items(items, instances)
 
     # ---------- required 例外分支（§10.5：普通计划耗尽后） ----------
     if total_instances >= n:
+        uncovered_required = _uncovered_required_items(items, candidates, used_bank_ids)
         granted = _exception_granted_items(conn, session_id)
         pending = [it for it in uncovered_required if it["item_id"] not in granted]
         if not pending:
@@ -243,25 +244,33 @@ def _select_next_question_locked(conn, session_id: str) -> dict | None:
             conn.commit()
             return None
         return _instantiate(conn, session, picked, layer="exception", used_bank_ids=used_bank_ids,
-                            nth=total_instances + 1, exception_item=item)
+                            nth=total_instances + 1, exception_item=item,
+                            seed=_stable_seed(session_id))
 
     # ---------- 普通选题（四层依序） ----------
+    uncovered_required = _uncovered_required_items(items, candidates, used_bank_ids)
+    seed = _stable_seed(session_id)
     picked, layer, tier = _pick_ordinary(candidates, items, instances, used_bank_ids, n,
-                                         uncovered_required)
+                                         uncovered_required, seed)
     if picked is None:
         # 可选池耗尽且未达计划（题库量不足）→ 返回 None 由 API 层判断收尾
         return None
     return _instantiate(conn, session, picked, layer=layer, used_bank_ids=used_bank_ids,
-                         nth=total_instances + 1, tier=tier)
+                         nth=total_instances + 1, tier=tier, seed=seed)
 
 
-def _uncovered_required_items(items: list[dict], instances: list[dict]) -> list[dict]:
-    """层②硬约束：模型 required + gate=0 且本会话尚无该 item_id 实例的项。"""
-    covered = set()
-    for inst in instances:
-        covered.add(inst.get("item_id"))
+def _uncovered_required_items(items: list[dict], candidates: list[dict],
+                              used_bank_ids: set[str]) -> list[dict]:
+    """层②硬约束：模型 required + gate=0 且本会话未用其任何题的项。
+
+    覆盖判定按已实例题的 item 归属（bank_question_id → (std_name, category) 匹配
+    competency_item）——不依赖 assessment_question.item_id 列（暂未回填）。
+    """
+    covered_keys: set[tuple[str, str]] = {
+        (c["std_name"], c["category"]) for c in candidates if c["question_id"] in used_bank_ids
+    }
     return [it for it in items
-            if it["importance"] == "required" and it["item_id"] not in covered]
+            if it["importance"] == "required" and _item_key(it) not in covered_keys]
 
 
 def _exception_granted_items(conn, session_id: str) -> set[str]:
@@ -301,9 +310,7 @@ def _pick_exception_question(candidates: list[dict], item: dict,
                              used_bank_ids: set[str]) -> dict | None:
     """例外补选（§10.5）：仅 medium；无 medium 才 hard；不走 easy；未用。"""
     pool = [c for c in candidates
-            if c["bank_key"] not in used_bank_ids] if False else [c for c in candidates]
-    pool = [c for c in pool
-            if c.get("item_key") == _item_key(item) and c["question_id"] not in used_bank_ids]
+            if _item_key(c) == _item_key(item) and c["question_id"] not in used_bank_ids]
     mediums = [c for c in pool if c["difficulty"] == "medium"]
     if mediums:
         return max(mediums, key=lambda c: (c.get("weight") or 0.0))
@@ -319,19 +326,23 @@ def _item_key(item: dict) -> tuple[str, str]:
 
 def _pick_ordinary(candidates: list[dict], items: list[dict], instances: list[dict],
                    used_bank_ids: set[str], n: int,
-                   uncovered_required: list[dict]) -> tuple[dict | None, str, str | None]:
+                   uncovered_required: list[dict],
+                   seed: int) -> tuple[dict | None, str, str | None]:
     """四层普通选题：返回 (picked, layer, tier)。
 
-    层①过滤在候选池加载时完成（_load_candidate_rows）；层②③④在此执行。
+    层①过滤在候选池加载时完成（_load_candidate_rows）；层②③④在此执行：
+    ② required 硬约束——uncovered required 的题在配额（category/tier）剩余
+      槽位内优先（chain 后继可让位 required——本实现以权重序近似，先保证覆盖）；
+    ③ 配额——plan_quotas 目标按已实例 (category, tier) 实时扣减；
+    ④ 排序三键——chain 后继 → item.weight 降序 → 稳定随机种子（Q3 决议；
+      「题目质量」分项显式禁用——D-17）。
     """
-    # 层②：未覆盖 required 优先（chain 可让位）——本会话已建实例扣减
-    by_key: dict[tuple[str, str], dict] = {_item_key(it) if "std_name" in it else
-                                           (it["std_name"], it["category"]): it for it in items}
     pool = [c for c in candidates if c["question_id"] not in used_bank_ids]
     if not pool:
         return None, "fallback", None
 
     quotas = plan_quotas(n, _available_counts(candidates))
+    # 已建实例的 (category, tier) 计数（配额实时扣减）
     used_by_cat_tier: dict[tuple[str, str], int] = {}
     for inst in instances:
         row = next((c for c in candidates if c["question_id"] == inst["bank_question_id"]), None)
@@ -339,26 +350,31 @@ def _pick_ordinary(candidates: list[dict], items: list[dict], instances: list[di
             key = (row["category"], row.get("tier") or "plus")
             used_by_cat_tier[key] = used_by_cat_tier.get(key, 0) + 1
 
-    required_keys = {_item_key(it) for it in uncovered_required}
-    req_first = [c for c in pool if (c["std_name"], c["category"]) in required_keys]
-    # 层②命中：required_first（按 weight 排序——chain 可让位 required）
-    if req_first:
-        picked = _sort_pool(req_first)[0]
-        return picked, "required_first", picked.get("tier")
-
-    # 层③：配额剩余（category/tier 实时扣减；required 让位后仍走配额层）
-    for c in pool:
+    # 组内层③+层④统一实现：过滤配额剩余 → 层④排序取首
+    def _quota_remaining(c: dict) -> bool:
         cat, tier = c["category"], c.get("tier") or "plus"
-        cat_targets = quotas.get(cat, {})
+        target = quotas.get(cat, {}).get(tier, 0)
         used = used_by_cat_tier.get((cat, tier), 0)
-        target = cat_targets.get(tier, 0)
-        if used >= target:
-            continue
-        # 层④排序三键：chain 后继 → weight 降序 → 稳定随机种子（本函数内先按三键排序）
-        return c, "quota", tier
-    # 配额耗尽但池未空（tier 全满）→ 取池内任意剩余（fallback 补位，operator 仍可数）
-    picked = _sort_pool(pool)[0]
-    return picked, "fallback", picked.get("tier")
+        # 大类级剩余：ORdinary 类目总实例 < n（未超总计划——类目退化已并入 quotas）
+        return used < target
+
+    # 层②：uncovered required 优先——但其选择仍须在配额剩余槽位内（否则 §10.5
+    # 的例外永不触发——required 覆盖让位于配额边界，正是例外分支的语义入口）
+    required_keys = {_item_key(it) for it in uncovered_required}
+    req_pool = [c for c in pool if _item_key(c) in required_keys and _quota_remaining(c)]
+    if req_pool:
+        picked = _sort_pool(req_pool, seed)[0]
+        return picked, "required_first", picked.get("tier") or "plus"
+
+    # 层③+层④：配额剩余池 → 排序三键取首
+    quota_pool = [c for c in pool if _quota_remaining(c)]
+    if quota_pool:
+        picked = _sort_pool(quota_pool, seed)[0]
+        return picked, "quota", picked.get("tier") or "plus"
+
+    # 配额槽位全满：大类总量达标即计划完成（readiness 保证题库足量时必达 N；
+    # 未达 N 即题库量不足口径——由 API 层触发 finish，不越配额补位）
+    return None, "quota", None
 
 
 def _available_counts(candidates: list[dict]) -> dict[str, dict[str, int]]:
@@ -372,24 +388,44 @@ def _available_counts(candidates: list[dict]) -> dict[str, dict[str, int]]:
     return counts
 
 
-def _sort_pool(pool: list[dict]) -> list[dict]:
-    """层④排序三键（题目质量显式禁用——D-17）：weight 降序 → question_id 稳定。"""
-    return sorted(pool, key=lambda c: (-(c.get("weight") or 0.0), c["question_id"]))
+def _sort_pool(pool: list[dict], seed: int) -> list[dict]:
+    """层④排序三键（题目质量显式禁用——D-17）：
+
+    chain 后继（当前实例 chain_key 相同且 chain_seq=当前+1 的题优先，可让位
+    required——本实现在各调用池上算后继标志）→ item.weight 降序 → 稳定随机
+    种子（同 seed 的随机序作 weight 并列时的 tie-break，Q3 决议）。
+    """
+    rng = random.Random(seed)
+
+    def sort_key(c: dict):
+        chain = 1 if c.get("chain_followed") else 0
+        return (-chain, -(c.get("weight") or 0.0), rng.random())
+
+    return sorted(pool, key=sort_key)
 
 
 def _instantiate(conn, session: dict, picked: dict, *, layer: str,
-                 used_bank_ids: set[str], nth: int, tier: str | None = None,
+                 used_bank_ids: set[str], nth: int, seed: int, tier: str | None = None,
                  exception_item: dict | None = None) -> dict:
     """选中后同事务：INSERT 实例 + QUESTION_SELECTED/QUESTION_ACTIVATED 事件 → commit。"""
     session_id = session["session_id"]
     now = now_iso()
-    seed = _stable_seed(session_id)
-    rng = random.Random(seed)
 
-    # chain 后继判定（层④第一键）：当前实例 chain_key 相同且 chain_seq=当前+1 的题优先
+    # chain 后继判定（层④第一键）：当前会话最新实例 chain_key 相同且 chain_seq
+    # =当前+1 的候选优先（可让位 required——此处只记录命中标志，排序键在 _sort_pool）
     chain_followed = False
     if picked.get("chain_key"):
-        pass  # 候选排序已在 _pick_ordinary 内按三键处理；此处只记录标志
+        rows = conn.execute(
+            "SELECT b.chain_key, b.chain_seq FROM assessment_question aq"
+            " JOIN question_bank b ON b.question_id=aq.bank_question_id"
+            " WHERE aq.session_id=? ORDER BY aq.seq DESC LIMIT 1", (session_id,),
+        ).fetchall()
+        for row in reversed(rows):
+            if row["chain_key"] and row["chain_key"] == picked["chain_key"] \
+                    and (row["chain_seq"] or 0) + 1 == (picked["chain_seq"] or 0):
+                chain_followed = True
+                break
+
     reason = {
         "layer": layer,
         "predicate": "tier_quota_remaining",
@@ -405,14 +441,15 @@ def _instantiate(conn, session: dict, picked: dict, *, layer: str,
 
     seq = nth
     aq_id = new_id("aq")
+    item_id = exception_item["item_id"] if exception_item is not None \
+        else picked.get("model_item_id")
     conn.execute(
         "INSERT INTO assessment_question(question_id, session_id, bank_question_id, seq,"
         " question_type, item_id, difficulty, status, activated_at, selection_reason,"
         " selection_policy_version, created_at)"
         " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (aq_id, session_id, picked["question_id"], seq,
-         "ordinary", picked.get("model_item_id") or exception_item and exception_item.get("item_id"),
-         picked["difficulty"], "active", now,
+         "ordinary", item_id, picked["difficulty"], "active", now,
          json.dumps(reason, ensure_ascii=False), _SELECTION_POLICY_VERSION, now),
     )
     # QUESTION_SELECTED：与实例 INSERT 同事务（Pattern 3），payload 全量镜像（T-02-07）
@@ -424,10 +461,6 @@ def _instantiate(conn, session: dict, picked: dict, *, layer: str,
                  actor_type="system", assessment_question_id=aq_id)
     if exception_item is not None:
         # 例外留痕（A6 决议：事件 payload 记 item_id 与候选难度）
-        conn.execute(
-            "UPDATE assessment_question SET item_id=? WHERE question_id=?",
-            (exception_item["item_id"], aq_id),
-        )
         append_event(conn, session_id=session_id, event_type="REQUIRED_EXCEPTION_GRANTED",
                      actor_type="system", assessment_question_id=aq_id,
                      payload={"item_id": exception_item["item_id"],

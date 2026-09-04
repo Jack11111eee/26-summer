@@ -312,34 +312,76 @@ def _rows_for(sid: str) -> int:
 
 
 def test_required_exception_after_exhaustion():
-    """普通计划耗尽后有未覆盖 required item → 补选 medium + REQUIRED_EXCEPTION_GRANTED。"""
-    pid, mid = _seed_position_with_confirmed_model()
-    # 题库构造：Python/MySQL 题量充足推开 Docker；沟通能力留 1 道 hard 唯一题
-    # ——普通选题因权重/tier 排序难以命中它 → 会话结束后触发例外。
-    conn = get_conn()
-    now = now_iso()
-    conn.execute("DELETE FROM question_bank WHERE position_id=?", (pid,))
-    conn.commit()
+    """普通计划耗尽后有未覆盖 required item → 补选 medium + REQUIRED_EXCEPTION_GRANTED。
 
-    def _add(std_name, category, difficulty):
+    构造（plan <interfaces>「题库题数刚好只满足配额且该 item 的题排序靠后」）：
+    - 5 个 required hard item，N=10 → hard 7 → required tier 目标 4——层②逐轮
+      按权重选未覆盖 required（Python/算法/Redis/Kafka 各 1 题），权重最低的
+      MySQL（required、题在池中）在第 5 轮时 required tier 槽位已满 → 普通计划
+      全程不覆盖 → N 题后例外补选其 medium（§10.5）→ REQUIRED_EXCEPTION_GRANTED；
+    - 沟通能力（required soft）：唯一 medium 题挂 model_id='other'（版本近似
+      排除出候选池，readiness 的 std_name 覆盖检查仍通过）→ 例外也无候选 →
+      PATH_UNAVAILABLE 事件留痕（不静默），会话照常 finish 推进不 500。
+    """
+    import sqlite3 as _s
+    conn = get_conn()
+    pid, mid = new_id("pos"), new_id("cm")
+    now = now_iso()
+    conn.execute(
+        "INSERT INTO position(position_id, name, status, created_at) VALUES(?,?,?,?)",
+        (pid, "后端开发工程师", "active", now),
+    )
+    items = [
+        {"std_name": "Python", "category": "hard_skill", "importance": "required", "weight": 0.30},
+        {"std_name": "算法", "category": "hard_skill", "importance": "required", "weight": 0.28},
+        {"std_name": "Redis", "category": "hard_skill", "importance": "required", "weight": 0.26},
+        {"std_name": "Kafka", "category": "hard_skill", "importance": "required", "weight": 0.24},
+        # 权重最低的 required hard——层②四轮后被 required tier 目标（=4）挡在普通计划外
+        {"std_name": "MySQL", "category": "hard_skill", "importance": "required", "weight": 0.20},
+        {"std_name": "Docker", "category": "hard_skill", "importance": "preferred", "weight": 0.10},
+        # 唯一 medium 题挂他人 model_id：普通候选池排除（例外无候选 → PATH_UNAVAILABLE）
+        {"std_name": "沟通能力", "category": "soft_skill", "importance": "required", "weight": 0.25},
+        {"std_name": "团队协作", "category": "soft_skill", "importance": "preferred", "weight": 0.10},
+        {"std_name": "跨部门协作", "category": "soft_skill", "importance": "plus", "weight": 0.05},
+    ]
+    model_json = {"position_id": pid, "version": 1, "items": items}
+    conn.execute(
+        "INSERT INTO competency_model(model_id, position_id, version, status, model_json, created_at)"
+        " VALUES(?,?,?,?,?,?)",
+        (mid, pid, 1, "confirmed", json.dumps(model_json, ensure_ascii=False), now),
+    )
+    for it in items:
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
-            " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), "position", pid, std_name, category, difficulty, "subjective",
-             f"{std_name} {difficulty} 题", None, "判据", None, None, "human", "active", now),
+            "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
+            " importance, weight, gate) VALUES(?,?,?,?,?,?,?,?)",
+            (new_id("c"), mid, it["std_name"], it["category"], 3, it["importance"], it["weight"], 0),
         )
 
-    # hard：Python×4(easy/med×2) + MySQL×2 + Docker×3 —— N=10 时 hard 7 题全部落在这些 item
-    for d in ("easy", "medium", "medium", "hard"):
-        _add("Python", "hard_skill", d)
-    for d in ("easy", "medium"):
-        _add("MySQL", "hard_skill", d)
-    for d in ("easy", "medium", "hard"):
-        _add("Docker", "hard_skill", d)
-    # soft：团队协作题量足（preferred 排序吸收全部 soft 配额）；沟通能力仅 1 道 medium（例外目标）
-    for d in ("easy", "medium", "medium"):
-        _add("团队协作", "soft_skill", d)
+    def _add(std_name, category, difficulty, model_id=None):
+        conn.execute(
+            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            " model_id, difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,"
+            " source, status, created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), "position", pid, std_name, category, model_id, difficulty,
+             "subjective", f"{std_name} {difficulty} 题", None, "判据", None, None,
+             "human", "active", now),
+        )
+
+    # required hard：前四权重各 1 题（层②覆盖）；MySQL 2 道 medium（例外目标一）
+    for std in ("Python", "算法", "Redis", "Kafka"):
+        _add(std, "hard_skill", "medium")
+    for _ in range(2):
+        _add("MySQL", "hard_skill", "medium")
+    # preferred hard：Docker×3 占 pref 3 槽
+    for _ in range(3):
+        _add("Docker", "hard_skill", "medium")
+    # 沟通能力（required soft）：medium 挂他人 model_id → 候选池排除（例外目标二）
+    _add("沟通能力", "soft_skill", "medium", model_id="cm_other")
+    # soft pref×2 + plus×1 占满 soft 3 槽
+    for _ in range(2):
+        _add("团队协作", "soft_skill", "medium")
+    _add("跨部门协作", "soft_skill", "medium")
     conn.commit()
     conn.close()
     headers = _auth_headers("p2_sel_exc")
@@ -347,52 +389,43 @@ def test_required_exception_after_exhaustion():
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
-    while True:
-        resp = _answer_one(sid, headers)
-        if resp["action"] == "finish":
-            break
 
-    # 普通计划结束后：被选中的沟通能力题（if any）→ medium；REQUIRED_EXCEPTION_GRANTED 存在
+    # 答完普通 N 题（每题长答 → next；决策 finish 已在池未空时降级 next）
+    for _ in range(_TEST_N):
+        resp = _answer_one(sid, headers)
+        assert resp["action"] == "next", \
+            f"普通计划前 {_TEST_N} 题应 next，实得 {resp['action']}"
+
+    # 第 N+1 次选题：MySQL 例外补选 medium（§10.5 只允许 medium）
+    r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+    exc_q = r.json()["current_question"]
+    assert exc_q is not None, "N 题后应有 MySQL 例外实例（N+1）"
+    mysql_rows = _q(
+        "SELECT b.std_name, b.difficulty FROM assessment_question aq"
+        " JOIN question_bank b ON b.question_id=aq.bank_question_id"
+        " WHERE aq.session_id=? AND b.std_name='MySQL'", (sid,))
+    assert mysql_rows, "MySQL 例外实例应已落库"
+    assert all(row["difficulty"] == "medium" for row in mysql_rows), \
+        f"例外补选只允许 medium，实得 {mysql_rows}"
+
     events = _q(
         "SELECT event_type, payload_json FROM assessment_state_event WHERE session_id=?"
         " ORDER BY sequence_no", (sid,))
     types = [e["event_type"] for e in events]
-
-    comm_rows = _q(
-        "SELECT b.category, b.difficulty FROM assessment_question aq"
-        " JOIN question_bank b ON b.question_id=aq.bank_question_id"
-        " WHERE aq.session_id=? AND b.std_name='沟通能力'", (sid,))
-    if comm_rows:
-        # 例外被触发：选中题应为 medium（§10.5 只允许 medium）
-        assert all(r["difficulty"] == "medium" for r in comm_rows), comm_rows
-
-    # 二次构造：无 medium 无 hard 候选（只剩 easy）→ PATH_UNAVAILABLE 且不静默
-    # 直接重建一个会话验证：把沟通能力唯一题改为 easy
-    conn = get_conn()
-    conn.execute(
-        "UPDATE question_bank SET difficulty='easy'"
-        " WHERE position_id=? AND std_name='沟通能力'", (pid,))
-    conn.commit()
-    conn.close()
-    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
-    assert r.status_code == 201, r.text
-    sid2 = r.json()["session_id"]
-    while True:
-        resp = _answer_one(sid2, headers)
-        if resp["action"] == "finish":
-            break
-    events2 = _q(
-        "SELECT event_type FROM assessment_state_event WHERE session_id=? ORDER BY sequence_no",
-        (sid2,))
-    types2 = [e["event_type"] for e in events2]
-    # 无合法例外候选 → PATH_UNAVAILABLE 事件留痕（不静默）
-    if "沟通能力" not in {r["std_name"] for r in _q(
-            "SELECT b.std_name FROM assessment_question aq"
-            " JOIN question_bank b ON b.question_id=aq.bank_question_id WHERE aq.session_id=?",
-            (sid2,))}:
-        assert "PATH_UNAVAILABLE" in types2, f"例外耗尽应落 PATH_UNAVAILABLE，实得事件集 {types2}"
     assert "REQUIRED_EXCEPTION_GRANTED" in types, \
         f"例外分支应写 REQUIRED_EXCEPTION_GRANTED，实得 {types}"
+
+    # 继续作答至 finish：沟通能力无 medium/hard 候选 → PATH_UNAVAILABLE 不静默
+    while True:
+        resp = _answer_one(sid, headers)
+        if resp["action"] == "finish":
+            break
+    types = [e["event_type"] for e in _q(
+        "SELECT event_type FROM assessment_state_event WHERE session_id=?", (sid,))]
+    assert "PATH_UNAVAILABLE" in types, \
+        f"例外耗尽应落 PATH_UNAVAILABLE，实得事件集 {types}"
+    sess = _q("SELECT status FROM assessment_session WHERE session_id=?", (sid,))[0]
+    assert sess["status"] == "completed", "PATH_UNAVAILABLE 后会话应照常 finish 不 500"
 
 
 # ---------- legacy 会话续答冒烟（Q5 迁移） ----------
