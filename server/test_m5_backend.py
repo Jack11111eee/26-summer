@@ -216,7 +216,9 @@ def test_answer_flow_and_scoring():
         return r.json()["current_question"]
 
     # 整场类别构成按新配额（N=10 → hard 7 / soft 3；experience 不进普通选题）
-    long_answer = "我熟练使用 def 定义函数，也了解装饰器、生成器、上下文管理器等进阶用法，做过性能优化。"
+    # 02-04 D-09：文案补"结果"实义词——新分类器下长答须含实义词才走充分证据路径
+    # （score_live=3 的 mock 不变式：evidence 路径 3 分 / empty 路径 2 分）
+    long_answer = "我熟练使用 def 定义函数，也了解装饰器、生成器、上下文管理器等进阶用法，做过性能优化，可举出结果。"
 
     # 第一题：短回答触发 followup，再长回答 next
     q1 = _current_q()
