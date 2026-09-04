@@ -344,11 +344,18 @@ def _uncovered_required_items(items: list[dict], candidates: list[dict],
             if it["importance"] == "required" and _item_key(it) not in covered_keys]
 
 
+def exception_granted_items(conn, session_id: str) -> set[str]:
+    """已获例外 item 集合（公开入口——WR-02：assessment.get_session 同口径复用）。"""
+    return _exception_granted_items(conn, session_id)
+
+
 def _exception_granted_items(conn, session_id: str) -> set[str]:
     """已获例外的 item_id 集合（每 item 最多一次——事件留痕处查询，不建新表）。
 
     判定上界收紧到「题型实例段」：本会话 selection_reason JSON 的 exception
     layer 记录（第 n 题后追加），事件行作冗余审计。结构性最小实现（§10.5）。
+    WR-02：get_session 的 total_count 例外计数同口径复用本函数（事件兜底含
+    selection_reason 解析失败的实例，进度分母与实发题数不漂移）。
     """
     rows = conn.execute(
         "SELECT selection_reason FROM assessment_question"

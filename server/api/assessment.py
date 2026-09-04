@@ -3,12 +3,13 @@ import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
+from .. import config as _config
 from ..core.security import load_owned_report, load_owned_session, require_login
 from ..db import get_conn
 from ..services.difficulty import update_path_state
 from ..services.interview import decide_next_action
 from ..services.pipeline import new_id, now_iso
-from ..services.question_selection import select_next_question
+from ..services.question_selection import exception_granted_items, select_next_question
 from ..services.readiness import check_session_readiness
 from ..services.refine import refine_user_input
 from ..services.report import generate_report
@@ -145,15 +146,12 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         # legacy 兜底（Q5）：{'legacy': True} 或旧未答行形态 → 走上面旧 ORDER BY seq
         # 查询结果（cur 已取——legacy 会话已被该查询覆盖；无行则保持 None 不 500）
     # total_count 口径（02-02）：计划数 N + 已发生例外数 E（answer 行数不再作分母）
-    from .. import config as _config
+    # WR-02：例外计数与 selection 层同口径（_exception_granted_items 单源——
+    # selection_reason 解析失败时事件兜底，分母与实发题数不漂移）
     if s["status"] == "completed":
         total = answered
     else:
-        exceptions = conn.execute(
-            "SELECT COUNT(*) c FROM assessment_question WHERE session_id=?"
-            " AND selection_reason IS NOT NULL AND json_extract(selection_reason,'$.layer')='exception'",
-            (session_id,),
-        ).fetchone()["c"]
+        exceptions = len(exception_granted_items(conn, session_id))
         total = _config.ORDINARY_PLAN_N + exceptions
     return {
         "session_id": s["session_id"],
