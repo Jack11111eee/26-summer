@@ -193,12 +193,12 @@ def test_anchor_backfill():
 
 
 def test_score_final_merge():
-    """老库路径：COALESCE(final_score, score_final) 合并——final_score=3 覆盖 score_final=2；列本体不 DROP。"""
+    """老库路径：COALESCE(final_score, score_final) 合并——final_score=3 覆盖 score_final=2；
+    合并完成后列 DROP（02-05 A8 次序合同收尾——断言翻转归 02-05 任务 3 所有权）。"""
     init_db()
-    sc = _q("SELECT score_final, final_score FROM question_score WHERE score_id='sc_old_1'")[0]
-    assert sc["score_final"] == 3
-    assert "final_score" in _cols("question_score")  # 列保留（DROP 属 02-05）
-    assert sc["final_score"] == 3  # 值不动，窗口内可审计对照（T-02-02）
+    sc = _q("SELECT score_final FROM question_score WHERE score_id='sc_old_1'")[0]
+    assert sc["score_final"] == 3  # COALESCE 合并在 DROP 段之前执行（老库行值先并入）
+    assert "final_score" not in _cols("question_score")  # 02-05：消费点切换完成后 DROP
 
 
 def test_unique_index_created():
@@ -254,7 +254,7 @@ def test_new_db_direct_path():
             cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
             assert new_cols <= cols, f"{table} 缺列: {new_cols - cols}"
         qs_cols = {r[1] for r in conn.execute("PRAGMA table_info(question_score)")}
-        assert "final_score" in qs_cols  # _DDL 保留旧列——02-05 消费点切换后才去除
+        assert "final_score" not in qs_cols  # 02-05：_DDL 直建已去列（新库不含旧列）
         assert conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='index' AND name='uq_aq_session_seq'"
         ).fetchall()
