@@ -52,7 +52,24 @@ Phase 1 完成于章程生效前（2026-09-03），无 DECISIONS 文件。Phase 
 - 执行落点（02-02 收尾，2026-09-04）：config.ORDINARY_PLAN_N = 10 行尾注释按本裁决书写；
   Task 5（checkpoint:human-verify）据此免停车直接放行——本条为该 checkpoint 的完成记录（02-02-SUMMARY 同步记载）。
 
-## 遗留项（带入后续 phase 的 Info/非阻断项）
+## 2026-09-04 · §③ execute（wave 簿记，auto 模式）
+
+**[02-008] wave 2（02-02 四层动态选题）完成与合入**
+- 步骤：§③ execute wave 2/5
+- 决定：第 3 次派发完成（5 commits，worktree ad2157d5e 合入 79e4198）；抽查核心契约全过（CATEGORY_QUOTA 零残留 / 四纯函数 / N=10 注释 [02-007] 正文 / db.py 零改动 / QUESTION_* 系列事件附 sha256 种子）；后测门全绿（selection 9 + migration 8 + weights 5 + m5 7 + p0_security 10 + p0_chain 11 + question_bank 25 + m6 41）
+- 依据：章程 §3 wave 簿记；[02-007] 关口 A 裁决的执行落点已在 config 注释 + SUMMARY 三处留痕
+
+**[02-008a] wave 2 执行者簿记超出 files_modified 的定性处置**
+- 决定：REQUIREMENTS/ROADMAP/STATE 三文件由执行者写入（超过 files_modified 列表）判定为 **GSD 簿记域非代码收敛**——execute-plan 工作流 §deviation_v2 :384/:472-476 本就含 STATE/ROADMAP/REQUIREMENTS 更新义务，parallel 模式豁免条款防的是多 worktree 并行分叉，本 phase wave 串行单执行者无此风险；内容核实全部正确（REF 勾选恰为 02-02 的 4 项、ROADMAP 2/5、STATE completed_plans 6/9）。合入保留，未触红线 2（用户文件）与「顺带收敛」射程（非代码）；另由编排层补修 REQUIREMENTS 02-02 项（REF-3.7/5.7，wave-1 时遗漏的 REF-2.7/2.9 分属 02-04/02-05 后续勾选）与 STATE 措辞（Plan: 2 of 5 → wave 2/5 完成、Phase 标注、下一动作）
+- 依据：关卡 A 裁决 3「顺带收敛」射程 = 代码文件；工作流原文（编排层集中处理 STATE/ROADMAP 义务在本会话编排层身上，执行者超额写入未损害结果、内容正确）
+
+**[02-008b] 执行者自愈偏差 3 项——回溯认可**
+- 决定：①层② uncovered required 加配额内过滤（否则例外不可达）②决策 finish 降级 next 过渡处理（is_last 失真，02-04 接管）③ORDINARY_PLAN_N 提前至 Task 3 批次落地（Task 3 测试已 import 该常量，严格切分留下不可运行中间态）——三项均 Rule 1/3 正确性必需，已记入 02-02-SUMMARY 偏差区；其中 ② 属 plan 预留过渡形态（pool-exhausted finish），02-04-PLAN is_last 接管条款可印证边界兑现——不得视为范围蔓延
+- 依据：execute-plan deviation rules（Rule 1 bug 修复 / Rule 3 blocking 中间态）；02-04-PLAN 已有 is_last takeover 条款可印证边界兑现
+
+**[02-008c] 执行者遗留调试件处置**
+- 决定：`server/_debug_selection.py` 未提交未跟踪——worktree remove 已随目录清除（该文件在主仓无副本：git ls-files 零命中）；SUMMARY 已登记"删除需用户执行"——因发现时该文件已随 worktree 消失，用户无需再执行清理；SUMMARY 文本保留不动（历史记录，不回改）
+- 依据：rm 被拒仅作用于 agent 路径——worktree 目录整体移除属 git 操作，随目录消失的未跟踪文件无需补删
 
 - [Phase 1 REVIEW Info] IN-04 scored_count 语义、IN-08 测试共库纪律（Phase 6 REF-7.4 消化）、IN-09 append_event 并发 500–低概率知悉项
 - [Phase 1 VERIFICATION Warning] readiness.py 四分支 conn.close、question_bank.py finished_at CASE、task 行插入非原子（WR-04）、get_report_by_session oracle（WR-05）、review_position reject FK 500（CR-03/CR-04）——Phase 1 验收时判定 SC 字面之外归后续阶段消费；其中 readiness while 在 02-02 重写范围内自然顺带收敛的机会交执行期判断（不扩权）

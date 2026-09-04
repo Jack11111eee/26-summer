@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 02 (动态选题与有界循环) — EXECUTING
-Plan: 2 of 5
-Status: Ready to execute
+Plan: 第 2/5 个 plan 已合并，wave 2/5（02-02）完成
+Status: Executing — 待派 wave 3（02-04 回答状态两层化）
 Last activity: 2026-09-04
-Progress: [███████░░░] 67%
+Progress: [██████░░░░] 60%
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
-- **下一动作**：`/gsd:plan-phase 1`
+- **下一动作**：`/gsd-execute-phase` 续派 wave 3（02-04）→ 4（02-03）→ 5（02-05）
 - **阶段顺序权威**：SSOT §28 六步（P0 四项 → 动态选题/状态机 → 表单/SSE/幂等/计时 → 题库版本 → 证据/报告契约 → 迁移/测试收口）；表结构演进"随阶段走"，Phase 6 收口 schema_version
 
 ## Performance Metrics
