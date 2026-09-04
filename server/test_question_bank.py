@@ -189,8 +189,12 @@ def test_prompts() -> None:
     check("question_gen SYSTEM 声明 JSON 输出", "JSON" in question_gen.QUESTION_GEN_SYSTEM)
 
     mock_out = question_gen.QUESTION_GEN_SYSTEM  # 静态校验即可
-    check("interviewer SYSTEM 含 action 协议",
-          all(k in interviewer.INTERVIEWER_SYSTEM for k in ("followup", "next", "finish", "score_live")))
+    # 02-04 两层化（D-09 只改断言）：prompt 改出观察契约（answer_state 枚举 + 维度），
+    # action/followup 键从 LLM 输出移除——代码裁决（REF-1.6/1.7）
+    check("interviewer SYSTEM 含观察协议（answer_state/维度/score_live）",
+          all(k in interviewer.INTERVIEWER_SYSTEM
+              for k in ("answer_state", "observation", "specificity", "score_live"))
+          and "followup" not in interviewer.INTERVIEWER_SYSTEM)
     check("refine prompt 包装用户输入", "用户输入" in refine.refine_prompt("abc"))
     check("score prompt 含题目/rubric/回答",
           all(k in score.score_prompt({"stem": "S", "rubric": "R"}, "A", "P")

@@ -210,8 +210,13 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     # 先提交用户消息再调 LLM：llm_trace 用新连接写库，本连接持写事务会 database is locked
     conn.commit()
 
-    # 2. 面试决策
+    # 2. 面试决策（观察层 + 裁决层，02-04 两层化：LLM 只出观察，代码裁决 action）
     decision = decide_next_action(session_id, question_id, refined)
+
+    # 拒答封存路径（D-24/裁决规则 2）：内部值 seal_refused 对前端仍透出 next，
+    # refused 标记键驱动封存分支（5 键契约只加不减，Pitfall 8）
+    _refused = bool(decision.get("refused"))
+    _out_action = "next" if _refused else decision["action"]
 
     # 3. assistant 消息落库（action/reason/score_live 先于展示，可审计）
     conn.execute(
@@ -219,24 +224,72 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
         " action, reason, score_live, score_live_reason, created_at)"
         " VALUES(?,?,?,?,?,?,?,?,?,?)",
         (new_id("msg"), session_id, question_id, "assistant", decision["reply"],
-         decision["action"], decision["reason"], decision["score_live"],
+         _out_action, decision["reason"], decision["score_live"],
          decision["score_live_reason"], now_iso()),
     )
+
+    # 观察留痕（§13.2 最小集——T-02-18）：每次决策后落 OBSERVATION_CLASSIFIED
+    append_event(conn, session_id=session_id, event_type="OBSERVATION_CLASSIFIED",
+                 actor_type="system", assessment_question_id=question_id,
+                 payload={"answer_state": decision["answer_state"],
+                          "evidence_sufficient": decision["evidence_sufficient"],
+                          "action": _out_action})
+
+    # followup 计数（D-25 迁列）：与 assistant 消息 INSERT 同事务段自增
+    if _out_action == "followup":
+        conn.execute(
+            "UPDATE assessment_question SET followup_count=followup_count+1 WHERE question_id=?",
+            (question_id,),
+        )
 
     # 4. 推进题目/会话状态（事件行与快照 UPDATE 同事务，随下述最终 commit 落库）
     next_question_id = None
     _is_legacy_session = False
-    if decision["action"] in ("next", "finish"):
+    if _refused:
+        # 拒答二次确认 → 封存 refused（D-24）：不写 question_score（评分写入属 02-05，
+        # REFUSED 的 score_state 行不在此产生），照 next 路径派发下一题
+        now_seal = now_iso()
         conn.execute(
-            "UPDATE assessment_question SET answered_at=? WHERE question_id=?",
-            (now_iso(), question_id),
+            "UPDATE assessment_question SET answered_at=?, closed_at=?, seal_reason='refused'"
+            " WHERE question_id=?",
+            (now_seal, now_seal, question_id),
+        )
+        append_event(conn, session_id=session_id, event_type="QUESTION_SEALED",
+                     from_state="active", to_state="sealed",
+                     actor_type="candidate", actor_id=user["user_id"],
+                     assessment_question_id=question_id,
+                     payload={"seal_reason": "refused"})
+        append_event(conn, session_id=session_id, event_type="EVIDENCE_EVALUATED",
+                     actor_type="system", assessment_question_id=question_id,
+                     payload={"evidence_sufficient": decision["evidence_sufficient"],
+                              "stable_evidence": False})
+    elif _out_action in ("next", "finish"):
+        now_seal = now_iso()
+        # answered 封存语义补全（D-25 三路统一：closed_at + seal_reason='answered'）
+        conn.execute(
+            "UPDATE assessment_question SET answered_at=?, closed_at=?, seal_reason='answered'"
+            " WHERE question_id=?",
+            (now_seal, now_seal, question_id),
         )
         append_event(conn, session_id=session_id, event_type="QUESTION_ANSWERED",
                      from_state="active", to_state="answered",
                      actor_type="candidate", actor_id=user["user_id"],
                      assessment_question_id=question_id)
-    if decision["action"] == "followup":
-        # followup：实例内子轮次，不推进实例状态（02-04 迁 followup_count 列）
+        append_event(conn, session_id=session_id, event_type="QUESTION_SEALED",
+                     from_state="active", to_state="sealed",
+                     actor_type="system", assessment_question_id=question_id,
+                     payload={"seal_reason": "answered"})
+        # 裁决发生在封存时机（§13.2 EVIDENCE_EVALUATED）：轻量 stable 判据
+        # sufficient_in_row ≥ 2（A2 决议——本会话该 item 充分观察计数，Phase 2 轻量版）
+        stable = _stable_evidence_light(session_id, question_id,
+                                         decision["evidence_sufficient"])
+        append_event(conn, session_id=session_id, event_type="EVIDENCE_EVALUATED",
+                     actor_type="system", assessment_question_id=question_id,
+                     payload={"evidence_sufficient": decision["evidence_sufficient"],
+                              "stable_evidence": stable})
+    if _out_action == "followup" or decision["action"] == "confirm":
+        # followup：实例内子轮次，不推进实例状态（followup_count 已自增）
+        # confirm：拒答首次确认（D-24 控制类一次性确认话术），同样不推进实例状态
         conn.commit()
     else:
         # 先提交本事务再选题（Anti-pattern 1 / 单写者纪律：select_next_question
@@ -288,12 +341,60 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     # 02-02 动态选题：决策的 finish（is_last 旧口径）在池未耗尽时降级为
     # next——finish 唯一触发源是选题返回 None（见上分支）；legacy 会话按旧
     # 语义透出决策 action
-    action = decision["action"]
+    action = _out_action
     if action == "finish" and next_question_id is not None and not _is_legacy_session:
         action = "next"
     return {"action": action, "reply": decision["reply"],
             "question_id": question_id, "next_question_id": next_question_id,
             "score_live": decision["score_live"]}
+
+
+def _stable_evidence_light(session_id: str, question_id: str,
+                            current_sufficient: bool) -> bool:
+    """stable_evidence 轻量版（A2 决议——Phase 2 难度导航用，Phase 5 完整裁决留白）。
+
+    判据 = 本会话同 item 的充分观察计数 sufficient_in_row ≥ 2（两个不同实例
+    的独立有效观察）。当前结论按「含本次」计数：本次充分且同 item 既有充分
+    观察达 1 次 → stable。事件表 OBSERVATION_CLASSIFIED payload 的布尔聚合。
+    """
+    if not current_sufficient:
+        return False
+    item_id = _question_item_id(question_id)
+    if item_id is None:
+        return False
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT e.payload_json FROM assessment_state_event e"
+            " JOIN assessment_question aq ON aq.question_id=e.assessment_question_id"
+            " WHERE e.session_id=? AND e.event_type='OBSERVATION_CLASSIFIED'"
+            " AND aq.item_id=?",
+            (session_id, item_id),
+        ).fetchall()
+    finally:
+        conn.close()
+    sufficient_cnt = 0
+    for r in rows:
+        try:
+            p = json.loads(r["payload_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if p.get("evidence_sufficient"):
+            sufficient_cnt += 1
+    # 含本次（本次 OBSERVATION_CLASSIFIED 已落）：≥2 即两个不同实例充分观察
+    return sufficient_cnt >= 2
+
+
+def _question_item_id(question_id: str) -> str | None:
+    """取实例的 item_id（02-01 列回填后可用；NULL（legacy/未回填）返回 None）。"""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT item_id FROM assessment_question WHERE question_id=?", (question_id,)
+        ).fetchone()
+        return row["item_id"] if row else None
+    finally:
+        conn.close()
 
 
 @router.post("/sessions/{session_id}/forms/submit", status_code=status.HTTP_201_CREATED)
