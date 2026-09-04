@@ -13,7 +13,7 @@ from ..services.question_selection import exception_granted_items, select_next_q
 from ..services.readiness import check_session_readiness
 from ..services.refine import refine_user_input
 from ..services.report import generate_report
-from ..services.scoring import score_session
+from ..services.scoring import MAX_ANSWER_LEN, score_session
 from ..services.state_events import append_event
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
@@ -174,6 +174,11 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     answer = raw_answer.strip() if isinstance(raw_answer, str) else ""
     if not question_id or not answer:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 question_id 或 answer")
+    # WR-07：输入长度上限对齐评分侧 MAX_ANSWER_LEN=64*1024（同口径单源）——
+    # 超大 payload 直达精炼/LLM 会撑爆上下文且撞 CR-01 降级面，输入侧统一 422
+    if len(answer) > MAX_ANSWER_LEN:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"回答过长（>{MAX_ANSWER_LEN} 字符），请精简后提交")
 
     conn = get_conn()
     s = load_owned_session(conn, session_id, user)
