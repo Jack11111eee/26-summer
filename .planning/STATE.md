@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 2 context gathered
-last_updated: "2026-09-04T04:42:39.173Z"
-last_activity: 2026-09-04 -- Phase 02 execution started
+last_updated: "2026-09-04T08:53:22.822Z"
+last_activity: 2026-09-04
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 9
-  completed_plans: 4
+  completed_plans: 6
   percent: 17
 ---
 
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 02 (动态选题与有界循环) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 02
-Last activity: 2026-09-04 -- Phase 02 execution started
-Progress: [░░░░░░░░░░] 0%
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-09-04
+Progress: [███████░░░] 67%
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
 - **下一动作**：`/gsd:plan-phase 1`
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 02 P02 | 41min | 5 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,9 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Init]: 矩阵 68 行 → REQUIREMENTS.md REF-*（63 排期 + 2 保持 + 3 延后：等值组/综合题/Tools）
 - [Init]: 表结构演进随阶段内嵌迁移，Phase 6 收口 schema_version（矩阵 §10 建议）
 - [Init]: 开放参数（SSOT §31 六项）排"校准"任务，禁止臆造默认值
+- [Phase ?]: [02-02] 层②uncovered required 优先须在配额剩余槽位内——否则 §10.5 例外分支不可达
+- [Phase ?]: [02-02] 决策 finish 在池未空时降级 next（is_last 旧口径失真）——02-04 裁决层接管前的 API 层过渡
+- [Phase ?]: [02-02] ORDINARY_PLAN_N=10 经关口 A 用户裁决 [02-007] 落地——Task 5 checkpoint 免停车
 
 ### Pending Todos
 
@@ -88,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-03T15:47:48.694Z
+Last session: 2026-09-04T08:53:22.815Z
 Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-dynamic-selection/02-CONTEXT.md
+Resume file: None
