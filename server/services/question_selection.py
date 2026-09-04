@@ -314,7 +314,8 @@ def _select_next_question_locked(conn, session_id: str) -> dict | None:
         if not pending:
             return None  # 普通计划 + 例外全耗尽 → API 层据此触发 finish
         item = pending[0]
-        picked = _pick_exception_question(candidates, item, used_bank_ids)
+        picked, _tension = _pick_exception_question(candidates, item, used_bank_ids,
+                                                    snapshot_targets=snapshot_targets)
         if picked is None:
             # 无合法候选 → 不静默：PATH_UNAVAILABLE 留痕（D-21 既有枚举）
             append_event(conn, session_id=session_id, event_type="PATH_UNAVAILABLE",
@@ -323,9 +324,14 @@ def _select_next_question_locked(conn, session_id: str) -> dict | None:
                                  "note": "required 例外无 medium/hard 候选（§10.5）"})
             conn.commit()
             return None
+        # WR-04：§10.5/§11.2 张力注记（snapshot=easy 仍按 §10.5 刚性取 medium/hard）
+        exception_note = None
+        if _tension:
+            exception_note = "snapshot_easy_vs_105_medium_hard"
         return _instantiate(conn, session, picked, layer="exception", used_bank_ids=used_bank_ids,
                             nth=total_instances + 1, exception_item=item,
-                            seed=_stable_seed(session_id))
+                            seed=_stable_seed(session_id),
+                            exception_tension_note=exception_note)
 
     # ---------- 普通选题（四层依序） ----------
     uncovered_required = _uncovered_required_items(items, candidates, used_bank_ids)
@@ -396,17 +402,30 @@ def _exception_granted_items(conn, session_id: str) -> set[str]:
 
 
 def _pick_exception_question(candidates: list[dict], item: dict,
-                             used_bank_ids: set[str]) -> dict | None:
-    """例外补选（§10.5）：仅 medium；无 medium 才 hard；不走 easy；未用。"""
+                             used_bank_ids: set[str],
+                             snapshot_targets: dict[str, tuple[str, str]] | None = None
+                             ) -> tuple[dict | None, bool]:
+    """例外补选（§10.5）：仅 medium；无 medium 才 hard；不走 easy；未用。
+
+    WR-04（仅可观测性注记，不改 §10.5 刚性行为）：返回 (picked, tension)——
+    tension=True 表示 item snapshot 指示 easy（§11.2 降级后应避免高难度）而
+    §10.5 刚性原文仍取 medium/hard 的设计张力点；行为照旧（medium 优先/hard
+    兜底），张力只落 selection_reason 审计键提示 Phase 4/SSOT 裁决。
+    """
     pool = [c for c in candidates
             if _item_key(c) == _item_key(item) and c["question_id"] not in used_bank_ids]
+    tension = False
+    if snapshot_targets is not None:
+        snap = snapshot_targets.get(item.get("item_id") or "")
+        if snap is not None and snap[0] == "easy":
+            tension = True  # 张力注记：不改变取题，仅提示 §10.5/§11.2 张力
     mediums = [c for c in pool if c["difficulty"] == "medium"]
     if mediums:
-        return max(mediums, key=lambda c: (c.get("weight") or 0.0))
+        return max(mediums, key=lambda c: (c.get("weight") or 0.0)), tension
     hards = [c for c in pool if c["difficulty"] == "hard"]
     if hards:
-        return max(hards, key=lambda c: (c.get("weight") or 0.0))
-    return None
+        return max(hards, key=lambda c: (c.get("weight") or 0.0)), tension
+    return None, tension
 
 
 def _item_key(item: dict) -> tuple[str, str]:
@@ -505,12 +524,15 @@ def _sort_pool(pool: list[dict], seed: int) -> list[dict]:
 def _instantiate(conn, session: dict, picked: dict, *, layer: str,
                  used_bank_ids: set[str], nth: int, seed: int, tier: str | None = None,
                  exception_item: dict | None = None,
-                 difficulty_source: str | None = None) -> dict:
+                 difficulty_source: str | None = None,
+                 exception_tension_note: str | None = None) -> dict:
     """选中后同事务：INSERT 实例 + QUESTION_SELECTED/QUESTION_ACTIVATED 事件 → commit。
 
     WR-03：difficulty_source 审计键（snapshot_target / snapshot_fallback_lower /
     pool_default——null 视作 pool_default 不落键，保持旧行 selection_reason 形态
     兼容）；纯可观测键，不改选题行为。
+    WR-04：exception_tension_note 审计键——例外补选遇 §10.5/§11.2 张力时的注记
+    （snapshot=easy 仍刚性取 medium/hard），供 SSOT 裁决与 Phase 4 消化。
     """
     session_id = session["session_id"]
     now = now_iso()
@@ -544,6 +566,8 @@ def _instantiate(conn, session: dict, picked: dict, *, layer: str,
         reason["item_id"] = exception_item["item_id"]
     if difficulty_source is not None:
         reason["difficulty_source"] = difficulty_source
+    if exception_tension_note is not None:
+        reason["exception_tension_note"] = exception_tension_note
 
     seq = nth
     aq_id = new_id("aq")
