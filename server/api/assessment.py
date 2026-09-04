@@ -89,7 +89,8 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型，无法开考")
 
     # 开考前可测量性检查（§10.4）：不通过拒绝创建会话（杜绝 0 题会话静默开考，REF-3.5/8.5）
-    result = check_session_readiness(position_id)
+    # WR-06：readiness 复用上面已取的 model 行（单源——锚定同一 confirmed 版本）
+    result = check_session_readiness(position_id, model=model)
     if result:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": result["error_code"],

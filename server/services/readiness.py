@@ -37,8 +37,12 @@ def _covered_std_names(conn, position_id: str) -> set[str]:
     return {r["std_name"] for r in rows}
 
 
-def check_session_readiness(position_id: str) -> dict | None:
+def check_session_readiness(position_id: str, model=None) -> dict | None:
     """开考前可测量性检查（§10.4）。通过返回 None；不通过返回失败三态 dict。
+
+    WR-06：model 可选传入（调用方已取的 confirmed 模型行——单源化「最新
+    confirmed 版」取用，create_session 复用同一行避免两次独立查询的口径漂移）；
+    缺省时内部自取（readiness 独立调用口径不变）。
 
     §10.4 全链骨架（Phase 1 实现 1-5 项，6-7 为 no-op 占位）：
     1) position active（status != 'active' → MODEL_NOT_MEASURABLE，W-2 写死，
@@ -52,14 +56,14 @@ def check_session_readiness(position_id: str) -> dict | None:
     """
     conn = get_conn()
     try:
-        return _check_session_readiness_locked(conn, position_id)
+        return _check_session_readiness_locked(conn, position_id, model)
     finally:
         # WR-11：与同模块调用方（API/测试）的 try/finally close 纪律一致——
         # 不依赖 CPython 引用计数释放连接
         conn.close()
 
 
-def _check_session_readiness_locked(conn, position_id: str) -> dict | None:
+def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict | None:
     # 1) position active（W-2：inactive 分支写死，勿留占位或放行；
     #    岗位存在性/无 confirmed 模型仍走 create_session 既有 404 路径）
     pos = conn.execute(
@@ -69,12 +73,13 @@ def _check_session_readiness_locked(conn, position_id: str) -> dict | None:
         return {"error_code": "MODEL_NOT_MEASURABLE",
                 "detail": "该岗位当前未上架，不可开考"}
 
-    # 2) 最新 confirmed 模型 + items 非空（create_session 同款查询口径）
-    model = conn.execute(
-        "SELECT model_id, version, model_json FROM competency_model"
-        " WHERE position_id=? AND status='confirmed' ORDER BY version DESC LIMIT 1",
-        (position_id,),
-    ).fetchone()
+    # 2) 最新 confirmed 模型 + items 非空（传参单源——WR-06；缺省自取同款口径）
+    if model is None:
+        model = conn.execute(
+            "SELECT model_id, version, model_json FROM competency_model"
+            " WHERE position_id=? AND status='confirmed' ORDER BY version DESC LIMIT 1",
+            (position_id,),
+        ).fetchone()
     if model is None:
         return None  # 无 confirmed 模型：create_session 既有 404 语义，不在此重复检查
     item_count = conn.execute(
