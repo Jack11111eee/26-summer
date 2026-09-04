@@ -26,11 +26,11 @@
 
 - [ ] **REF-1.1** [P0] 候选人资源级所有权校验：session/report/form/feedback 全部 `WHERE user_id=current`（api/assessment.py 6 处路由）→ Phase 1
 - [ ] **REF-1.2** [一般] 角色限制后端执行收口（随 1.1 越权测试矩阵）→ Phase 1
-- [ ] **REF-1.3** [一般] score_live 由 LLM 直产 1-5 分 → 随 §17 重构（见 REF-5.1）→ Phase 2
+- [x] **REF-1.3** [一般] score_live 由 LLM 直产 1-5 分 → 随 §17 重构（见 REF-5.1）→ Phase 2
 - [ ] **REF-1.4** [保持] call_llm_json 统一 trace 落库（合规，不动）
 - [ ] **REF-1.5** [P0] 状态事件 append-only 体系落地 → Phase 1
-- [ ] **REF-1.6** [结构] 单步"LLM 直接决定 action"重构为观察/裁决两层（§11.3/§11.4）→ Phase 2
-- [ ] **REF-1.7** [结构] LLM 不决定难度迁移/finish（finish 护栏现状合规；难度部分见 REF-4.2）→ Phase 2
+- [x] **REF-1.6** [结构] 单步"LLM 直接决定 action"重构为观察/裁决两层（§11.3/§11.4）→ Phase 2
+- [x] **REF-1.7** [结构] LLM 不决定难度迁移/finish（finish 护栏现状合规；难度部分见 REF-4.2）→ Phase 2
 
 #### 矩阵 §2 数据库（REF-2.1~2.11）——演进随阶段走，Phase 6 收口 schema_version
 
@@ -62,9 +62,9 @@
 
 - [x] **REF-4.1** [结构] 动态实例化（每呈现题面新实例；followup 为实例内子轮次）→ Phase 2
 - [ ] **REF-4.2** [结构] 难度路径状态机（升/降/滞回恢复；不计普通失败；跳级禁止）→ Phase 2
-- [ ] **REF-4.3** [结构] evidence_sufficient/stable_evidence 结构化观察维度 + 代码布尔裁决 → Phase 2
-- [ ] **REF-4.4** [结构] answer_state 11 态 + score_state 8 态两层分离 → Phase 2
-- [ ] **REF-4.5** [结构] 各状态处理原则（拒答一次确认后跳过/技术暂停计时/边界设定等）→ Phase 2
+- [x] **REF-4.3** [结构] evidence_sufficient/stable_evidence 结构化观察维度 + 代码布尔裁决 → Phase 2
+- [x] **REF-4.4** [结构] answer_state 11 态 + score_state 8 态两层分离 → Phase 2
+- [x] **REF-4.5** [结构] 各状态处理原则（拒答一次确认后跳过/技术暂停计时/边界设定等）→ Phase 2
 - [ ] **REF-4.6** [一般] 真实 SSE（决策非流式先落库，话术逐 token；前端 sse.js 已就绪）→ Phase 3
 - [ ] **REF-4.7** [一般] 接口层 Pydantic 请求/输出 schema（替换裸 dict body）→ Phase 3
 - [ ] **REF-4.8** [结构] 计时区间：全场 40min/单题 20min/服务端权威/暂停写事件/6h ABANDONED → Phase 3

@@ -81,7 +81,7 @@ Plans:
 
 **Wave 3** *(blocked on 02-01 + 02-02)* — 回答状态两层化（与 02-02 共改 assessment.py/test_m5_backend.py，文件冲突故串行——见下方计划顺序说明）
 
-- [ ] 02-04-PLAN.md — 回答状态分类重构（InterviewObservation Pydantic 11 态 + 裁决层纯函数；mock 规则分类器双轨；拒答确认后封存 REFUSED 语义链；followup 迁列 + OBSERVATION 事件）—— REF-1.3/1.6/1.7/4.3/4.4/4.5
+- [x] 02-04-PLAN.md — 回答状态分类重构（InterviewObservation Pydantic 11 态 + 裁决层纯函数；mock 规则分类器双轨；拒答确认后封存 REFUSED 语义链；followup 迁列 + OBSERVATION 事件）—— REF-1.3/1.6/1.7/4.3/4.4/4.5
 
 **Wave 4** *(blocked on 02-02 + 02-04)* — 难度状态机（需 observation 布尔 + 选题服务）
 
@@ -190,7 +190,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
-| 2. 动态选题与有界循环 | 2/5 | In Progress|  |
+| 2. 动态选题与有界循环 | 3/5 | In Progress|  |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |

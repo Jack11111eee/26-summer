@@ -71,5 +71,20 @@ Phase 1 完成于章程生效前（2026-09-03），无 DECISIONS 文件。Phase 
 - 决定：`server/_debug_selection.py` 未提交未跟踪——worktree remove 已随目录清除（该文件在主仓无副本：git ls-files 零命中）；SUMMARY 已登记"删除需用户执行"——因发现时该文件已随 worktree 消失，用户无需再执行清理；SUMMARY 文本保留不动（历史记录，不回改）
 - 依据：rm 被拒仅作用于 agent 路径——worktree 目录整体移除属 git 操作，随目录消失的未跟踪文件无需补删
 
+**[02-009] wave 3（02-04 interviewer 两层化）完成与合入**
+- 步骤：§③ execute wave 3/5（执行序；数据载体属 02-04）
+- 决定：单次派发完成（4 commits，worktree a9b77ea5 合入 8875c0d）；抽查契约全过（decide_next_action 签名逐字保持 / InterviewObservation 11 态 + Pydantic 消费点 / _DECLINE_WORDS 词表 / followup_count 迁列 +1 UPDATE / QUESTION_SEALED+OBSERVATION_CLASSIFIED+EVIDENCE_EVALUATED 三事件 / 本 plan question_score 零写入）；后测门全绿（interview 12 + selection 9 + migration 8 + weights 5 + m5 7 + p0_security 10 + p0_chain 11 + question_bank 25 + m6 41 = 128 项）
+- 依据：章程 §3 wave 簿记
+
+**[02-009a] wave 3 执行者超 files_modified 一处——回溯认可**
+- 决定：test_question_bank.py（:189-198 test_prompts 的 interviewer SYSTEM 断言适配，12 行）超出 plan files_modified 列表——但属本计划 prompt 契约变更的**必然回归适配**（旧断言锁 "followup/next/finish" action 协议，02-04 Task 2 将 action 键从 INTERVIEWER_SYSTEM 移除后该断言必红；执行者按 D-09 只改断言、最小侵入）。与计划期 checker 在修订 2 将 p0 测试适配补入 02-02 files_modified（B-4/B-5）同一性质，本轮 checker 漏列——判定为计划文件清单疏漏而非执行者越权。合入保留
+- 依据：关口 A 裁决 3 的「顺带收敛」射程本指代码收敛（遗留代码不动）——本处是测试断言对新契约的跟随，非蓄意扩围；[02-008a] 同口径先例
+
+**[02-009b] 执行者自愈偏差 3 项——回溯认可**
+- 决定：①[02-009a] 所述 files_modified 外回归适配 ②红测文案撞词（"长但空"测试文案含「具体」实义词致分类歧义——改文案消除）③ObservationDims 构造漏 attribution 键（Pydantic required 补齐）。三项均 Rule 1/3 正确性必需，已记入 02-04-SUMMARY 偏差区
+- 依据：execute-plan deviation rules；m5 :290 final_score 断言未动（归 02-05）核实无误
+
+## 遗留项（带入后续 phase 的 Info/非阻断项）
+
 - [Phase 1 REVIEW Info] IN-04 scored_count 语义、IN-08 测试共库纪律（Phase 6 REF-7.4 消化）、IN-09 append_event 并发 500–低概率知悉项
 - [Phase 1 VERIFICATION Warning] readiness.py 四分支 conn.close、question_bank.py finished_at CASE、task 行插入非原子（WR-04）、get_report_by_session oracle（WR-05）、review_position reject FK 500（CR-03/CR-04）——Phase 1 验收时判定 SC 字面之外归后续阶段消费；其中 readiness while 在 02-02 重写范围内自然顺带收敛的机会交执行期判断（不扩权）
