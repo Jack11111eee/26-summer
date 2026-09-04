@@ -21,12 +21,15 @@ JWT_EXPIRE_HOURS = 12
 DB_PATH = os.environ.get("DB_PATH", "data/app.db")
 
 # ---- 可配置常量（§8.4）----
-# 类间权重配比 hard_skill:soft_skill:experience:qualification
+# 类间权重配比（SSOT §8.2 v2.0 关键修正：普通题类目比例 7:3）
+# hard 0.7 / soft 0.3 / experience 0.0 / qualification 0.0；
+# gate 类（experience/qualification）走表单事实核验不占权重池（§8.2）。
+# D-16：存量 confirmed 模型 weight 不重算——分数是历史事实（D-003），本常量只影响新聚合模型。
 CATEGORY_RATIO = {
-    "hard_skill": 5.5,
-    "soft_skill": 2.0,
-    "experience": 2.0,
-    "qualification": 0.5,
+    "hard_skill": 0.7,
+    "soft_skill": 0.3,
+    "experience": 0.0,
+    "qualification": 0.0,
 }
 # 类内重要性系数
 IMPORTANCE_COEF = {"required": 1.0, "preferred": 0.6, "plus": 0.3}
