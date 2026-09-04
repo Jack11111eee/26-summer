@@ -1,8 +1,14 @@
-"""会话级分数聚合（07 文档 §10.2 阶段②，代码执行可审计）。
+"""会话级分数聚合（07 文档 §10.2 阶段② + SSOT §12.4 分母规则，代码执行可审计）。
 
-item 得分 = 该项各题 final_score 均分；gap = required − actual；
+item 得分 = 该项各题 score_final 均分（仅 SCORED 行进能力分母）；gap = required − actual；
 总分 = Σ(item.weight × actual/5) × 100（U3 复用 item.weight，不二次乘）；
 gate 项代码二值判定（达标拿满 / 不达标 0），不进 1~5 级评分。
+
+score_state 分母规则（02-05，Pitfall 7）：
+- SCORED → 进正常观察（能力等级分母）；
+- REFUSED → 不进能力分母，只进行为/完整度聚合（refusals 单列列表）；
+- INVALIDATED/INCOMPLETE/INSUFFICIENT_EVIDENCE/NOT_ADMINISTERED → 排除 +
+  missing_warnings 警告列表（不隐式转 0，不静默——前向兼容 Phase 5 生产态）。
 """
 import json
 
@@ -64,19 +70,44 @@ def _gate_check(item: dict, form_payload: dict) -> tuple[bool, str]:
 
 
 def aggregate_session_scores(session_id: str) -> dict:
-    """聚合 question_score → item_scores + total_score + gate_items + strengths/weaknesses。"""
+    """聚合 question_score → item_scores + total_score + gate_items + strengths/weaknesses。
+
+    score_state 三路分流（§12.4）：SCORED 进分母；REFUSED 进 refusals 列表；
+    排除态（INVALIDATED/INCOMPLETE/INSUFFICIENT_EVIDENCE/NOT_ADMINISTERED）进
+    missing_warnings 警告列表。
+    """
     conn = get_conn()
     model_items = _load_model_items(session_id)
     form_payload = _load_form_payload(session_id)
 
-    # 按 item 分组收 final_score
+    # 按 item 分组收 score_final（score_state 过滤在循环内分流——三路）
     rows = conn.execute(
-        "SELECT item_id, final_score FROM question_score WHERE session_id=?",
+        "SELECT qs.item_id, qs.score_final, qs.score_state, qs.question_id"
+        " FROM question_score qs WHERE qs.session_id=?",
         (session_id,),
     ).fetchall()
     item_scores_map: dict[str, list[int]] = {}
+    refusals: list[dict] = []
+    missing_warnings: list[dict] = []
+    _EXCLUDED_STATES = ("INVALIDATED", "INCOMPLETE", "INSUFFICIENT_EVIDENCE", "NOT_ADMINISTERED")
     for r in rows:
-        item_scores_map.setdefault(r["item_id"], []).append(r["final_score"])
+        std_name = (model_items.get(r["item_id"]) or {}).get("std_name")
+        if r["score_state"] == "SCORED":
+            item_scores_map.setdefault(r["item_id"], []).append(r["score_final"])
+        elif r["score_state"] == "REFUSED":
+            # 不进能力分母，只进行为/完整度聚合（refusals 单列——§18/§12.4）
+            refusals.append({
+                "item_id": r["item_id"], "std_name": std_name,
+                "question_id": r["question_id"],
+            })
+        elif r["score_state"] in _EXCLUDED_STATES:
+            # 排除 + 缺失警告（不隐式转 0，不静默——D-28）
+            missing_warnings.append({
+                "item_id": r["item_id"], "std_name": std_name,
+                "reason": r["score_state"],
+            })
+        # 其余枚举值（Phase 5 生产态 IMPUTED 等）不在 Phase 2 过滤名单——
+        # 过度过滤会与 Phase 5 冲突（plan <interfaces> 注记）
 
     item_scores: list[dict] = []
     gate_items: list[dict] = []
@@ -146,6 +177,8 @@ def aggregate_session_scores(session_id: str) -> dict:
         "total_score": round(total_score, 2),
         "item_scores": item_scores,
         "gate_items": gate_items,
+        "refusals": refusals,
+        "missing_warnings": missing_warnings,
         "strengths": [
             {"item_id": s["item_id"], "std_name": s["std_name"],
              "weight": s["weight"], "gap": s["gap"]}

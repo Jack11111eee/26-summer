@@ -54,8 +54,11 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     items = [
         {"std_name": "Python", "category": "hard_skill", "importance": "required", "weight": 0.3},
         {"std_name": "MySQL", "category": "hard_skill", "importance": "required", "weight": 0.25},
-        {"std_name": "沟通能力", "category": "soft_skill", "importance": "preferred", "weight": 0.2},
-        {"std_name": "后端开发经验", "category": "experience", "importance": "required", "weight": 0.25},
+        {"std_name": "沟通能力", "category": "soft_skill", "importance": "required", "weight": 0.2},
+        # 冲突协调（required soft）：D-09 种子补齐——新配额 N=10 → soft 3 需
+        # required tier 候选（沟通能力原 preferred 单层不够，补一 required soft item）
+        {"std_name": "冲突协调", "category": "soft_skill", "importance": "required", "weight": 0.15},
+        {"std_name": "后端开发经验", "category": "experience", "importance": "required", "weight": 0.1},
     ]
     model_json = {"position_id": pid, "version": 1, "items": items}
     conn.execute(
@@ -100,10 +103,16 @@ def _seed_question_bank(pid: str) -> None:
          "讲一次慢查询优化经历。", None, "explain/索引/效果")
     _add("position", pid, "Redis", "hard_skill", "easy", "objective",
          "Redis 常用字符串命令？", "GET", None)
+    # Docker：D-09 种子补齐（N=10 → hard 配额 7；原 6 题差 1——仅加题行不改结构）
+    _add("position", pid, "Docker", "hard_skill", "easy", "objective",
+         "构建镜像的命令是？", "docker build", None)
     _add("position", pid, "沟通能力", "soft_skill", "easy", "subjective",
          "讲一次跨团队沟通的经历。", None, "背景/冲突/结果")
     _add("position", pid, "沟通能力", "soft_skill", "medium", "subjective",
          "遇到意见分歧怎么处理？", None, "倾听/数据/共识")
+    # 冲突协调（required soft）：D-09 种子补齐（新配额 soft ≥3 且 required tier 有候选）
+    _add("position", pid, "冲突协调", "soft_skill", "medium", "subjective",
+         "讲一次你主导化解团队冲突的经历。", None, "起因/方法/结果")
     _add("general", None, "后端开发经验", "experience", None, "subjective",
          "介绍你最近一个后端项目。", None, "角色/规模/成果")
     _add("general", None, "后端开发经验", "experience", None, "subjective",

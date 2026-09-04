@@ -36,7 +36,7 @@ def _load_question_reviews(session_id: str) -> list[dict]:
     """逐题回顾：题面/回答/双分/证据/理由（07 §10.5 第⑤段）。"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT qs.question_id, qs.score_live, qs.score_final, qs.final_score,"
+        "SELECT qs.question_id, qs.score_live, qs.score_final, qs.score_state,"
         " qs.evidence_quote, qs.reason,"
         " b.stem, b.qtype, b.std_name, b.category"
         " FROM question_score qs"

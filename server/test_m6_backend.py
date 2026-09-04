@@ -146,12 +146,14 @@ def _seed_full_chain() -> dict:
 
 
 def _test_dual_scoring(ctx: dict) -> None:
-    print("[1] 双分合成（H1）")
+    print("[1] 双分独立落库（02-05：无 50/50 合成）")
     sid = ctx["session_id"]
     # 客观题
     r_obj = score_question(sid, ctx["aq_ids"][0])
     check("客观题命中 answer_key → 5 分", r_obj["score_final"] == 5,
           f"实际 {r_obj['score_final']}")
+    check("客观题返回 score_state=SCORED", r_obj["score_state"] == "SCORED",
+          f"实际 {r_obj['score_state']}")
 
     # 主观题（mock 给 final=3）
     r_sub = score_question(sid, ctx["aq_ids"][1])
@@ -166,7 +168,7 @@ def _test_dual_scoring(ctx: dict) -> None:
 
     conn = get_conn()
     rows = conn.execute(
-        "SELECT question_id, score_live, score_final, final_score FROM question_score"
+        "SELECT question_id, score_live, score_final, score_state FROM question_score"
         " WHERE session_id=? ORDER BY question_id",
         (sid,),
     ).fetchall()
@@ -174,12 +176,15 @@ def _test_dual_scoring(ctx: dict) -> None:
 
     obj = by_qid[ctx["aq_ids"][0]]
     check("客观题 score_live 为 None", obj["score_live"] is None)
-    check("客观题 final_score = score_final = 5", obj["final_score"] == 5)
+    check("客观题 score_final = 5 且 score_state=SCORED",
+          obj["score_final"] == 5 and obj["score_state"] == "SCORED")
 
     sub1 = by_qid[ctx["aq_ids"][1]]
-    check("主观题 score_live=3", sub1["score_live"] == 3)
-    check("主观题 score_final=3 (mock)", sub1["score_final"] == 3)
-    check("主观题 final=round(3*0.5+3*0.5)=3", sub1["final_score"] == 3)
+    check("主观题 score_live=3(参考值)", sub1["score_live"] == 3)
+    check("主观题 score_final=3 (mock) 独立落库", sub1["score_final"] == 3)
+    check("主观题 score_state=SCORED", sub1["score_state"] == "SCORED")
+    check("score_state 全行 SCORED",
+          all(r["score_state"] == "SCORED" for r in by_qid.values()))
 
 
 def _test_aggregation(ctx: dict) -> None:

@@ -3,15 +3,17 @@ import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
+from .. import config as _config
 from ..core.security import load_owned_report, load_owned_session, require_login
 from ..db import get_conn
+from ..services.difficulty import update_path_state
 from ..services.interview import decide_next_action
 from ..services.pipeline import new_id, now_iso
-from ..services.question_selection import select_questions_for_session
+from ..services.question_selection import exception_granted_items, select_next_question
 from ..services.readiness import check_session_readiness
 from ..services.refine import refine_user_input
 from ..services.report import generate_report
-from ..services.scoring import score_session
+from ..services.scoring import MAX_ANSWER_LEN, score_session
 from ..services.state_events import append_event
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
@@ -56,13 +58,15 @@ def get_confirmed_model(position_id: str) -> dict:
     conn = get_conn()
     # WR-10：join position 校验 status='active'——与列表接口的 active 过滤一致，
     # 不向任意登录用户泄露未上架岗位的胜任力模型配置
-    row = conn.execute(
-        "SELECT m.model_id, m.version, m.model_json FROM competency_model m"
-        " JOIN position p ON p.position_id=m.position_id"
-        " WHERE m.position_id=? AND m.status='confirmed' AND p.status='active'"
-        " ORDER BY m.version DESC LIMIT 1",
-        (position_id,),
+    # WR-08：模型行改走 _latest_confirmed_model 单源实现（与 create_session 同口径，
+    # 相关子查询取每岗位 MAX(version)——原 ORDER BY LIMIT 1 为第二套实现形态）；
+    # active 校验单独先行（单源函数不含 position join）
+    pos = conn.execute(
+        "SELECT status FROM position WHERE position_id=?", (position_id,)
     ).fetchone()
+    if pos is None or pos["status"] != "active":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型")
+    row = _latest_confirmed_model(conn, position_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型")
     d = dict(row)
@@ -74,9 +78,9 @@ def get_confirmed_model(position_id: str) -> dict:
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
 def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
-    """创建测评会话：锚定 confirmed 模型最新版 + 从题库选题落 assessment_question。
+    """创建测评会话：锚定 confirmed 模型最新版（动态选题——SC-1 零预选）。
 
-    选题走 services.question_selection（07 §6.3 代码执行可审计）。
+    首题在首次 GET /answer 时由 select_next_question 派发（02-02，SSOT §10.6）。
     """
     position_id = body.get("position_id")
     if not position_id:
@@ -87,7 +91,8 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型，无法开考")
 
     # 开考前可测量性检查（§10.4）：不通过拒绝创建会话（杜绝 0 题会话静默开考，REF-3.5/8.5）
-    result = check_session_readiness(position_id)
+    # WR-06：readiness 复用上面已取的 model 行（单源——锚定同一 confirmed 版本）
+    result = check_session_readiness(position_id, model=model)
     if result:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": result["error_code"],
@@ -101,30 +106,22 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
         (session_id, user["user_id"], position_id, model["model_id"], model["version"],
          "in_progress", now, now),
     )
-    questions = select_questions_for_session(position_id, json.loads(model["model_json"]))
-    for i, q in enumerate(questions, start=1):
-        conn.execute(
-            "INSERT INTO assessment_question(question_id, session_id, bank_question_id, seq, created_at)"
-            " VALUES(?,?,?,?,?)",
-            (new_id("aq"), session_id, q["question_id"], i, now),
-        )
+    # 动态选题（02-02，SC-1）：创建时不预选——每次 action=next 由
+    # select_next_question 即时选题实例化；此处只落会话 + SESSION_CREATED 事件
     # 状态迁移留痕：与 INSERT 会话同一事务（SSOT §13.1 快照与事件同事务）
     append_event(conn, session_id=session_id, event_type="SESSION_CREATED",
                  from_state=None, to_state="in_progress",
                  actor_type="candidate", actor_id=user["user_id"])
     conn.commit()
-    return {"session_id": session_id, "question_count": len(questions),
+    return {"session_id": session_id,
             "estimated_duration_minutes": 20}
 
 
 @router.get("/sessions/{session_id}")
 def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
-    """会话状态：当前题 = 第一个未作答（answered_at IS NULL）的题。"""
+    """会话状态：当前题 = 未封存最新实例（动态派发 / legacy 旧 seq 兜底）。"""
     conn = get_conn()
     s = load_owned_session(conn, session_id, user, allow_admin_read=True)
-    total = conn.execute(
-        "SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (session_id,)
-    ).fetchone()["c"]
     answered = conn.execute(
         "SELECT COUNT(*) c FROM assessment_question WHERE session_id=? AND answered_at IS NOT NULL",
         (session_id,),
@@ -135,6 +132,30 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         " WHERE aq.session_id=? AND aq.answered_at IS NULL ORDER BY aq.seq LIMIT 1",
         (session_id,),
     ).fetchone()
+    if cur is None and s["status"] == "in_progress":
+        # 动态派发（02-02）：无未答实例且会话进行中 → select_next_question 派发新实例
+        picked = select_next_question(session_id)
+        if picked is not None and not picked.get("legacy"):
+            conn2 = get_conn()
+            try:
+                cur = conn2.execute(
+                    "SELECT aq.question_id, aq.seq, b.stem, b.category, b.qtype, b.difficulty"
+                    " FROM assessment_question aq JOIN question_bank b ON b.question_id=aq.bank_question_id"
+                    " WHERE aq.question_id=?",
+                    (picked["question_id"],),
+                ).fetchone()
+            finally:
+                conn2.close()
+        # legacy 兜底（Q5）：{'legacy': True} 或旧未答行形态 → 走上面旧 ORDER BY seq
+        # 查询结果（cur 已取——legacy 会话已被该查询覆盖；无行则保持 None 不 500）
+    # total_count 口径（02-02）：计划数 N + 已发生例外数 E（answer 行数不再作分母）
+    # WR-02：例外计数与 selection 层同口径（_exception_granted_items 单源——
+    # selection_reason 解析失败时事件兜底，分母与实发题数不漂移）
+    if s["status"] == "completed":
+        total = answered
+    else:
+        exceptions = len(exception_granted_items(conn, session_id))
+        total = _config.ORDINARY_PLAN_N + exceptions
     return {
         "session_id": s["session_id"],
         "status": s["status"],
@@ -155,6 +176,11 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     answer = raw_answer.strip() if isinstance(raw_answer, str) else ""
     if not question_id or not answer:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 question_id 或 answer")
+    # WR-07：输入长度上限对齐评分侧 MAX_ANSWER_LEN=64*1024（同口径单源）——
+    # 超大 payload 直达精炼/LLM 会撑爆上下文且撞 CR-01 降级面，输入侧统一 422
+    if len(answer) > MAX_ANSWER_LEN:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"回答过长（>{MAX_ANSWER_LEN} 字符），请精简后提交")
 
     conn = get_conn()
     s = load_owned_session(conn, session_id, user)
@@ -191,8 +217,13 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     # 先提交用户消息再调 LLM：llm_trace 用新连接写库，本连接持写事务会 database is locked
     conn.commit()
 
-    # 2. 面试决策
+    # 2. 面试决策（观察层 + 裁决层，02-04 两层化：LLM 只出观察，代码裁决 action）
     decision = decide_next_action(session_id, question_id, refined)
+
+    # 拒答封存路径（D-24/裁决规则 2）：内部值 seal_refused 对前端仍透出 next，
+    # refused 标记键驱动封存分支（5 键契约只加不减，Pitfall 8）
+    _refused = bool(decision.get("refused"))
+    _out_action = "next" if _refused else decision["action"]
 
     # 3. assistant 消息落库（action/reason/score_live 先于展示，可审计）
     conn.execute(
@@ -200,40 +231,239 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
         " action, reason, score_live, score_live_reason, created_at)"
         " VALUES(?,?,?,?,?,?,?,?,?,?)",
         (new_id("msg"), session_id, question_id, "assistant", decision["reply"],
-         decision["action"], decision["reason"], decision["score_live"],
+         _out_action, decision["reason"], decision["score_live"],
          decision["score_live_reason"], now_iso()),
     )
 
+    # 观察留痕（§13.2 最小集——T-02-18）：每次决策后落 OBSERVATION_CLASSIFIED
+    append_event(conn, session_id=session_id, event_type="OBSERVATION_CLASSIFIED",
+                 actor_type="system", assessment_question_id=question_id,
+                 payload={"answer_state": decision["answer_state"],
+                          "evidence_sufficient": decision["evidence_sufficient"],
+                          "action": _out_action})
+
+    # followup 计数（D-25 迁列）：与 assistant 消息 INSERT 同事务段自增
+    if _out_action == "followup":
+        conn.execute(
+            "UPDATE assessment_question SET followup_count=followup_count+1 WHERE question_id=?",
+            (question_id,),
+        )
+
     # 4. 推进题目/会话状态（事件行与快照 UPDATE 同事务，随下述最终 commit 落库）
     next_question_id = None
-    if decision["action"] in ("next", "finish"):
+    _is_legacy_session = False
+    if _refused:
+        # 拒答二次确认 → 封存 refused（D-24）：不写 question_score（评分写入属 02-05，
+        # REFUSED 的 score_state 行不在此产生），照 next 路径派发下一题
+        now_seal = now_iso()
         conn.execute(
-            "UPDATE assessment_question SET answered_at=? WHERE question_id=?",
-            (now_iso(), question_id),
+            "UPDATE assessment_question SET answered_at=?, closed_at=?, seal_reason='refused'"
+            " WHERE question_id=?",
+            (now_seal, now_seal, question_id),
+        )
+        append_event(conn, session_id=session_id, event_type="QUESTION_SEALED",
+                     from_state="active", to_state="sealed",
+                     actor_type="candidate", actor_id=user["user_id"],
+                     assessment_question_id=question_id,
+                     payload={"seal_reason": "refused"})
+        append_event(conn, session_id=session_id, event_type="EVIDENCE_EVALUATED",
+                     actor_type="system", assessment_question_id=question_id,
+                     payload={"evidence_sufficient": decision["evidence_sufficient"],
+                              "stable_evidence": False})
+        # 封存点推进难度状态机（02-03：refused 是七类排除之一——is_valid_failure=False，
+        # 计数器不动，但 snapshot 推进保持审计链完整）
+        _advance_difficulty_state(conn, session_id, question_id, decision, stable=False,
+                                  followup_ambiguous=False)
+    elif _out_action in ("next", "finish"):
+        now_seal = now_iso()
+        # answered 封存语义补全（D-25 三路统一：closed_at + seal_reason='answered'）
+        conn.execute(
+            "UPDATE assessment_question SET answered_at=?, closed_at=?, seal_reason='answered'"
+            " WHERE question_id=?",
+            (now_seal, now_seal, question_id),
         )
         append_event(conn, session_id=session_id, event_type="QUESTION_ANSWERED",
                      from_state="active", to_state="answered",
                      actor_type="candidate", actor_id=user["user_id"],
                      assessment_question_id=question_id)
-    if decision["action"] == "finish":
-        conn.execute(
-            "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
-            (now_iso(), session_id),
-        )
-        append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
-                     from_state="in_progress", to_state="completed", actor_type="system")
+        append_event(conn, session_id=session_id, event_type="QUESTION_SEALED",
+                     from_state="active", to_state="sealed",
+                     actor_type="system", assessment_question_id=question_id,
+                     payload={"seal_reason": "answered"})
+        # 裁决发生在封存时机（§13.2 EVIDENCE_EVALUATED）：轻量 stable 判据
+        # sufficient_in_row ≥ 2（A2 决议——本会话该 item 充分观察计数，Phase 2 轻量版）
+        stable = _stable_evidence_light(conn, session_id, question_id,
+                                        decision["evidence_sufficient"])
+        append_event(conn, session_id=session_id, event_type="EVIDENCE_EVALUATED",
+                     actor_type="system", assessment_question_id=question_id,
+                     payload={"evidence_sufficient": decision["evidence_sufficient"],
+                              "stable_evidence": stable})
+        # 封存点推进难度状态机（02-03：§11.2 降级判据 2——followup 后仍不充分
+        # 即 followup_ambiguous；实例发生过 followup 才可能满足，首答即 next 不算）
+        followup_happened = _instance_followup_count(conn, question_id) > 0
+        _advance_difficulty_state(
+            conn, session_id, question_id, decision, stable=stable,
+            followup_ambiguous=bool(followup_happened
+                                    and not decision["evidence_sufficient"]))
+    if _out_action == "followup" or decision["action"] == "confirm":
+        # followup：实例内子轮次，不推进实例状态（followup_count 已自增）
+        # confirm：拒答首次确认（D-24 控制类一次性确认话术），同样不推进实例状态
+        conn.commit()
     else:
-        nxt = conn.execute(
-            "SELECT question_id FROM assessment_question"
-            " WHERE session_id=? AND answered_at IS NULL ORDER BY seq LIMIT 1",
-            (session_id,),
-        ).fetchone()
-        next_question_id = nxt["question_id"] if nxt else None
+        # 先提交本事务再选题（Anti-pattern 1 / 单写者纪律：select_next_question
+        # 自取连接自持事务，llm_trace 已在 :192 commit 后写库，此处 commit 保证
+        # 决策与选出实例分属两个事务，无锁冲突）
+        conn.commit()
+        # 02-02 动态选题：finish 不再由决策 is_last 直接判定（migration 期决策的
+        # is_last 基于静态预选——动态实例化下第 N-1 题作答时第 N 题尚未实例化），
+        # 改以「选题返回 None（可选池耗尽）」为 finish 唯一触发源（02-04 裁决层
+        # 再统一移入调用点）
+        picked = select_next_question(session_id)
+        _is_legacy_session = bool(picked and picked.get("legacy"))
+        if picked is None:
+            # 可选池耗尽（普通计划 + required 例外全完成）→ finish 收尾
+            conn.execute(
+                "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+                (now_iso(), session_id),
+            )
+            append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                         from_state="in_progress", to_state="completed", actor_type="system")
+            conn.commit()
+            return {"action": "finish", "reply": decision["reply"],
+                    "question_id": question_id, "next_question_id": None,
+                    "score_live": decision["score_live"]}
+        if picked.get("legacy"):
+            # legacy 会话（Q5）：旧预选行按 seq 继续派发——走旧查询，不进四层；
+            # 旧行为语义保持：决策 next/finish 按原样透出（旧行耗尽时如上提前 return）
+            nxt = conn.execute(
+                "SELECT question_id FROM assessment_question"
+                " WHERE session_id=? AND answered_at IS NULL ORDER BY seq LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            if nxt is None:
+                conn.execute(
+                    "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+                    (now_iso(), session_id),
+                )
+                append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                             from_state="in_progress", to_state="completed", actor_type="system")
+                conn.commit()
+                return {"action": "finish", "reply": decision["reply"],
+                        "question_id": question_id, "next_question_id": None,
+                        "score_live": decision["score_live"]}
+            next_question_id = nxt["question_id"]
+        else:
+            next_question_id = picked["question_id"]
     conn.commit()
 
-    return {"action": decision["action"], "reply": decision["reply"],
+    # 02-02 动态选题：决策的 finish（is_last 旧口径）在池未耗尽时降级为
+    # next——finish 唯一触发源是选题返回 None（见上分支）；legacy 会话按旧
+    # 语义透出决策 action
+    action = _out_action
+    if action == "finish" and next_question_id is not None and not _is_legacy_session:
+        action = "next"
+    return {"action": action, "reply": decision["reply"],
             "question_id": question_id, "next_question_id": next_question_id,
             "score_live": decision["score_live"]}
+
+
+def _stable_evidence_light(conn, session_id: str, question_id: str,
+                           current_sufficient: bool) -> bool:
+    """stable_evidence 轻量版（A2 决议——Phase 2 难度导航用，Phase 5 完整裁决留白）。
+
+    判据 = 本会话同 item 的充分观察计数 sufficient_in_row ≥ 2（两个不同实例
+    的独立有效观察）。当前结论按「含本次」计数：本次充分且同 item 既有充分
+    观察达 1 次 → stable。事件表 OBSERVATION_CLASSIFIED payload 的布尔聚合。
+    WR-01：接调用方主 conn（决策事务内自读自写——不另开连接读到陈旧状态）。
+    """
+    if not current_sufficient:
+        return False
+    item_id = _question_item_id(conn, question_id)
+    if item_id is None:
+        return False
+    rows = conn.execute(
+        "SELECT e.payload_json FROM assessment_state_event e"
+        " JOIN assessment_question aq ON aq.question_id=e.assessment_question_id"
+        " WHERE e.session_id=? AND e.event_type='OBSERVATION_CLASSIFIED'"
+        " AND aq.item_id=?",
+        (session_id, item_id),
+    ).fetchall()
+    sufficient_cnt = 0
+    for r in rows:
+        try:
+            p = json.loads(r["payload_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if p.get("evidence_sufficient"):
+            sufficient_cnt += 1
+    # 含本次（本次 OBSERVATION_CLASSIFIED 已落）：≥2 即两个不同实例充分观察
+    return sufficient_cnt >= 2
+
+
+def _instance_followup_count(conn, question_id: str) -> int:
+    """实例内 followup 次数（D-25 迁列后的单行读——难度状态机降级判据 2 用）。
+
+    WR-01：接调用方主 conn（同事务自读自写，消除双连接交错窗口）。
+    """
+    row = conn.execute(
+        "SELECT followup_count FROM assessment_question WHERE question_id=?",
+        (question_id,),
+    ).fetchone()
+    return row["followup_count"] if row else 0
+
+
+def _question_item_id(conn, question_id: str) -> str | None:
+    """取实例的 item_id（02-01 列回填后可用；NULL（legacy/未回填）返回 None）。
+
+    WR-01：接调用方主 conn（同事务自读自写，消除双连接交错窗口）。
+    """
+    row = conn.execute(
+        "SELECT item_id FROM assessment_question WHERE question_id=?", (question_id,)
+    ).fetchone()
+    return row["item_id"] if row else None
+
+
+# §11.2「不计入普通失败」七类（技术/无障碍/题目无效/模型不确定/合理质疑/
+# 明确拒答/攻击性事件）——answer_state 分类驱动排除，非候选人源性失败
+# 不触发降级计数（is_valid_failure=False → advance_snapshot 计数器不动）
+_EXCLUDED_FAILURE_STATES = (
+    "TECHNICAL_OR_ACCESS_BARRIER",  # 技术故障 + 无障碍（§11.2 同前一条）
+    "ITEM_INVALID",                 # 题目无效
+    "MODEL_UNCERTAIN",              # 模型不确定
+    "PROCESS_CHALLENGE",            # 合理流程质疑
+    "DECLINED",                     # 明确拒答
+    "CONDUCT_EVENT",                # 攻击性事件
+    "PROMPT_INJECTION",             # 攻击性事件（注入归攻击类——§11.4 处理原则同路）
+)
+
+
+def _advance_difficulty_state(conn, session_id: str, question_id: str,
+                               decision: dict, stable: bool,
+                               followup_ambiguous: bool) -> None:
+    """封存点推进难度状态机（§11.2——一次实例内不升降级，封存后才算一次观察）。
+
+    update_path_state 不 commit（同事务由调用者最终 commit）；item_id NULL
+    （legacy/未回填实例）跳过——无 item 归属即无难度路径。followup_ambiguous：
+    本实例发生过 followup 且证据仍不充分（长但空路径）→ 降级判据 2。
+    """
+    row = conn.execute(
+        "SELECT aq.item_id, ci.required_level FROM assessment_question aq"
+        " LEFT JOIN competency_item ci ON ci.item_id=aq.item_id"
+        " WHERE aq.question_id=?", (question_id,),
+    ).fetchone()
+    if row is None or not row["item_id"]:
+        return
+    answer_state = decision.get("answer_state", "")
+    observation = {
+        "answer_state": answer_state,
+        "evidence_sufficient": bool(decision.get("evidence_sufficient")),
+        "stable_evidence": stable,
+        "is_valid_failure": answer_state not in _EXCLUDED_FAILURE_STATES,
+        "followup_ambiguous": followup_ambiguous,
+    }
+    update_path_state(conn, session_id=session_id, item_id=row["item_id"],
+                       sealed_question_id=question_id, observation=observation,
+                       required_level=row["required_level"])
 
 
 @router.post("/sessions/{session_id}/forms/submit", status_code=status.HTTP_201_CREATED)

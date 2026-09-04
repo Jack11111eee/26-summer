@@ -67,15 +67,31 @@ Plans:
   4. LLM 面试官输出结构化观察（answer_state 分类 11 态 + 证据维度），代码裁决下一步；拒答经一次确认后跳过且记 REFUSED（score_value=0 不进能力等级分母）；followup ≤2 次由代码硬约束
   5. score_live 只用于导航不进最终分；聚合不再有 50/50 合成的 final_score；客观题 answer_key 为空判题库无效而非满分；权重口径为 7:3（config 旧 55/20/20/5 作废）
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
 
-- [ ] 02-01: 表结构演进内嵌迁移（assessment_question 实例列 / question_score 统一 score_final / observable_level 锚点列）+ 权重口径 7:3 修正（config/aggregate/aggregation）
-- [ ] 02-02: 四层动态选题服务替换一次性预选（岗位级 N + 7:3 + tier 公式 + required 例外）
-- [ ] 02-03: 难度路径状态机（升/降/滞回/跳级禁止 + 事件写入）
-- [ ] 02-04: 回答状态分类重构（interviewer 两层化：结构化观察 + 代码裁决；拒答 REFUSED；evidence_sufficient/stable_evidence 布尔裁决）
-- [ ] 02-05: 评分链契约修正（50/50 废除、score_live 仅导航、answer_key 空判题库无效、score_state 分母规则）
+**Wave 1** — schema 基线（后续全部依赖）
+
+- [x] 02-01-PLAN.md — 表结构演进内嵌迁移（三表 ALTER 双轨：assessment_question 实例列 + (session_id,seq) 唯一索引 / question_score.score_state + final_score 合并不 DROP / observable_level 锚点回填 §9.4）+ 权重口径 7:3 三落点（config/aggregate 零比率保护/aggregation 回归断言）—— REF-2.7/2.9/3.7/5.7
+
+**Wave 2** *(blocked on 02-01)* — 选题主体
+
+- [x] 02-02-PLAN.md — 四层动态选题替换一次性预选（select_next_question 全量重写；岗位级 N + 7:3 最大余数 + tier ceil 公式纯函数；required 刚性例外；readiness 第 5 步同源换新；legacy 会话续答兜底；N 默认值 checkpoint 呈报）—— REF-3.1/3.2/3.6/4.1
+
+**Wave 3** *(blocked on 02-01 + 02-02)* — 回答状态两层化（与 02-02 共改 assessment.py/test_m5_backend.py，文件冲突故串行——见下方计划顺序说明）
+
+- [x] 02-04-PLAN.md — 回答状态分类重构（InterviewObservation Pydantic 11 态 + 裁决层纯函数；mock 规则分类器双轨；拒答确认后封存 REFUSED 语义链；followup 迁列 + OBSERVATION 事件）—— REF-1.3/1.6/1.7/4.3/4.4/4.5
+
+**Wave 4** *(blocked on 02-02 + 02-04)* — 难度状态机（需 observation 布尔 + 选题服务）
+
+- [x] 02-03-PLAN.md — 难度路径状态机（path_state_snapshot JSON 快照 + §11.2 全判据纯函数 + DIFFICULTY_RAISED/LOWERED/RESTORED 事件同事务 + 选题层难度承接 + 七类排除清单）—— REF-4.2
+
+**Wave 5** *(blocked on 02-02 + 02-03 + 02-04)* — 评分链原子收尾
+
+- [x] 02-05-PLAN.md — 评分链契约修正（50/50 废除 + score_state 六态口径生产三态 + 分母规则落聚合（SCORED 进 / REFUSED 单列 / INVALIDATED 警告）+ answer_key 空判 INVALIDATED + final_score 四消费点切换后 DROP + m6/m5 断言重写 + eval 冒烟）—— REF-5.1/5.2/5.3/8.1
+
+> 计划顺序说明：ROADMAP 原列表序号不变（02-01→02-02→02-03→02-04→02-05 语义身份保持），执行 wave 按【文件冲突】重排为 01→02→04→03→05——02-02 与 02-04 共改 server/api/assessment.py 与 test_m5_backend.py（两文件均在两者 files_modified），不能同 wave 并行（原建议 wave 2 并行存在真实 files_modified 冲突）；02-03 依赖 02-04 的 answer_state 分类（七类排除）需其后。
 
 ### Phase 3: 表单/SSE/幂等/计时
 
@@ -174,7 +190,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
-| 2. 动态选题与有界循环 | 0/5 | Not started | - |
+| 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-04 |
 | 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |

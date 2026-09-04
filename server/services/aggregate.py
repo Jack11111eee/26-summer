@@ -85,6 +85,13 @@ def _compute_weights(items: list[dict]) -> None:
         by_cat[it["category"]].append(it)
 
     total_ratio = sum(config.CATEGORY_RATIO[c] for c in by_cat)  # 仅出现的类目参与配比
+    if total_ratio == 0:
+        # REF-5.7/§8.2：gate 类（experience/qualification）7:3 下系数为 0，走事实核验不占权重池；
+        # 纯 gate 模型 total_ratio==0 会除零，且尾差吸收块会把 drift=1.0 压给单个 gate item
+        # 使其 weight=1.0（达标即 +100 分，语义错误）——全部置 0 且跳过尾差吸收。
+        for it in items:
+            it["weight"] = 0.0
+        return
     for cat, cat_items in by_cat.items():
         cat_share = config.CATEGORY_RATIO[cat] / total_ratio
         coef_sum = sum(config.IMPORTANCE_COEF[it["importance"]] for it in cat_items)

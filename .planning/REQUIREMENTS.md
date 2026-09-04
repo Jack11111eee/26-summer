@@ -26,11 +26,11 @@
 
 - [ ] **REF-1.1** [P0] 候选人资源级所有权校验：session/report/form/feedback 全部 `WHERE user_id=current`（api/assessment.py 6 处路由）→ Phase 1
 - [ ] **REF-1.2** [一般] 角色限制后端执行收口（随 1.1 越权测试矩阵）→ Phase 1
-- [ ] **REF-1.3** [一般] score_live 由 LLM 直产 1-5 分 → 随 §17 重构（见 REF-5.1）→ Phase 2
+- [x] **REF-1.3** [一般] score_live 由 LLM 直产 1-5 分 → 随 §17 重构（见 REF-5.1）→ Phase 2
 - [ ] **REF-1.4** [保持] call_llm_json 统一 trace 落库（合规，不动）
 - [ ] **REF-1.5** [P0] 状态事件 append-only 体系落地 → Phase 1
-- [ ] **REF-1.6** [结构] 单步"LLM 直接决定 action"重构为观察/裁决两层（§11.3/§11.4）→ Phase 2
-- [ ] **REF-1.7** [结构] LLM 不决定难度迁移/finish（finish 护栏现状合规；难度部分见 REF-4.2）→ Phase 2
+- [x] **REF-1.6** [结构] 单步"LLM 直接决定 action"重构为观察/裁决两层（§11.3/§11.4）→ Phase 2
+- [x] **REF-1.7** [结构] LLM 不决定难度迁移/finish（finish 护栏现状合规；难度部分见 REF-4.2）→ Phase 2
 
 #### 矩阵 §2 数据库（REF-2.1~2.11）——演进随阶段走，Phase 6 收口 schema_version
 
@@ -48,23 +48,23 @@
 
 #### 矩阵 §3 题库与选题（REF-3.1~3.9）
 
-- [ ] **REF-3.1** [结构] 岗位级 N + 7:3 最大余数 + tier 0.8/0.6/1.7 公式（废弃固定 CATEGORY_QUOTA）→ Phase 2
-- [ ] **REF-3.2** [结构] 四层动态选题替换 create_session 一次性预选 → Phase 2
+- [x] **REF-3.1** [结构] 岗位级 N + 7:3 最大余数 + tier 0.8/0.6/1.7 公式（废弃固定 CATEGORY_QUOTA）→ Phase 2
+- [x] **REF-3.2** [结构] 四层动态选题替换 create_session 一次性预选 → Phase 2
 - [ ] **REF-3.3** [结构] experience/qualification 出普通题库，改走表单 → Phase 3
 - [ ] **REF-3.4** [一般] 题库绑定 model/version；升版须重建题库否则阻止开考 → Phase 4
 - [ ] **REF-3.5** [P0] 开考前可测量性检查（题库 readiness/配额可行/表单 schema；不通过阻止开考+管理员待办）→ Phase 1
-- [ ] **REF-3.6** [一般] required 刚性例外（每 item 最多一次、仅 medium/hard）→ Phase 2
-- [ ] **REF-3.7** [结构] 难度→1-5 等级锚点映射（easy[2,3]/medium[3,4]/hard[4,5]，observable_level 列）→ Phase 2
+- [x] **REF-3.6** [一般] required 刚性例外（每 item 最多一次、仅 medium/hard）→ Phase 2
+- [x] **REF-3.7** [结构] 难度→1-5 等级锚点映射（easy[2,3]/medium[3,4]/hard[4,5]，observable_level 列）→ Phase 2
 - [ ] **REF-3.8** [延后] 等值备用题组 —— SSOT 未列入 §28 硬项，矩阵标低优先
 - [ ] **REF-3.9** [延后] 综合题槽位 —— 综合题生成 Prompt 待讨论（SSOT 附录 A / D-030），实现后排
 
 #### 矩阵 §4 会话运行时（REF-4.1~4.12）
 
-- [ ] **REF-4.1** [结构] 动态实例化（每呈现题面新实例；followup 为实例内子轮次）→ Phase 2
-- [ ] **REF-4.2** [结构] 难度路径状态机（升/降/滞回恢复；不计普通失败；跳级禁止）→ Phase 2
-- [ ] **REF-4.3** [结构] evidence_sufficient/stable_evidence 结构化观察维度 + 代码布尔裁决 → Phase 2
-- [ ] **REF-4.4** [结构] answer_state 11 态 + score_state 8 态两层分离 → Phase 2
-- [ ] **REF-4.5** [结构] 各状态处理原则（拒答一次确认后跳过/技术暂停计时/边界设定等）→ Phase 2
+- [x] **REF-4.1** [结构] 动态实例化（每呈现题面新实例；followup 为实例内子轮次）→ Phase 2
+- [x] **REF-4.2** [结构] 难度路径状态机（升/降/滞回恢复；不计普通失败；跳级禁止）→ Phase 2
+- [x] **REF-4.3** [结构] evidence_sufficient/stable_evidence 结构化观察维度 + 代码布尔裁决 → Phase 2
+- [x] **REF-4.4** [结构] answer_state 11 态 + score_state 8 态两层分离 → Phase 2
+- [x] **REF-4.5** [结构] 各状态处理原则（拒答一次确认后跳过/技术暂停计时/边界设定等）→ Phase 2
 - [ ] **REF-4.6** [一般] 真实 SSE（决策非流式先落库，话术逐 token；前端 sse.js 已就绪）→ Phase 3
 - [ ] **REF-4.7** [一般] 接口层 Pydantic 请求/输出 schema（替换裸 dict body）→ Phase 3
 - [ ] **REF-4.8** [结构] 计时区间：全场 40min/单题 20min/服务端权威/暂停写事件/6h ABANDONED → Phase 3
@@ -75,13 +75,13 @@
 
 #### 矩阵 §5 评分与报告（REF-5.1~5.11）
 
-- [ ] **REF-5.1** [结构·核心] score_live 仅导航；废弃 50/50 合成（synthetic final_score 不得用于聚合）→ Phase 2
-- [ ] **REF-5.2** [结构] 客观题 answer_key 空属题库缺陷 → 判题库无效而非满分（漏洞见 REF-8.1）→ Phase 2
-- [ ] **REF-5.3** [结构] 拒答 REFUSED=0 特殊状态值，不进能力等级分母，只进行为/完整度聚合 → Phase 2
+- [x] **REF-5.1** [结构·核心] score_live 仅导航；废弃 50/50 合成（synthetic final_score 不得用于聚合）→ Phase 2
+- [x] **REF-5.2** [结构] 客观题 answer_key 空属题库缺陷 → 判题库无效而非满分（漏洞见 REF-8.1）→ Phase 2
+- [x] **REF-5.3** [结构] 拒答 REFUSED=0 特殊状态值，不进能力等级分母，只进行为/完整度聚合 → Phase 2
 - [ ] **REF-5.4** [结构] item_measurement 统一裁决（废弃按题数均分；冲突取低留人工标记）→ Phase 5
 - [ ] **REF-5.5** [结构] 缺失补算 IMPUTED（r 比例 + 特殊标记 + 覆盖率展示；O=∅ → NO_VALID_OBSERVATION）→ Phase 5
 - [ ] **REF-5.6** [结构] required 缺失 → report_status=PROVISIONAL + HUMAN_REVIEW_REQUIRED → Phase 5
-- [ ] **REF-5.7** [结构] 7:3 权重口径修正（config 旧 55/20/20/5 作废；模块三直接复用 item.weight 不二次乘大类比例）→ Phase 2
+- [x] **REF-5.7** [结构] 7:3 权重口径修正（config 旧 55/20/20/5 作废；模块三直接复用 item.weight 不二次乘大类比例）→ Phase 2
 - [ ] **REF-5.8** [保持] 报告五段式已合规（雷达 required vs actual 合规，保持）
 - [ ] **REF-5.9** [P0] 报告状态机（GENERATING→PROVISIONAL|READY→PUBLISHED|FAILED）+ review_status + 发布前七项一致性校验 + 管理员明确点击发布 + 报告版本化 → Phase 5
 - [ ] **REF-5.10** [P0] score→report 串行（实测前端零步断裂：从不调 POST /score，报告聚合恒 no_data；服务端串联修复）→ Phase 1
@@ -105,7 +105,7 @@
 
 #### 矩阵 §8 矩阵外发现（REF-8.1~8.8）
 
-- [ ] **REF-8.1** [结构] 空 answer_key 客观题恒满分漏洞（并入 REF-5.2）→ Phase 2
+- [x] **REF-8.1** [结构] 空 answer_key 客观题恒满分漏洞（并入 REF-5.2）→ Phase 2
 - [ ] **REF-8.2** [一般] completed 会话仍可重复评分/报告（POST /score、/report 无状态护栏）→ Phase 1
 - [ ] **REF-8.3** [一般] 报告后台任务异常静默 pass（FAILED 态应可见，前端可区分"生成中/失败"）→ Phase 5
 - [ ] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4
