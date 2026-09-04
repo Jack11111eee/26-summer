@@ -128,6 +128,21 @@ Phase 1 完成于章程生效前（2026-09-03），无 DECISIONS 文件。Phase 
 - 决定：IN-01（chain_followed 排序退化——02-VERIFICATION 已记，Phase 4/5 消化）/ IN-02（build_interview_context 死导出——随 REF-7.4）/ IN-03（_looks_like_regex 边界用例表）/ IN-04（aggregate.py 评审清单核对提醒——本轮实际含在该 phase diff 内，已审）/ IN-05（断言优先级括号）/ IN-06（estimated_duration_minutes 魔数——Phase 4 参数化）。全部带入 Phase 3 DECISIONS 遗留区，不阻断
 - 依据：章程 §1「Info 搁置记档，不跑 --fix --all」
 
+## 2026-09-04~05 · §⑥ secure + §⑦ 簿记关账
+
+**[02-014] secure 审计通过（25/25 威胁关闭）**
+- 步骤：§⑥ secure（触发条件成立：5 plan threat_model 含 SQL/LLM 边界/权限面 25 条登记）
+- 决定：02-SECURITY.md（commit 5181460）——23 缓解 + 2 接受（T-02-05 幂等重跑 AR-02-05 / T-02-25 reason 定性文案 AR-02-25），零 Critical open；code-review 修复叠加形态复核无损（CR-01 RuntimeError 降级、WR-01 主 conn）；权限边界回归绿（p0_security 10/10）；审计基于 HEAD 0c608c4 实测（151 项测试）
+- 依据：剧本 §⑥「无 Critical/高危 → 归档续行」；章程 §1「secure-phase 报告无 Critical/高危发现 → 自动确认归档，续行」
+
+**[02-015] Phase 2 关账**
+- 步骤：§⑦ 簿记关账
+- 决定：Phase 2 七步全部完成——① discuss（8 灰区 auto 采选）② plan 四连（2 轮 checker 修订收敛）③ execute 5 waves（5/5 合入）④ verify（5/5 Truths VERIFIED）⑤ code-review + fix（16 findings：10 修复 + 6 Info 搁置）⑥ secure（25/25 关闭）⑦ 本条。STATE/ROADMAP 已收口（Phase 2 Complete 2026-09-04 / 5-5）；下一动作 Phase 3 ① discuss（停在 Phase 3 硬关口 A）
+- 要点移交 Phase 3 关口包（第 5 项遗留处置）：WR-04 §10.5/§11.2 张力（SSOT 裁决项 [02-013a]）；chain_followed 排序退化（Phase 4/5）；IN-01~06；现实 LLM 质量验证（售后 D-027）
+- 依据：剧本 §⑦ + §3 关口包清单
+
+
+
 
 
 
