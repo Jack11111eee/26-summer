@@ -44,8 +44,13 @@ export const assessment = {
   submitAnswer: (sessionId, questionId, answer, callbacks) =>
     streamAnswer(sessionId, questionId, answer, callbacks),
   getForm: (formId) => api.get(`/assessment/forms/${formId}`),
-  submitForm: (sessionId, formType, payload) =>
-    api.post(`/assessment/sessions/${sessionId}/forms/submit`, { form_type: formType, payload }),
+  submitForm: (sessionId, formInstanceId, payload, expectedRevision = 1) =>
+    api.post(`/assessment/sessions/${sessionId}/forms/submit-v2`, {
+      form_instance_id: formInstanceId,
+      payload,
+      expected_revision: expectedRevision,
+      schema_version: 'v1'
+    }),
   // 报告（M6）：异步生成（202）+ 轮询 by-session + 按 id 取 + 异议反馈
   generateReport: (sessionId) => api.post(`/assessment/sessions/${sessionId}/report`),
   getReportBySession: (sessionId) => api.get(`/assessment/reports/by-session/${sessionId}`),

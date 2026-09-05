@@ -98,7 +98,7 @@
             · 补算 {{ report.coverage.imputed_count }}
             <div v-if="report.coverage.missing_reasons?.length" class="missing-reasons">
               缺失：
-              <span v-for="m in report.coverage.missing_reasons" :key="m.item_id">{{ m.std_name }}（{{ m.reason }}）</span>
+              <span v-for="m in report.coverage.missing_reasons" :key="m.item_id">{{ m.std_name }}（{{ reasonLabel(m.reason) }}）</span>
             </div>
           </div>
           <div class="table-wrap">
@@ -321,6 +321,20 @@ function scoreTagClass(s) {
   if (s >= 4) return 'tag-green'
   if (s >= 3) return 'tag-amber'
   return 'tag-red'
+}
+
+// 缺失原因 score_state → 中文（D-79 契约修复：后端 missing_reasons.reason 返回原始
+// code，前端映射可读文案；未知 code 原样回退）
+const REASON_LABELS = {
+  INVALIDATED: '无效',
+  INCOMPLETE: '未完成',
+  INSUFFICIENT_EVIDENCE: '证据不足',
+  NOT_ADMINISTERED: '未施测',
+  CONFLICT: '冲突',
+  HUMAN_REVIEW_REQUIRED: '需人工复核'
+}
+function reasonLabel(code) {
+  return REASON_LABELS[code] || code || '—'
 }
 
 // 明细行理由：question_reviews 已携带 item_id，按 item_id 精确匹配
