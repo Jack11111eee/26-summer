@@ -281,7 +281,7 @@ def list_orphan_jds() -> list[dict]:
 
 **改动面（D-52）：**
 1. 把 `list_orphan_jds`（`@router.get("/jds/orphan")`）整体迁到 `jds.py`，声明位置放在 `list_jds`（line 68）之后、`jd_detail`（line 79）**之前**——同文件内声明序可控，`/jds/{jd_id}` 不再吞 `orphan`。
-2. 字段/status 口径：**取现有 positions.py 实现为准**（字段子集 `jd_id/job_title/company/source_type/status/created_at` + `AND status != 'failed'`，与 `get_todos` 的 orphan 计数口径一致）。D-52 的「字段同 list_jds」理解为「风格同 list_jds」而非逐字段（RESEARCH Open Question 1 的推荐；规划时敲定口径并在 checker 前闭环）。
+2. 字段/status 口径：**【待硬关口 A 裁定的 pending 决策】**——选项 A（D-52 字面：字段同 list_jds、WHERE position_id IS NULL、无 status 过滤）vs 选项 B（现有 positions.py 实现：字段子集 `jd_id/job_title/company/source_type/status/created_at` + `AND status != 'failed'`，与 `get_todos` 的 orphan 计数口径一致）。默认按选项 B 实现，待用户裁决后锁定（已由 04-02 计划呈报硬关口 A）。
 
 **landmine（orphan 双路由）：** 迁移后必须移除 `positions.py` 的 `list_orphan_jds`，否则两个同路径路由并存（首个声明生效，positions 版成死代码）。
 
@@ -423,11 +423,11 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 | L4 | WR-15 过滤漂移 | `readiness.py` 三处 + `question_selection.py:233` | readiness 判足量但 selection 选不到/选旧版 | 四地同步 `AND model_id=? AND model_version=?` |
 | L5 | FAILED 分支落空 | `readiness.py:104-105` | 升版生成失败仍开考 | 显式 FAILED → INCOMPLETE + error_msg[:200] |
 
-## Open Questions（规划时敲定，checker 前闭环）
+## Open Questions（已由 04-02 计划呈报硬关口 A 待裁定）
 
-1. **orphan 列表字段/status 口径**：取现有 `positions.py:87-95` 实现（字段子集 + `AND status != 'failed'`）为准；D-52「字段同 list_jds」理解为「风格同」而非逐字段。
-2. **todos 失败明细结构**：`question_bank_not_ready`（int）保持 + 新增 `question_bank_failed`（list）；是否去重 position、是否过滤空 error_msg，规划时定。
-3. **前端是否加「题库失败」卡**：D-51「前端零破坏」倾向不强制前端改动，但需与「生成失败对管理员可见」验收口径对齐。
+1. **orphan 列表字段/status 口径**：【待硬关口 A 裁定】选项 A（D-52 字面：字段同 list_jds、无 status 过滤）vs 选项 B（现有 `positions.py:87-95` 实现：字段子集 + `AND status != 'failed'`，与 `get_todos` 计数一致）。默认选项 B，待用户裁决后锁定。
+2. **todos 失败明细结构**：已落定——`question_bank_not_ready`（int）保持 + 新增 `question_bank_failed`（list）。实现细节（是否去重 position、过滤空 error_msg）由执行时定。
+3. **前端是否加「题库失败」卡**：【待硬关口 A 裁定】D-51「前端零破坏」倾向不强制前端改动，但需与「生成失败对管理员可见」验收口径对齐。
 
 ## Metadata
 

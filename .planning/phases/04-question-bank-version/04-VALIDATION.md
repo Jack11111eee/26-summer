@@ -67,7 +67,7 @@ created: 2026-09-05
 | orphan 列表字段口径 + status 过滤 | REF-7.1（D-52） | D-52 字面「字段同 list_jds / WHERE position_id IS NULL」与现有 `positions.py:87` 实现「字段子集 + `AND status != 'failed'`」不一致；与 `get_todos` orphan 计数口径是否统一属裁量 | 关口包呈现：现有实现为准（字段子集 + status != 'failed'，与 get_todos 计数一致）推荐 / D-52 字面（全字段无 status 过滤）两选项——用户裁定 |
 | admin todos 失败明细字段结构 + 前端是否新增展示卡 | REF-8.4（D-51） | D-51 允许 `question_bank_failed` 新键 vs `question_bank_not_ready` 内嵌；前端 Positions.vue 当前未展示 question_bank_not_ready——「失败对管理员可见」验收口径需裁定 | 关口包呈现：后端「计数 + question_bank_failed 明细」推荐（前端零破坏）+ 前端新增「题库失败」卡是否纳入本 phase 两选项——用户裁定 |
 
-*上表两项为决策类 checkpoint——已于 2026-09-05 硬关口 A 裁定（见 04-DECISIONS [04-009]~[04-010]），执行段不再停车。*
+*上表两项为决策类 checkpoint——**待硬关口 A 用户裁定**，执行段前必须用户裁决，不得代确认。*
 
 ---
 
