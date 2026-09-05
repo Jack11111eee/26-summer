@@ -216,11 +216,12 @@ def _load_model_items(conn, model_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def _load_candidate_rows(conn, position_id: str, model_id: str | None) -> list[dict]:
-    """层①合法性过滤的候选池（沿用旧 :23-28 WHERE 口径 + 版本近似）。
+def _load_candidate_rows(conn, position_id: str, model_id: str | None,
+                         model_version: int | None) -> list[dict]:
+    """层①合法性过滤的候选池（§10.6 + REF-3.4 强制 model/version 绑定）。
 
-    版本归属近似（Phase 4 前过渡）：题库行 model_id IS NULL 或等于会话 model_id
-    → 放行（存量/m5 种子全 NULL 统一放行；Phase 4 REF-3.4 收紧为强制绑定）。
+    Phase 4 收紧：b.model_id=? AND b.model_version=?（去掉 NULL 放行）——
+    升版后旧版题库不再命中新会话（D-50）。
     """
     rows = conn.execute(
         "SELECT b.*, ci.weight AS item_weight, ci.importance AS item_importance,"
@@ -230,8 +231,8 @@ def _load_candidate_rows(conn, position_id: str, model_id: str | None) -> list[d
         " AND ci.model_id=?"
         " WHERE b.status='active' AND b.category IN ('hard_skill','soft_skill')"
         " AND (b.scope='general' OR (b.scope='position' AND b.position_id=?))"
-        " AND (b.model_id IS NULL OR ? IS NULL OR b.model_id=?)",
-        (model_id, position_id, model_id, model_id),
+        " AND b.model_id=? AND b.model_version=?",
+        (model_id, position_id, model_id, model_version),
     ).fetchall()
     out = []
     for r in rows:
@@ -296,7 +297,8 @@ def _select_next_question_locked(conn, session_id: str) -> dict | None:
 
     model_id = session["model_id"]
     items = _load_model_items(conn, model_id)
-    candidates = _load_candidate_rows(conn, session["position_id"], model_id)
+    candidates = _load_candidate_rows(conn, session["position_id"], model_id,
+                                      session["model_version"])
     # 难度承接（02-03）：各 item 最新封存 snapshot 的目标难度口径
     snapshot_targets = _snapshot_target_difficulty(conn, session_id)
 

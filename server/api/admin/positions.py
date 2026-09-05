@@ -25,11 +25,19 @@ def get_todos() -> dict:
     question_bank_not_ready = conn.execute(
         "SELECT COUNT(DISTINCT position_id) c FROM question_bank_task WHERE status != 'SUCCEEDED'"
     ).fetchone()["c"]
+    # 题库生成失败明细（D-51/REF-8.4）：status='FAILED' 任务行（error_msg 入库时已 str(e)[:200] 截断）
+    question_bank_failed = [
+        dict(r) for r in conn.execute(
+            "SELECT position_id, model_id, model_version, error_msg FROM question_bank_task"
+            " WHERE status='FAILED'"
+        ).fetchall()
+    ]
     return {
         "pending_positions": pending_positions,
         "stalled_models": stalled,
         "orphan_jds": orphan_jds,
         "question_bank_not_ready": question_bank_not_ready,
+        "question_bank_failed": question_bank_failed,
     }
 
 
