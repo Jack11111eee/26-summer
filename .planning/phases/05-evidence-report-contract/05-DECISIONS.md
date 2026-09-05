@@ -79,3 +79,16 @@
 执行落地 commit `fb4d139`；`05-05-SUMMARY.md` status=complete。
 
 遗留（非阻断）：缺失原因 `reason` 为内部 score_state 码（INVALIDATED 等）或「qualification 缺失（不补算）」中文串，前端按原样展示未做码→中文映射，SSOT「展示缺失原因」契约已满足。
+
+## re-verify 记录（gap-closure 后，§1 非阻断发现 → 记档带入下一 phase）
+
+| ID | 日期 | 步骤 | 决定 | 依据 |
+|----|------|------|------|------|
+| [05-018] | 2026-09-05 | re-verify（gsd-verifier） | **human_needed，5/5 must-haves，gaps_remaining=[]，无回归**。SC #2 前端缺口已由 05-05 闭合（代码+构建+后端测试全绿） | 05-VERIFICATION.md |
+
+处置：`human_needed` 为「用户界面相目验」，非阻断缺口（5/5 全通过、无 gaps）。按 §1「verify 非阻断发现 → 记档带入下一 phase，不停」：2 项人工目验（①IMPUTED 徽标/覆盖率视觉呈现 ②管理员发布流）落 `05-HUMAN-UAT.md` 持久化，随 `/gsd:progress`、`/gsd:audit-uat` 浮现，用户有空时目验即可；不阻塞 secure / closeout。
+
+带入下一 phase（Phase 6）计划的两条非阻断遗留：
+1. 前端人工目验项（05-HUMAN-UAT.md 2 条，视觉/交互）
+2. 缺失原因 `reason` score_state 码未做中文映射（05-05-SUMMARY 遗留）
+
