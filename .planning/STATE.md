@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-02-PLAN.md (item_measurement 统一裁决 + IMPUTED 补算 + required 缺失 PROVISIONAL)
-last_updated: "2026-09-05T10:10:42.284Z"
+stopped_at: Completed 05-03-PLAN.md (report publish state machine + 7 consistency checks + versioned INSERT + publish endpoint + trace_link)
+last_updated: "2026-09-05T10:47:10.679Z"
 last_activity: 2026-09-05
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 20
-  completed_plans: 18
+  completed_plans: 19
   percent: 67
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 05 (evidence-report-contract) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-09-05
 
@@ -59,6 +59,7 @@ Last activity: 2026-09-05
 | Phase 04 P02 | 5min | 3 tasks | 5 files |
 | Phase 05 P01 | 9min | 3 tasks | 5 files |
 | Phase 05 P02 | 5min | 3 tasks | 3 files |
+| Phase 05 P03 | 9min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase 05]: IMPUTE_RATIO_THRESHOLD=0.2；可测量普通 item = 非 gate 且 importance≠required 且 category≠qualification
 - [Phase 05]: 测试纯函数懒导入 adjudicate/_impute_r/_normalize_score（Task 2 子集先可收集，Task 3 落地 _impute_r）
 - [Phase 05]: aggregate 新增 coverage/review_status/observation_status/provisional；report.py 透传（状态机落库属 05-03）
+- [Phase 05]: 05-03 存量回填 PUBLISHED+NONE+version=1；REVIEW_STATUSES 六值含 HUMAN_REVIEW_REQUIRED；HIRING_REDLINE_WORDS 六词表集中 report_checks.py（关口 A 裁决）
+- [Phase 05]: 05-03 校验②改 agg-vs-DB weight 一致性（m6 种子 Σ=0.40，绝对值 Σ≈1.0 失真）；校验⑦加 report_text 参数扫红线词
+- [Phase 05]: 05-03 report→trace 写点：generate_report 落 report 行后 link_entity reported(report)/source(session)，闭合 D-56 五要素
 
 ### Pending Todos
 
@@ -110,6 +114,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-05T10:10:42.269Z
-Stopped at: Completed 05-02-PLAN.md (item_measurement 统一裁决 + IMPUTED 补算 + required 缺失 PROVISIONAL)
+Last session: 2026-09-05T10:47:10.665Z
+Stopped at: Completed 05-03-PLAN.md (report publish state machine + 7 consistency checks + versioned INSERT + publish endpoint + trace_link)
 Resume file: None

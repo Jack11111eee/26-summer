@@ -185,7 +185,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 05-03: 报告状态机 + 七项发布校验 + 报告版本化（不可变版本，防 feedback 外键断裂）+ 失败显式可见
+- [x] 05-03: 报告状态机 + 七项发布校验 + 报告版本化（不可变版本，防 feedback 外键断裂）+ 失败显式可见
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -225,5 +225,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-05 |
 | 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
 | 4. 题库版本绑定与模块一收口 | 2/2 | Complete   | 2026-09-05 |
-| 5. 证据链与报告契约 | 2/4 | In Progress|  |
+| 5. 证据链与报告契约 | 3/4 | In Progress|  |
 | 6. 迁移体系与测试闭环收口 | 0/5 | Not started | - |

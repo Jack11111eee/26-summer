@@ -83,7 +83,7 @@
 - [x] **REF-5.6** [结构] required 缺失 → report_status=PROVISIONAL + HUMAN_REVIEW_REQUIRED → Phase 5
 - [x] **REF-5.7** [结构] 7:3 权重口径修正（config 旧 55/20/20/5 作废；模块三直接复用 item.weight 不二次乘大类比例）→ Phase 2
 - [ ] **REF-5.8** [保持] 报告五段式已合规（雷达 required vs actual 合规，保持）
-- [ ] **REF-5.9** [P0] 报告状态机（GENERATING→PROVISIONAL|READY→PUBLISHED|FAILED）+ review_status + 发布前七项一致性校验 + 管理员明确点击发布 + 报告版本化 → Phase 5
+- [x] **REF-5.9** [P0] 报告状态机（GENERATING→PROVISIONAL|READY→PUBLISHED|FAILED）+ review_status + 发布前七项一致性校验 + 管理员明确点击发布 + 报告版本化 → Phase 5
 - [ ] **REF-5.10** [P0] score→report 串行（实测前端零步断裂：从不调 POST /score，报告聚合恒 no_data；服务端串联修复）→ Phase 1
 - [ ] **REF-5.11** [一般] score_live/score_final 双分背离 ≥ 阈值自动创建 bad case 候选（不自动改分）→ Phase 6
 
@@ -107,7 +107,7 @@
 
 - [x] **REF-8.1** [结构] 空 answer_key 客观题恒满分漏洞（并入 REF-5.2）→ Phase 2
 - [ ] **REF-8.2** [一般] completed 会话仍可重复评分/报告（POST /score、/report 无状态护栏）→ Phase 1
-- [ ] **REF-8.3** [一般] 报告后台任务异常静默 pass（FAILED 态应可见，前端可区分"生成中/失败"）→ Phase 5
+- [x] **REF-8.3** [一般] 报告后台任务异常静默 pass（FAILED 态应可见，前端可区分"生成中/失败"）→ Phase 5
 - [x] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4
 - [ ] **REF-8.5** [一般] 模型 items 为空不阻断开考（并入 REF-3.5 开考检查）→ Phase 1
 - [ ] **REF-8.6** [一般] mock interviewer 主观题固定 3 分（测试重构时处理）→ Phase 6
