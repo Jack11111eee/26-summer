@@ -50,13 +50,29 @@ def _assert_report_transition(from_state: str, to_state: str) -> None:
 def _insert_report_row(conn, session_id: str, *, status: str, report_json: dict,
                        review_status: str | None = None, total_score: float = 0.0,
                        gate_passed: int = 0, report_id: str | None = None) -> str:
-    """版本化 INSERT report 行（不 DELETE 覆盖），返回 report_id。发布字段本计划置 NULL。"""
+    """写终态 report 行：优先把 GENERATING 占位行原地转终态（复用版本，不残留占位行），
+    无占位则版本化 INSERT。返回 report_id。发布字段本计划置 NULL。"""
     _assert_report_status(status)
+    if report_id is None:
+        report_id = new_id("rpt")
+    placeholder = conn.execute(
+        "SELECT report_id FROM report WHERE session_id=? AND report_status='GENERATING'"
+        " ORDER BY created_at DESC, version DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    if placeholder is not None:
+        conn.execute(
+            "UPDATE report SET report_id=?, total_score=?, gate_passed=?, report_json=?,"
+            " report_status=?, review_status=?, created_at=?"
+            " WHERE report_id=? AND report_status='GENERATING'",
+            (report_id, total_score, gate_passed,
+             json.dumps(report_json, ensure_ascii=False), status, review_status, now_iso(),
+             placeholder["report_id"]),
+        )
+        return report_id
     version = 1 + (conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM report WHERE session_id=?", (session_id,)
     ).fetchone()[0] or 0)
-    if report_id is None:
-        report_id = new_id("rpt")
     conn.execute(
         "INSERT INTO report(report_id, session_id, total_score, gate_passed, report_json,"
         " report_status, review_status, version, created_at)"
