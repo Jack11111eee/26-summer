@@ -38,3 +38,33 @@
 | 存量 report 行回填默认值 | **`PUBLISHED` + `NONE` + `version=1`** | 05-03 `_migrate_report_phase5` 回填 |
 
 附注（非硬关口，已定值透明记录）：review_status 六值并集（D-60 `HUMAN_REVIEW_REQUIRED` 并入 §21.1 五值）；七项校验「录用判断」词表 = D-002 红线词表（Phase 6 bad case 收口）。
+
+## code-review + fix 记录（§1 代确认：Critical/Warning 自动 --fix）
+
+| ID | 日期 | 步骤 | 决定 | 依据 |
+|----|------|------|------|------|
+| [05-014] | 2026-09-05 | code-review --fix（auto） | 12 发现（1 Critical CR-01 + 6 Warning WR-01~06 + 5 Info IN-01~05）；自动 fix Critical+Warning 共 7 条，Info 搁置记档 | 章程 §1「Critical/Warning 自动 --fix」「Info 搁置不跑 --all」 |
+
+修复落地（7 条，原子 commit，`05-REVIEW-FIX.md` status=all_fixed）：
+- CR-01 冲突 human_review 传导 PROVISIONAL/HUMAN_REVIEW_REQUIRED（aggregation.py）
+- WR-01 coverage_ratio 分子分母同口径 + 补算复核改 imputed 比例
+- WR-02 校验①改用未四舍五入内部分（展示层才 round）
+- WR-03 publish 同步 review_status=CONFIRMED
+- WR-04 report trace 导入回退映射到 assessment_session
+- WR-05 复用 GENERATING 占位行（不残留孤儿占位、不污染版本号）
+- WR-06 红线校验⑦只扫 LLM 文案（strengths/weaknesses/suggestions），不扫候选人答案/题干
+
+## verify 硬关口停车（§2 类阻断缺口，非 §1 可代确认）
+
+| 项 | 内容 |
+|----|------|
+| ID | [05-015] |
+| 日期 | 2026-09-05 |
+| 步骤 | verify（gsd-verifier）|
+| 结果 | **gaps_found**，4/5 must-haves（成功率 4/5）|
+| 缺口 | SC #2 前端展示缺口：`web/src/views/assessment/Report.vue` 未渲染 IMPUTED 特殊视觉标记、未展示 coverage 字典（观察覆盖率/真实观察数/缺失原因）。后端 `imputed=True` + `coverage{observed_count/imputed_count/total_measureable/coverage_ratio/missing_reasons}` 已完整透传进 report_data，「数据已就位、前端未接线」 |
+| 契约依据 | SSOT §20.1「IMPUTED…必须特殊视觉标记 + 展示观察覆盖率/真实观察数/缺失原因」、§21.1「雷达图 IMPUTED 特殊标记」；Phase 5 SC #2 |
+| 处置 | **停车等用户裁决**。闭合需 gap-closure 计划（→ 触及 §2.1 plan 审查硬关口）+ 存在 UI 呈现歧义（标记形态/覆盖率展示布局）。关联非阻断 Info：IN-02（itemReason std_name 匹配）可与本缺口同任务收口 |
+| 关联需求 | REF-5.5（PARTIAL，仅前端展示缺）|
+
+后端测试全绿（evidence 6 / report 11 / feedback 3 / m6 44 / m7 5）；`test_p0_chain.py::test_completed_session_guardrail` 为既有 [04-011] 题库版本化涟漪（缺种子题），非本 phase 回归，记档待 Phase 6。
