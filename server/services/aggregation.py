@@ -48,16 +48,19 @@ def _load_form_payload(session_id: str) -> dict:
 def _gate_row(conn, session_id: str, item_id: str) -> tuple | None:
     """新链 gate 行（表单链 submit-v2 写 question_score gate 结构化结果）。
 
-    返回 (gate_result, gate_reason) 或 None（无 gate 行——旧链 form_submission 兜底）。
+    返回 (effective_result, gate_reason) 或 None（无 gate 行——旧链 form_submission 兜底）。
+    人工覆盖（human_override，admin gate-override 写入）优先于自动化 gate_result，
+    否则覆盖无下游消费者（WR-05）。
     """
     row = conn.execute(
-        "SELECT gate_result, gate_reason FROM question_score"
+        "SELECT gate_result, gate_reason, human_override FROM question_score"
         " WHERE session_id=? AND item_id=? AND gate_result IS NOT NULL LIMIT 1",
         (session_id, item_id),
     ).fetchone()
     if row is None:
         return None
-    return (row["gate_result"], row["gate_reason"])
+    effective = row["human_override"] if row["human_override"] is not None else row["gate_result"]
+    return (effective, row["gate_reason"])
 
 
 def _gate_check(item: dict, form_payload: dict) -> tuple[bool, str]:

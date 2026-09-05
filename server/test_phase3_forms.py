@@ -582,13 +582,21 @@ def test_admin_override_requires_reason():
     assert r.status_code == 422, r.text
 
     r = client.post("/api/admin/forms/gate-override",
-                    json={"session_id": sid, "item_id": item_id, "human_override": True,
-                          "override_reason": "人工复核通过"}, headers=admin)
+                    json={"session_id": sid, "item_id": item_id, "human_override": False,
+                          "override_reason": "人工复核不通过"}, headers=admin)
     assert r.status_code == 200, r.text
     row = _q("SELECT human_override, reviewer_id FROM question_score WHERE session_id=? AND item_id=?", (sid, item_id))[0]
     assert row["human_override"] is not None
     assert row["reviewer_id"] is not None
     assert _q("SELECT COUNT(*) c FROM assessment_state_event WHERE session_id=? AND event_type='GATE_OVERRIDDEN'", (sid,))[0]["c"] >= 1
+
+    # WR-05：覆盖须在聚合中生效（human_override 优先于自动化 gate_result）——
+    # 本会话 gate 行自动化 gate_result='true'（years=5 ≥ 3），覆盖为 False 后
+    # 聚合 gate_items.passed 应翻转为 False（覆盖不再是无下游消费者的 no-op）。
+    from server.services.aggregation import aggregate_session_scores
+    agg = aggregate_session_scores(sid)
+    overridden = [g for g in agg["gate_items"] if g["item_id"] == item_id][0]
+    assert overridden["passed"] is False, "human_override=False 应优先于 gate_result='true' 生效"
 
     r = client.post("/api/admin/forms/gate-override",
                     json={"session_id": sid, "item_id": item_id, "human_override": True,
