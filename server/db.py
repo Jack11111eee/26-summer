@@ -227,7 +227,7 @@ CREATE TABLE IF NOT EXISTS question_score (
 -- revision 不可变：修订 = INSERT 新行 revision+1（同 form_instance_id），旧行 UPDATE status='superseded'；
 -- render 触发（assessment 池耗尽未采集 gate）→ GET /forms/{id} 白名单 → submit-v2 六维校验消费。
 CREATE TABLE IF NOT EXISTS form_instance (
-  form_instance_id TEXT PRIMARY KEY,
+  form_instance_id TEXT NOT NULL,
   session_id       TEXT NOT NULL REFERENCES assessment_session,
   form_type        TEXT NOT NULL,
   schema_version   TEXT NOT NULL,
@@ -236,7 +236,8 @@ CREATE TABLE IF NOT EXISTS form_instance (
   revision         INTEGER NOT NULL DEFAULT 1,
   payload_json     TEXT,
   created_at       TEXT NOT NULL,
-  submitted_at     TEXT
+  submitted_at     TEXT,
+  PRIMARY KEY (form_instance_id, revision)
 );
 
 -- ============ 模块三新增（07 文档 §10.5，2 张表）============
@@ -542,7 +543,7 @@ def _migrate_form_instance(conn: sqlite3.Connection) -> None:
     """
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS form_instance (
-      form_instance_id TEXT PRIMARY KEY,
+      form_instance_id TEXT NOT NULL,
       session_id       TEXT NOT NULL REFERENCES assessment_session,
       form_type        TEXT NOT NULL,
       schema_version   TEXT NOT NULL,
@@ -551,7 +552,8 @@ def _migrate_form_instance(conn: sqlite3.Connection) -> None:
       revision         INTEGER NOT NULL DEFAULT 1,
       payload_json     TEXT,
       created_at       TEXT NOT NULL,
-      submitted_at     TEXT
+      submitted_at     TEXT,
+      PRIMARY KEY (form_instance_id, revision)
     );
     """)
 

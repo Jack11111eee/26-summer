@@ -24,6 +24,7 @@ question_score 应已落库且报告雷达/逐题评分非空（断言不经 Pyt
 """
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -164,6 +165,8 @@ def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
 
     02-02 动态选题：改为每轮 GET /sessions/{id} 取 current_question → POST answer
     循环（零预选后预读 assessment_question 必空）；GET 返回 None 即完卷。
+    03-01 表单链：action=='form' 时提取 📎[form:id] → submit-v2（gate 项白名单值），
+    完成语义恢复 finish 后继续下一轮 GET。
     """
     questions: list[dict] = []
     while True:
@@ -179,7 +182,21 @@ def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
             headers=headers,
         )
         assert r.status_code == 200, r.text
-        assert r.json()["action"] in ("next", "finish"), r.text
+        assert r.json()["action"] in ("next", "finish", "form"), r.text
+        if r.json()["action"] == "form":
+            # 表单步骤（03-01）：提取 form_instance_id → submit-v2（experience 项填年限）
+            reply = r.json().get("reply", "")
+            m = re.search(r"📎\[form:([^\]]+)\]", reply)
+            assert m, f"reply 应含 📎[form:id]，实得 {reply}"
+            form_id = m.group(1)
+            r = client.post(
+                f"/api/assessment/sessions/{sid}/forms/submit-v2",
+                json={"form_instance_id": form_id, "schema_version": "v1",
+                      "expected_revision": 1, "payload": {"years_of_experience": 5}},
+                headers=headers,
+            )
+            assert r.status_code in (200, 201), r.text
+            assert r.json()["action"] in ("finish", "next"), r.text
     sess = _q("SELECT status FROM assessment_session WHERE session_id=?", (sid,))[0]
     assert sess["status"] == "completed"
     return questions

@@ -133,7 +133,7 @@ def _seed_question_bank(pid: str) -> None:
         conn.execute(
             "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (new_id("qb"), scope, position_id, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, "human", "active", now),
         )

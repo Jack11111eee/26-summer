@@ -38,7 +38,7 @@ _FORM_BASE_FIELDS = [
 ]
 
 
-def _whitelist(snapshot: dict) -> dict:
+def whitelist_form(snapshot: dict) -> dict:
     """渲染白名单 dict：form_type/title + fields 逐项滤白名单键（max_len 等内部列剥离）。"""
     return {
         "form_type": snapshot.get("form_type"),
@@ -72,7 +72,7 @@ def render_form_instance(conn, session_id: str) -> dict:
     ).fetchone()
     if row is not None:
         snapshot = json.loads(row["schema_snapshot"])
-        return {"form_instance_id": row["form_instance_id"], **_whitelist(snapshot)}
+        return {"form_instance_id": row["form_instance_id"], **whitelist_form(snapshot)}
 
     fields = list(_FORM_BASE_FIELDS)
     for it in _gate_items(conn, session_id):
@@ -93,7 +93,7 @@ def render_form_instance(conn, session_id: str) -> dict:
                  actor_type="system",
                  payload={"form_instance_id": fi_id, "form_type": snapshot["form_type"],
                           "schema_version": FORM_SCHEMA_VERSION})
-    return {"form_instance_id": fi_id, **_whitelist(snapshot)}
+    return {"form_instance_id": fi_id, **whitelist_form(snapshot)}
 
 
 def _all_gate_items_collected(conn, session_id: str) -> bool:

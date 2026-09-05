@@ -94,3 +94,13 @@ class InterviewObservation(BaseModel):
     # score_live 属观察层输出（REF-1.3——LLM 直产 1-5 分仅导航用途）
     score_live: Optional[int] = Field(None, ge=1, le=5)
     score_live_reason: Optional[str] = None
+
+
+# ---- Phase 3 表单提交（SSOT §16.1/D-46）----
+class FormSubmitRequest(BaseModel):
+    form_instance_id: str = Field(min_length=1)
+    schema_version: str = Field(min_length=1)
+    expected_revision: int = Field(ge=1, default=1)
+    payload: dict
+    # D-36 本期占位（03-03 接幂等链）
+    idempotency_key: Optional[str] = None

@@ -6,7 +6,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from .. import config as _config
 from ..core.security import load_owned_report, load_owned_session, require_login
 from ..db import get_conn
+from ..schemas import FormSubmitRequest
 from ..services.difficulty import update_path_state
+from ..services.forms import (
+    _all_gate_items_collected,
+    render_form_instance,
+    validate_and_submit,
+    whitelist_form,
+)
 from ..services.interview import decide_next_action
 from ..services.pipeline import new_id, now_iso
 from ..services.question_selection import exception_granted_items, select_next_question
@@ -156,6 +163,15 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
     else:
         exceptions = len(exception_granted_items(conn, session_id))
         total = _config.ORDINARY_PLAN_N + exceptions
+    # open_form：rendered 实例存在时返回渲染白名单（FormCard 刷新恢复表单），否则 None
+    open_form = None
+    of = conn.execute(
+        "SELECT schema_snapshot FROM form_instance"
+        " WHERE session_id=? AND status='rendered' ORDER BY revision DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    if of is not None:
+        open_form = whitelist_form(json.loads(of["schema_snapshot"]))
     return {
         "session_id": s["session_id"],
         "status": s["status"],
@@ -164,7 +180,29 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         "current_question": dict(cur) if cur else None,
         "answered_count": answered,
         "total_count": total,
+        "open_form": open_form,
     }
+
+
+def _render_form_branch(conn, session_id: str, question_id: str, decision: dict) -> dict:
+    """池耗尽且 gate 未采集（D-30）→ 渲染表单 + assistant 消息（📎[form:id] 标记）+ commit。
+
+    Chat.vue:159-160 extractFormId 正则 `/📎\[form:([^\]]+)\]/` 逐字对齐；表单无决策推进，
+    next_question_id=None（前端据 action='form' 渲染表单，不再 GET current_question）。
+    """
+    fi = render_form_instance(conn, session_id)
+    # reply 与 assistant 消息 content 同串：前端 Chat.vue extractFormId 从消息/响应 reply
+    # 提取 📎[form:id] 标记（决策 reply + 表单提示，逐字对齐正则 /📎\[form:([^\]]+)\]/）
+    reply = decision["reply"] + f" 请先填写资格核验表单 📎[form:{fi['form_instance_id']}]"
+    conn.execute(
+        "INSERT INTO assessment_message(message_id, session_id, question_id, role, content,"
+        " action, created_at) VALUES(?,?,?,?,?,?,?)",
+        (new_id("msg"), session_id, question_id, "assistant", reply, "form", now_iso()),
+    )
+    conn.commit()
+    return {"action": "form", "reply": reply,
+            "question_id": question_id, "next_question_id": None,
+            "score_live": decision["score_live"]}
 
 
 @router.post("/sessions/{session_id}/answer")
@@ -321,7 +359,10 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
         picked = select_next_question(session_id)
         _is_legacy_session = bool(picked and picked.get("legacy"))
         if picked is None:
-            # 可选池耗尽（普通计划 + required 例外全完成）→ finish 收尾
+            # 可选池耗尽（普通计划 + required 例外全完成）→ 先判 gate 全采集（D-30）：
+            # 未采集走表单 render（📎[form:id] 标记），已采集才 finish 收尾
+            if not _all_gate_items_collected(conn, session_id):
+                return _render_form_branch(conn, session_id, question_id, decision)
             conn.execute(
                 "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
                 (now_iso(), session_id),
@@ -341,6 +382,9 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
                 (session_id,),
             ).fetchone()
             if nxt is None:
+                # legacy 会话同样先判 gate 全采集（D-30 两处对称插入）
+                if not _all_gate_items_collected(conn, session_id):
+                    return _render_form_branch(conn, session_id, question_id, decision)
                 conn.execute(
                     "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
                     (now_iso(), session_id),
@@ -484,6 +528,74 @@ def submit_form(session_id: str, body: dict, user: dict = Depends(require_login)
     )
     conn.commit()
     return {"form_id": form_id, "status": "submitted"}
+
+
+@router.get("/forms/{form_instance_id}")
+def get_form(form_instance_id: str, user: dict = Depends(require_login)) -> dict:
+    """GET 表单渲染白名单（只读：form_type/title/fields——years 门槛值/required_level 不出）。
+
+    双 404：instance 不存在 / 非 owner（session 归属经 form_instance.session_id 反查
+    load_owned_session——D-01 统一不存在语义）。URL 不带 /sessions 前缀（api/index.js:46）。
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT session_id, schema_snapshot FROM form_instance WHERE form_instance_id=?",
+        (form_instance_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "表单不存在")
+    load_owned_session(conn, row["session_id"], user)
+    return whitelist_form(json.loads(row["schema_snapshot"]))
+
+
+@router.post("/sessions/{session_id}/forms/submit-v2")
+def submit_form_v2(session_id: str, body: FormSubmitRequest,
+                   user: dict = Depends(require_login)) -> dict:
+    """表单提交（六维校验 + gate 行 + finish/next 触发器——gate 采集链终局闭合）。
+
+    提交成功即 gate 全采集；触发器 B1：池未空 → action='next'（带下一题 id），
+    池耗尽 → 复用主链 finish 三步（无 assistant 消息——表单提交无决策 reply）。
+    """
+    conn = get_conn()
+    load_owned_session(conn, session_id, user)
+    result = validate_and_submit(
+        conn, session_id=session_id, form_instance_id=body.form_instance_id,
+        payload=body.payload, expected_revision=body.expected_revision, user=user,
+    )
+    if not result["ok"]:
+        code = result["error_code"]
+        if code == "FORM_NOT_FOUND":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "表单不存在")
+        if code in ("FORM_ALREADY_SUBMITTED", "FORM_INSTANCE_REVISION_CONFLICT"):
+            detail = {"error_code": code, "message": code}
+            if code == "FORM_ALREADY_SUBMITTED":
+                # 重复提交幂等语义：首次结果行 payload_json 原样带回
+                detail["payload"] = result["payload"]
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=detail)
+        # ④⑤⑥ 422 三态 error_code
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail={"error_code": code, "field": result["field"]})
+    conn.commit()
+
+    base = {"form_instance_id": body.form_instance_id, "status": result["status"],
+            "gate_results": result["gate_results"]}
+    if _all_gate_items_collected(conn, session_id):
+        nxt = select_next_question(session_id)
+        # legacy 标记 dict 无 question_id → 视作无下一题（legacy 会话渲染表单时旧题已答完）
+        next_id = (nxt or {}).get("question_id")
+        if next_id is None:
+            # 复用主链 finish 段语义（UPDATE status + SESSION_COMPLETED + commit）
+            conn.execute(
+                "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+                (now_iso(), session_id),
+            )
+            append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                         from_state="in_progress", to_state="completed", actor_type="system")
+            conn.commit()
+            return {**base, "action": "finish", "next_question_id": None}
+        return {**base, "action": "next", "next_question_id": next_id}
+    # 提交成功即 gate 全采集，理论上不达此分支；防御性回 form（状态维由 validate 兜底）
+    return {**base, "action": "form", "next_question_id": None}
 
 
 @router.post("/sessions/{session_id}/score")
