@@ -28,7 +28,9 @@ from ..services.scoring import MAX_ANSWER_LEN, score_session
 from ..services.state_events import append_event
 from ..services.timer import (
     advance_interval,
+    close_open_interval,
     maybe_abandon_session,
+    open_interval,
     seal_if_question_timed_out,
     session_active_seconds,
     touch_last_activity,
@@ -152,8 +154,13 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         " WHERE aq.session_id=? AND aq.answered_at IS NULL ORDER BY aq.seq LIMIT 1",
         (session_id,),
     ).fetchone()
-    if cur is None and s["status"] == "in_progress":
+    if cur is None and s["status"] == "in_progress" and s.get("phase") in (None, "ACTIVE"):
         # 动态派发（02-02）：无未答实例且会话进行中 → select_next_question 派发新实例
+        # phase 门（03-05 Pitfall 12）：PENDING_START 不派发不计时（入场确认前置）；
+        # PAUSED 不派发（暂停窗口不激活新题）。legacy/直插行 phase=NULL 兼容放行
+        # （phase in (None, "ACTIVE")——旧行为保持）。data/app.db 存量 in_progress 会话
+        # 处置：兼容口径下经 03-04 迁移回填 PENDING_START 会被此门拦截——处置已裁决
+        # [03-012] 重跑演示脚本重建会话（本计划不做数据操作）。
         picked = select_next_question(session_id)
         if picked is not None and not picked.get("legacy"):
             conn2 = get_conn()
@@ -188,6 +195,7 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
     return {
         "session_id": s["session_id"],
         "status": s["status"],
+        "phase": s.get("phase"),
         "position_id": s["position_id"],
         "model_version": s["model_version"],
         "current_question": dict(cur) if cur else None,
@@ -195,6 +203,111 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         "total_count": total,
         "open_form": open_form,
     }
+
+
+@router.post("/sessions/{session_id}/start")
+def start_session(session_id: str, user: dict = Depends(require_login)) -> dict:
+    """入场确认 start 端点（03-05，REF-2.6/A6/SC-5 起算锚——SSOT §12.1/§15）。
+
+    phase PENDING_START→ACTIVE 三动作同事务（§13.1 快照与事件同事务）：
+    UPDATE phase + 开第一个 active 区间（§15「确认开始且首题激活起算」——区间起算
+    此处，首题激活在 get_session 派发，两者 <=1 请求间隔设计裁量可接受）+ SESSION_STARTED
+    事件。首题不在本端点派发（A6 裁量「前者简单」）——前端 Chat.vue load() → get_session
+    由 phase 门自然派发。A6 已裁决（[03-010]）：web 零改动约束下前端「开始测评」按钮
+    接线延后 Phase 6 E2E，本端点契约由测试覆盖。无 body 无 Pydantic（D-46 只覆盖有
+    body 的端点——GET/start/pause 均无 body）。
+    """
+    conn = get_conn()
+    s = load_owned_session(conn, session_id, user)
+    if s["status"] != "in_progress":
+        # WR-01：409 detail 统一为 {error_code, message} 结构（与 readiness 三态一致）
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_IN_PROGRESS",
+                                    "message": f"会话已结束（{s['status']}）"})
+    if s["phase"] == "ACTIVE":
+        # 幂等语义（WR-01 三态）：重复 start 不重复开区间
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_ALREADY_ACTIVE",
+                                    "message": "会话已处于进行中"})
+    # 三动作同事务（§13.1）
+    conn.execute("UPDATE assessment_session SET phase='ACTIVE' WHERE session_id=?", (session_id,))
+    open_interval(conn, session_id, "active")
+    append_event(conn, session_id=session_id, event_type="SESSION_STARTED",
+                 from_state="PENDING_START", to_state="ACTIVE",
+                 actor_type="candidate", actor_id=user["user_id"])
+    conn.commit()
+    return {"session_id": session_id, "phase": "ACTIVE", "started": True}
+
+
+@router.post("/sessions/{session_id}/pause")
+def pause_session(session_id: str, user: dict = Depends(require_login)) -> dict:
+    """候选人显式暂停（03-05，D-40 四源区分——候选人端点本期交付，reason='candidate_request' 固定）。
+
+    技术/无障碍/管理暂停的区间写入能力由 timer.py open_interval(reason=...) 已支持
+    （D-40「同一区间类型 reason 区分」），但专属触发端点属人工运维面不在本期交付
+    （W6 交付口径——数据面就位，端点面分批）。无 body 无 Pydantic（D-46）。
+    """
+    conn = get_conn()
+    s = load_owned_session(conn, session_id, user)
+    if s["status"] != "in_progress":
+        # WR-01：409 detail 统一为 {error_code, message} 结构
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_IN_PROGRESS",
+                                    "message": f"会话已结束（{s['status']}）"})
+    # 已有 open paused 区间 → 409 SESSION_ALREADY_PAUSED（重复 pause 幂等护栏，T-03-28）
+    if conn.execute(
+        "SELECT 1 FROM session_time_intervals"
+        " WHERE session_id=? AND interval_type='paused' AND ended_at IS NULL",
+        (session_id,),
+    ).fetchone() is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_ALREADY_PAUSED",
+                                    "message": "会话已暂停"})
+    # 闭合当前 active → 开 paused 区间 + phase='PAUSED' + 双事件同事务
+    close_open_interval(conn, session_id)
+    open_interval(conn, session_id, "paused", reason="candidate_request")
+    append_event(conn, session_id=session_id, event_type="SESSION_PAUSE_REQUESTED",
+                 actor_type="candidate", actor_id=user["user_id"])
+    append_event(conn, session_id=session_id, event_type="SESSION_PAUSED",
+                 from_state="ACTIVE", to_state="PAUSED",
+                 actor_type="candidate", actor_id=user["user_id"])
+    conn.execute("UPDATE assessment_session SET phase='PAUSED' WHERE session_id=?", (session_id,))
+    conn.commit()
+    return {"session_id": session_id, "phase": "PAUSED", "paused": True}
+
+
+@router.post("/sessions/{session_id}/resume")
+def resume_session(session_id: str, user: dict = Depends(require_login)) -> dict:
+    """候选人恢复会话（03-05，D-40 恢复计时——闭合 paused 区间 + 开 active 区间 reason='resumed'）。
+
+    无 open paused 区间 → 409 SESSION_NOT_PAUSED（T-03-28 幂等护栏：无条件 resume 拒）。
+    无 body 无 Pydantic（D-46）。
+    """
+    conn = get_conn()
+    s = load_owned_session(conn, session_id, user)
+    if s["status"] != "in_progress":
+        # WR-01：409 detail 统一为 {error_code, message} 结构
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_IN_PROGRESS",
+                                    "message": f"会话已结束（{s['status']}）"})
+    # 无 open paused 区间 → 409 SESSION_NOT_PAUSED
+    if conn.execute(
+        "SELECT 1 FROM session_time_intervals"
+        " WHERE session_id=? AND interval_type='paused' AND ended_at IS NULL",
+        (session_id,),
+    ).fetchone() is None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_PAUSED",
+                                    "message": "会话未暂停"})
+    # 闭合 paused → 开 active（恢复计时）+ phase='ACTIVE' + SESSION_RESUMED 事件同事务
+    close_open_interval(conn, session_id)
+    open_interval(conn, session_id, "active", reason="resumed")
+    append_event(conn, session_id=session_id, event_type="SESSION_RESUMED",
+                 from_state="PAUSED", to_state="ACTIVE",
+                 actor_type="candidate", actor_id=user["user_id"])
+    conn.execute("UPDATE assessment_session SET phase='ACTIVE' WHERE session_id=?", (session_id,))
+    conn.commit()
+    return {"session_id": session_id, "phase": "ACTIVE", "resumed": True}
 
 
 def _sse_event(payload: dict) -> str:
@@ -478,6 +591,15 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
                  payload={"answer_state": decision["answer_state"],
                           "evidence_sufficient": decision["evidence_sufficient"],
                           "action": _out_action})
+
+    # 注入留痕（03-05，D-45/REF-6.4）：answer_state 分类驱动，与 OBSERVATION_CLASSIFIED
+    # 同事务同 commit 锚。payload 白名单恰两键 {answer_state, stability}——不含输入原文
+    # （T-03-25：注入面证据不变成泄露面）。
+    if decision.get("answer_state") == "PROMPT_INJECTION":
+        append_event(conn, session_id=session_id, event_type="INJECTION_DETECTED",
+                     actor_type="system", assessment_question_id=question_id,
+                     payload={"answer_state": "PROMPT_INJECTION",
+                              "stability": bool(decision.get("evidence_sufficient"))})
 
     # followup 计数（D-25 迁列）：与 assistant 消息 INSERT 同事务段自增
     if _out_action == "followup":
