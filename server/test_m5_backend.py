@@ -165,7 +165,7 @@ def test_session_creation_and_question_selection():
     body = r.json()
     # 02-02 动态选题：建会话零预选；question_count 键删除（不返回预选数）
     assert "question_count" not in body
-    assert body["estimated_duration_minutes"] == 20
+    assert body["estimated_duration_minutes"] == config.SESSION_TOTAL_MINUTES
 
     sid = body["session_id"]
     sess = _q("SELECT * FROM assessment_session WHERE session_id=?", (sid,))[0]

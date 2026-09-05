@@ -68,3 +68,11 @@
 - 依据：用户批准选项 (a)；data/app.db 属演示数据，非红线索引内（红线 2 仅禁无授权触碰——重跑脚本是用户授权的处置路径）
 - 执行时机：Phase 3 execute 完成、verify 阶段或 closeout 时由 orchestrator 重跑演示脚本重建（不属 5 计划 files_modified 范围）
 
+---
+
+## 2026-09-05 · execute（03-04——IN-06 处置登记）
+
+**[03-IN06] estimated_duration_minutes 魔数 20 退役（IN-06 提前消化）**
+- 决定：02-DECISIONS [02-013b] 记 IN-06「Phase 4 参数化」提前消化——03-04 Task 3 改 config.SESSION_TOTAL_MINUTES 派生（20→40），create_session 响应不再硬编码 20；test_m5_backend 断言同步改 config 派生口径
+- 依据：02-DECISIONS [02-013b] IN-06 处置条款；A5（estimated_duration_minutes 前端 grep 零消费，20→40 契约对齐）；I2（魔数退役——config 常量派生）
+
