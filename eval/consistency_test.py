@@ -8,15 +8,40 @@ CLI 用法：
 """
 import argparse
 import os
+import sqlite3
 import sys
+import tempfile
 
 # 允许直接 `python eval/consistency_test.py` 跑：把仓库根加进 sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from server.db import get_conn  # noqa: E402
+from server.db import get_conn, set_db_path  # noqa: E402
 from server.services.scoring import score_question  # noqa: E402
 
 from eval.assertions import assert_score_consistency  # noqa: E402
+
+
+def _run_isolated(fn, *args):
+    """在隔离临时库上运行评测（REF-8.8/D-074）。
+
+    业务库 data/app.db 永不用于测试：把业务库只读快照到临时库（eval.db），
+    评测写入全部落在临时库；结束 set_db_path(None) 复位，业务库零写入。
+    """
+    src = get_conn()  # 业务库（此刻无 override）
+    tmp = os.path.join(tempfile.mkdtemp(prefix="gsd-eval-"), "eval.db")
+    try:
+        dst = sqlite3.connect(tmp)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    set_db_path(tmp)
+    try:
+        return fn(*args)
+    finally:
+        set_db_path(None)
 
 
 def _load_answered_questions(session_id: str) -> list[dict]:
@@ -102,7 +127,7 @@ def main() -> int:
     ap.add_argument("--session-id", required=True)
     ap.add_argument("--runs", type=int, default=3)
     args = ap.parse_args()
-    result = test_scoring_consistency(args.session_id, args.runs)
+    result = _run_isolated(test_scoring_consistency, args.session_id, args.runs)
     print(f"passed={result['passed']}")
     for d in result.get("details", []):
         print(f"  q={d['question_id']} scores={d['scores']} variance={d['variance']}")

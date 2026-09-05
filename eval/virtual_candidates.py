@@ -14,17 +14,42 @@ CLI 用法：
 """
 import argparse
 import os
+import sqlite3
 import sys
+import tempfile
 
 # 允许直接 `python eval/virtual_candidates.py` 跑：把仓库根加进 sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from server.db import get_conn  # noqa: E402
+from server.db import get_conn, set_db_path  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
 from server.services.scoring import score_session  # noqa: E402
 from server.services.aggregation import aggregate_session_scores  # noqa: E402
 
 from eval.assertions import assert_tier_ordering  # noqa: E402
+
+
+def _run_isolated(fn, *args):
+    """在隔离临时库上运行评测（REF-8.8/D-074）。
+
+    业务库 data/app.db 永不用于测试：把业务库只读快照到临时库（eval.db），
+    评测写入全部落在临时库；结束 set_db_path(None) 复位，业务库零写入。
+    """
+    src = get_conn()  # 业务库（此刻无 override）
+    tmp = os.path.join(tempfile.mkdtemp(prefix="gsd-eval-"), "eval.db")
+    try:
+        dst = sqlite3.connect(tmp)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    set_db_path(tmp)
+    try:
+        return fn(*args)
+    finally:
+        set_db_path(None)
 
 # ---------- 三档答案 fixture（答案长度 >20 字符，避免 followup 干扰流程）----------
 _KEYWORDS = ["索引", "事务", "缓存"]  # 客观题 answer_key 用
@@ -188,7 +213,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="虚拟考生三档端到端测试")
     ap.add_argument("--position-id", required=True)
     args = ap.parse_args()
-    result = test_virtual_candidates(args.position_id)
+    result = _run_isolated(test_virtual_candidates, args.position_id)
     print(f"passed={result['passed']} scores={result['scores']}")
     return 0 if result["passed"] else 1
 

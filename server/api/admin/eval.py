@@ -2,12 +2,14 @@
 import json
 import sys
 import os
+import sqlite3
+import tempfile
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...core.security import require_admin
-from ...db import get_conn
+from ...db import get_conn, set_db_path
 from ...services.pipeline import new_id, now_iso
 
 # eval/ 在仓库根，不在 server 包内，动态加路径
@@ -32,10 +34,33 @@ def _save_result(task_id: str, test_name: str, status: str, result: dict | None)
     conn.commit()
 
 
-def _run(task_id: str, test_name: str, fn, *args) -> None:
-    """后台执行评测，异常落 failed。"""
+def _build_temp_db() -> str:
+    """业务库只读快照到隔离临时库（REF-8.8/D-074），返回临时库路径。
+
+    评测写入全部落在该临时库，业务库零写入；结束 set_db_path(None) 复位后，
+    _save_result 经独立业务库连接把结果写回 eval_results（admin 轮询可见）。
+    """
+    tmp = os.path.join(tempfile.mkdtemp(prefix="gsd-eval-"), "eval.db")
+    src = get_conn()  # 业务库
     try:
-        result = fn(*args)
+        dst = sqlite3.connect(tmp)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    return tmp
+
+
+def _run(task_id: str, test_name: str, fn, *args) -> None:
+    """后台执行评测（隔离临时库运行 + 结果经业务库连接写回 eval_results），异常落 failed。"""
+    try:
+        set_db_path(_build_temp_db())
+        try:
+            result = fn(*args)
+        finally:
+            set_db_path(None)
         _save_result(task_id, test_name, "completed", result)
     except Exception as e:  # noqa: BLE001 - 评测失败也要留痕
         _save_result(task_id, test_name, "failed", {"error": str(e)})
