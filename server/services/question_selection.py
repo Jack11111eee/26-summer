@@ -576,11 +576,11 @@ def _instantiate(conn, session: dict, picked: dict, *, layer: str,
     conn.execute(
         "INSERT INTO assessment_question(question_id, session_id, bank_question_id, seq,"
         " question_type, item_id, difficulty, status, activated_at, selection_reason,"
-        " selection_policy_version, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        " selection_policy_version, revision, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (aq_id, session_id, picked["question_id"], seq,
          "ordinary", item_id, picked["difficulty"], "active", now,
-         json.dumps(reason, ensure_ascii=False), _SELECTION_POLICY_VERSION, now),
+         json.dumps(reason, ensure_ascii=False), _SELECTION_POLICY_VERSION, 1, now),
     )
     # QUESTION_SELECTED：与实例 INSERT 同事务（Pattern 3），payload 全量镜像（T-02-07）
     append_event(conn, session_id=session_id, event_type="QUESTION_SELECTED",

@@ -162,7 +162,9 @@ CREATE TABLE IF NOT EXISTS assessment_question (
   seal_reason             TEXT,   -- answered/refused/timeout 枚举位，代码校验
   selection_reason        TEXT,   -- D-18 结构化 JSON
   selection_policy_version TEXT,
-  path_state_snapshot     TEXT
+  path_state_snapshot     TEXT,
+  -- ============ Phase 3 幂等/并发新列（D-37，SSOT §13.4——03-03 乐观锁版本号）============
+  revision                INTEGER NOT NULL DEFAULT 1  -- 乐观锁版本号（expected_revision 校验）
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_aq_session_seq ON assessment_question(session_id, seq);
 
@@ -319,6 +321,25 @@ CREATE TABLE IF NOT EXISTS question_bank_task (
   finished_at  TEXT,
   error_msg    TEXT
 );
+
+-- ============ 幂等记录表（SSOT §13.4/D-36~D-38——03-03 三键作用域 + 两阶段）============
+-- 三键 UNIQUE(session_id, endpoint, idempotency_key) 拦并发双发（IntegrityError）；
+-- status PENDING/COMMITTED 代码校验（N11 无 DB CHECK）；response_snapshot = 决策结果 dict JSON
+-- （COMMITTED 后填——白名单键，不含候选人输入原文——A1）；created_at 索引为
+-- D-38 Phase 6 数据治理预留（清理策略不实现——演示期数据量级接受）。
+
+CREATE TABLE IF NOT EXISTS idempotency_record (
+  id               TEXT PRIMARY KEY,
+  session_id       TEXT NOT NULL,
+  endpoint         TEXT NOT NULL,           -- 'answer' | 'form_submit'
+  idempotency_key  TEXT NOT NULL,
+  request_hash     TEXT,                    -- sha256 规范化 JSON（Claude 裁量）
+  status           TEXT NOT NULL,           -- PENDING/COMMITTED 代码校验（N11）
+  response_snapshot TEXT,                   -- COMMITTED 后填——决策结果 dict JSON
+  created_at       TEXT NOT NULL,
+  UNIQUE(session_id, endpoint, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_idem_created ON idempotency_record(created_at);
 """
 
 
@@ -444,6 +465,7 @@ def _migrate_assessment_question_v2(conn: sqlite3.Connection) -> None:
         ("selection_reason", "TEXT"),
         ("selection_policy_version", "TEXT"),
         ("path_state_snapshot", "TEXT"),
+        ("revision", "INTEGER NOT NULL DEFAULT 1"),
     ]
     for name, decl in new_cols:
         if name not in cols:
@@ -558,6 +580,27 @@ def _migrate_form_instance(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_idempotency_record(conn: sqlite3.Connection) -> None:
+    """Phase 3（SSOT §13.4）：补建 idempotency_record（老库无此表；CREATE IF NOT EXISTS 幂等）。
+
+    新表走 _DDL 直建；存量库走本函数（三键 UNIQUE + created_at 索引与 _DDL 双轨同形态）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS idempotency_record (
+      id               TEXT PRIMARY KEY,
+      session_id       TEXT NOT NULL,
+      endpoint         TEXT NOT NULL,
+      idempotency_key  TEXT NOT NULL,
+      request_hash     TEXT,
+      status           TEXT NOT NULL,
+      response_snapshot TEXT,
+      created_at       TEXT NOT NULL,
+      UNIQUE(session_id, endpoint, idempotency_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_idem_created ON idempotency_record(created_at);
+    """)
+
+
 def init_db() -> None:
     """建表（幂等）+ 老库迁移，启动时调用一次。"""
     db_dir = os.path.dirname(DB_PATH)
@@ -572,6 +615,7 @@ def init_db() -> None:
         _migrate_question_score_v2(conn)
         _migrate_question_score_phase3(conn)
         _migrate_form_instance(conn)
+        _migrate_idempotency_record(conn)
         conn.executescript(_DDL)
         conn.commit()
     finally:
