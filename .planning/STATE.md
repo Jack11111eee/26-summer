@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 04-02-PLAN.md (orphan 路由修复 + 模型编辑校验)
-last_updated: "2026-09-05T07:09:31.143Z"
+status: ready_to_plan
+stopped_at: Phase 04 complete (2/2) — ready to discuss Phase 5
+last_updated: 2026-09-05T07:35:41.116Z
 last_activity: 2026-09-05
 progress:
   total_phases: 6
@@ -21,24 +21,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-02)
 
 **Core value:** 端到端可演示（JD 解析→测评框架→交互测评→画像生成）+ 全链可审计（LLM trace 留痕、状态事件 append-only、报告可回溯）
-**Current focus:** Phase 04 — question-bank-version
+**Current focus:** Phase 5 — 证据链与报告契约
 
 ## Current Position
 
-Phase: 04 (question-bank-version) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
+Phase: 5
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-09-05
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
-- **下一动作**：硬关口 A 呈报停车（plan 审查）→ 用户批准后 `/gsd-execute-phase 4`
+- **下一动作**：Phase 4 已完结 → 启动 Phase 5 discuss（证据链与报告契约）→ 停在 Phase 5 硬关口 A（plan 审查）
 - **阶段顺序权威**：SSOT §28 六步（P0 四项 → 动态选题/状态机 → 表单/SSE/幂等/计时 → 题库版本 → 证据/报告契约 → 迁移/测试收口）；表结构演进"随阶段走"，Phase 6 收口 schema_version
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 2
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -46,7 +46,7 @@ Last activity: 2026-09-05
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 04 | 2 | - | - |
 
 **Recent Trend:**
 
@@ -95,6 +95,7 @@ None yet.
 | 契约 | REF-3.8 等值备用题组（SSOT 未列 §28 硬项） | 登记不排期 | 2026-09-02 (Init) |
 | 契约 | REF-3.9 综合题槽位（生成 Prompt 待讨论，D-030） | 登记不排期 | 2026-09-02 (Init) |
 | 契约 | REF-4.11 Tools 白名单（本期无工具调用，接口登记随 Prompt 模块） | 登记不排期 | 2026-09-02 (Init) |
+| 回归 | 13 个会话类测试文件（test_m5/m6/m7、test_p0_chain/security、phase2 difficulty/interview/scoring、phase3 forms/sse/timer/idempotency/misc）直插 question_bank 不写 model_id/model_version，Phase 4 消费侧收紧后失败 | 并入 Phase 6 M1 回归收口（[04-011]） | 2026-09-05 (Phase 4) |
 
 ## Session Continuity
 
