@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 04-01-PLAN.md (题库版本绑定 + 失败可见)
-last_updated: "2026-09-05T06:46:11.621Z"
+status: verifying
+stopped_at: Completed 04-02-PLAN.md (orphan 路由修复 + 模型编辑校验)
+last_updated: "2026-09-05T07:09:31.143Z"
 last_activity: 2026-09-05
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 16
-  completed_plans: 15
-  percent: 50
+  completed_plans: 16
+  percent: 67
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 
 Phase: 04 (question-bank-version) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-05
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
@@ -56,6 +56,7 @@ Last activity: 2026-09-05
 *Updated after each plan completion*
 | Phase 02 P02 | 41min | 5 tasks | 9 files |
 | Phase 04 P01 | 50min | 3 tasks | 7 files |
+| Phase 04 P02 | 5min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase 04]: [04-01] 落库绑定：_insert_question 写 model_id/model_version/item_id/rubric_version='v1'，判重键升级为 (model_id,model_version,std_name,category,difficulty)（D-47/D-49）
 - [Phase 04]: [04-01] 消费侧强制双列匹配：readiness 三处 count/tier WHERE 与 selection _load_candidate_rows 均加 model_id+model_version 谓词，去 NULL 放行（D-50）
 - [Phase 04]: [04-01] 失败可见：readiness FAILED 分支返回 QUESTION_BANK_INCOMPLETE + error_msg[:200]；get_todos 新增 question_bank_failed 明细（D-51/REF-8.4）
+- [Phase 04]: [04-02] orphan 路由前置：/jds/orphan 迁入 jds.py 置于 /jds/{jd_id} 之前，字段口径锁定选项 B（字段子集 + status != 'failed'）（REF-7.1）
+- [Phase 04]: [04-02] 模型编辑校验：ModelItem 字段级校验（allow_inf_nan=False/ge+le/Literal）+ update_model 同 category 重复 std_name 拒绝，保留 Σ=100%（REF-7.2）
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-05T06:46:11.613Z
-Stopped at: Completed 04-01-PLAN.md (题库版本绑定 + 失败可见)
+Last session: 2026-09-05T07:09:30.858Z
+Stopped at: Completed 04-02-PLAN.md (orphan 路由修复 + 模型编辑校验)
 Resume file: None

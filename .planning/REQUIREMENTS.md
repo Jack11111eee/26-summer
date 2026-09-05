@@ -96,8 +96,8 @@
 
 #### 矩阵 §7 §28 对账项（REF-7.1~7.6，矩阵 §7 中未被 §1-6/§8 覆盖的独立工作项）
 
-- [ ] **REF-7.1** [一般] /jds/orphan 路由顺序修复（实测被 /jds/{jd_id} 参数路由吞掉恒 404）→ Phase 4
-- [ ] **REF-7.2** [一般] 模型编辑字段校验（NaN/范围/类别/重复 std_name）→ Phase 4
+- [x] **REF-7.1** [一般] /jds/orphan 路由顺序修复（实测被 /jds/{jd_id} 参数路由吞掉恒 404）→ Phase 4
+- [x] **REF-7.2** [一般] 模型编辑字段校验（NaN/范围/类别/重复 std_name）→ Phase 4
 - [ ] **REF-7.3** [结构] feedback 补 user_id/note/reviewer/时间戳；question_reviews 补 item_id；submit_feedback 校验 item 属于对应模型 → Phase 5
 - [ ] **REF-7.4** [结构] 测试统一 pytest 收集（test_m6/question_bank 脚本式重构）+ CI 配置 → Phase 6
 - [ ] **REF-7.5** [结构] M1 回归清单（清洗边界/抽取异常/消歧/权重尾差/冲突 stalled/confirmed 不可覆盖/版本 diff/管理员权限）→ Phase 6

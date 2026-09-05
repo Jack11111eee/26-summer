@@ -16,7 +16,7 @@
 - [x] **Phase 1: P0 安全与主链修复** - 所有权校验 / score→report 串行 / 开考检查 / 状态事件表 + 附带护栏 (completed 2026-09-03)
 - [x] **Phase 2: 动态选题与有界循环** - 四层选题 / 难度状态机 / 回答状态分类 / 评分链 50-50 废除 / 7:3 权重口径 (completed 2026-09-05)
 - [x] **Phase 3: 表单/SSE/幂等/计时** - 表单实例链 / 真实 SSE / 幂等并发 / 计时区间 / 上下文三层 (completed 2026-09-05)
-- [ ] **Phase 4: 题库版本绑定与模块一收口** - model/version 绑定 / 生成失败可见 / orphan 路由 / 模型编辑校验
+- [x] **Phase 4: 题库版本绑定与模块一收口** - model/version 绑定 / 生成失败可见 / orphan 路由 / 模型编辑校验 (completed 2026-09-05)
 - [ ] **Phase 5: 证据链与报告契约** - 证据 span + trace_link / 报告状态机与发布 / item 裁决与补算 / feedback 补全
 - [ ] **Phase 6: 迁移体系与测试闭环收口** - schema_version 收口 / pytest 统一 + CI / M1 回归 / E2E / eval 隔离 / bad case
 
@@ -155,7 +155,7 @@ Plans:
 
 **Wave 2** *(blocked on 04-01——positions.py 共享文件冲突)*
 
-- [ ] 04-02-PLAN.md — /jds/orphan 路由迁移至 jds.py（置于 /jds/{jd_id} 前）+ 移除 positions.py 重复路由 + ModelItem 字段级校验（NaN/范围/枚举/重复 std_name，保留 Σ=100%）—— REF-7.1/7.2
+- [x] 04-02-PLAN.md — /jds/orphan 路由迁移至 jds.py（置于 /jds/{jd_id} 前）+ 移除 positions.py 重复路由 + ModelItem 字段级校验（NaN/范围/枚举/重复 std_name，保留 Σ=100%）—— REF-7.1/7.2
 
 ### Phase 5: 证据链与报告契约
 
@@ -213,6 +213,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
 | 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-05 |
 | 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
-| 4. 题库版本绑定与模块一收口 | 1/2 | In Progress|  |
+| 4. 题库版本绑定与模块一收口 | 2/2 | Complete   | 2026-09-05 |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |
 | 6. 迁移体系与测试闭环收口 | 0/5 | Not started | - |
