@@ -25,8 +25,9 @@ from server.db import get_conn, set_db_path  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
 from server.services.scoring import score_session  # noqa: E402
 from server.services.aggregation import aggregate_session_scores  # noqa: E402
+from server.services.report import generate_report  # noqa: E402
 
-from eval.assertions import assert_tier_ordering  # noqa: E402
+from eval.assertions import assert_tier_ordering, assert_weakness_identified  # noqa: E402
 
 
 def _run_isolated(fn, *args):
@@ -198,23 +199,80 @@ def _ensure_eval_user(user_id: str) -> None:
         conn.close()
 
 
+def _used_std_names(position_id: str) -> list[str]:
+    """取本岗位被测客观题的 std_name（短板断言期望值，与 _run_one_tier 同口径）。"""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT std_name FROM question_bank WHERE position_id=? AND qtype='objective'"
+            " AND status IN ('active','eval_seed') ORDER BY question_id",
+            (position_id,),
+        ).fetchall()
+        return [r["std_name"] for r in rows]
+    finally:
+        conn.close()
+
+
 def test_virtual_candidates(position_id: str) -> dict:
-    """跑三档并断言 strong>medium>weak。"""
+    """跑三档并断言 strong>medium>weak + 报告五子项（短板/required 覆盖/缺失/证据/报告状态）。
+
+    SSOT §23 / ROADMAP SC 5 要求 c 虚拟考生六子项；本函数除三档排序外，把报告生成
+    纳入链路（generate_report），复用 assert_weakness_identified 断言短板定位，并对
+    报告状态、证据引用、required 覆盖、缺失状态做结构断言（复用 test_phase5_report/
+    test_phase2_scoring 同款口径）。
+    """
     model_id = _get_or_seed_bank(position_id)
     _ensure_eval_user("eval_user")
     scores: dict[str, float] = {}
+    sessions: dict[str, str] = {}
     for tier in ("strong", "medium", "weak"):
         r = _run_one_tier(position_id, "eval_user", tier, model_id)
         scores[tier] = round(r["total_score"], 1)
+        sessions[tier] = r["session_id"]
 
     ok, msg = assert_tier_ordering(scores["strong"], scores["medium"], scores["weak"])
+
+    # 报告下游五子项：weak 档全 miss → 短板即被测客观题 std_name；客观题
+    # evidence_quote=answer[:60]（scoring.py）→ 证据引用非空；报告状态 READY/PROVISIONAL。
+    # 注：短板定位依赖 SSOT §21 约定「短板=gap<0」（gap=required−actual）。weak 档
+    # actual<required → gap>0 → 现约定落入 strengths 而非 weaknesses，故此断言当前
+    # 揭示该 gap 符号约定的语义张力（见 06-DECISIONS [06-013]），待 SSOT 裁决后定案。
+    report = generate_report(sessions["weak"])
+    used = _used_std_names(position_id)
+    weakness_ok, weakness_msg = assert_weakness_identified(report, used[0]) if used \
+        else (False, "无被测客观题，无法断言短板")
+    report_ok = report.get("report_status") in ("READY", "PROVISIONAL")
+    evidence_ok = bool(report.get("question_reviews")) and all(
+        qr.get("evidence_quote") for qr in report["question_reviews"]
+    )
+    coverage = report.get("coverage") or {}
+    coverage_ok = ("coverage_ratio" in coverage
+                   and isinstance(coverage.get("coverage_ratio"), (int, float))
+                   and 0.0 <= coverage["coverage_ratio"] <= 1.0)
+    # 缺失/拒答状态：coverage.missing_reasons 列表与 item_details 明细在位
+    missing_ok = ("missing_reasons" in coverage
+                  and isinstance(coverage.get("missing_reasons"), list)
+                  and isinstance(report.get("item_details"), list)
+                  and bool(report["item_details"]))
+
+    checks = {
+        "ordering": (ok, msg),
+        "weakness": (weakness_ok, weakness_msg),
+        "report_status": (report_ok, f"report_status={report.get('report_status')}"),
+        "evidence": (evidence_ok, "question_reviews evidence_quote 非空"),
+        "required_coverage": (coverage_ok, f"coverage_ratio={coverage.get('coverage_ratio')}"),
+        "missing_state": (missing_ok, "coverage.missing_reasons / item_details 在位"),
+    }
+    all_ok = all(v[0] for v in checks.values())
+
     return {
         "test_name": "virtual_candidates",
         "position_id": position_id,
-        "passed": ok,
+        "passed": all_ok,
         "scores": scores,
         "ordering_correct": ok,
         "message": msg,
+        "checks": {k: {"passed": v[0], "message": v[1]} for k, v in checks.items()},
     }
 
 
