@@ -204,15 +204,23 @@ Plans:
   4. 候选人端完整 E2E 通过：注册→选岗→session→作答/追问→表单→完成→评分→报告→异议，含刷新恢复、断线重试、越权、超时（M5–M7 verified 必要条件）
   5. 评测契约兑现：b 一致性（固定 transcript 复跑 score_final 分差 ≤1）、c 虚拟考生（强>中>弱 + 短板定位 + required 覆盖 + 拒答/缺失状态 + 证据引用 + 报告状态）、bad case 双分背离自动候选（管理员审核不自动改分）、eval 独立/临时数据库不污染业务库
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
 
-- [ ] 06-01: schema_version 迁移登记簿收口（各阶段内嵌迁移归档 + 迁移测试 + 备份/回滚）
-- [ ] 06-02: 测试统一 pytest 收集 + CI 配置 + 越权/幂等/计时/SSE/迁移必测项
-- [ ] 06-03: M1 回归清单（模块一八项）+ mock interviewer 评分恒 3 分问题处理
-- [ ] 06-04: 候选人端完整 E2E（主链 + 刷新恢复/断线重试/越权/超时）
-- [ ] 06-05: eval 隔离（独立/临时数据库）+ b/c 评测契约 + bad case 自动候选 + 输入限额/secret 启动校验/HttpOnly cookie 方向决策等安全收尾项
+**Wave 1**
+
+- [ ] 06-01-PLAN.md — schema_version 迁移登记簿收口（MIGRATIONS 注册 + 迁移测试 + 备份/回滚）+ conftest.py mock 三件套（Wave 0 linchpin）
+
+**Wave 2** *(blocked on 06-01)*
+
+- [ ] 06-02-PLAN.md — 测试统一 pytest 收集（question_bank/m6 脚本式重构）+ CI 配置 + requirements.txt 补 pytest
+- [ ] 06-04-PLAN.md — 候选人端完整 E2E（主链 + 刷新/断线/越权/超时）+ 前端契约修复（submit-v2/missing_reasons 映射/报告重试）
+- [ ] 06-05-PLAN.md — eval 隔离 + b/c 评测契约 + bad case 双分背离候选 + 输入限额/secret 校验/JWT 方向等安全收尾
+
+**Wave 3** *(blocked on 06-01 + 06-02)*
+
+- [ ] 06-03-PLAN.md — M1 回归清单（模块一八项）+ mock interviewer 评分恒 3 分记档 + 13 文件 model_id/model_version 补齐
 
 ## Progress
 
