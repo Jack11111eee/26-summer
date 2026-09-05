@@ -78,9 +78,9 @@
 - [x] **REF-5.1** [结构·核心] score_live 仅导航；废弃 50/50 合成（synthetic final_score 不得用于聚合）→ Phase 2
 - [x] **REF-5.2** [结构] 客观题 answer_key 空属题库缺陷 → 判题库无效而非满分（漏洞见 REF-8.1）→ Phase 2
 - [x] **REF-5.3** [结构] 拒答 REFUSED=0 特殊状态值，不进能力等级分母，只进行为/完整度聚合 → Phase 2
-- [ ] **REF-5.4** [结构] item_measurement 统一裁决（废弃按题数均分；冲突取低留人工标记）→ Phase 5
-- [ ] **REF-5.5** [结构] 缺失补算 IMPUTED（r 比例 + 特殊标记 + 覆盖率展示；O=∅ → NO_VALID_OBSERVATION）→ Phase 5
-- [ ] **REF-5.6** [结构] required 缺失 → report_status=PROVISIONAL + HUMAN_REVIEW_REQUIRED → Phase 5
+- [x] **REF-5.4** [结构] item_measurement 统一裁决（废弃按题数均分；冲突取低留人工标记）→ Phase 5
+- [x] **REF-5.5** [结构] 缺失补算 IMPUTED（r 比例 + 特殊标记 + 覆盖率展示；O=∅ → NO_VALID_OBSERVATION）→ Phase 5
+- [x] **REF-5.6** [结构] required 缺失 → report_status=PROVISIONAL + HUMAN_REVIEW_REQUIRED → Phase 5
 - [x] **REF-5.7** [结构] 7:3 权重口径修正（config 旧 55/20/20/5 作废；模块三直接复用 item.weight 不二次乘大类比例）→ Phase 2
 - [ ] **REF-5.8** [保持] 报告五段式已合规（雷达 required vs actual 合规，保持）
 - [ ] **REF-5.9** [P0] 报告状态机（GENERATING→PROVISIONAL|READY→PUBLISHED|FAILED）+ review_status + 发布前七项一致性校验 + 管理员明确点击发布 + 报告版本化 → Phase 5

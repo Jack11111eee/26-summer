@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-01-PLAN.md (证据链 span 定位 + trace_link 统一审计链)
-last_updated: "2026-09-05T09:54:35.852Z"
+stopped_at: Completed 05-02-PLAN.md (item_measurement 统一裁决 + IMPUTED 补算 + required 缺失 PROVISIONAL)
+last_updated: "2026-09-05T10:10:42.284Z"
 last_activity: 2026-09-05
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 20
-  completed_plans: 17
+  completed_plans: 18
   percent: 67
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 05 (evidence-report-contract) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-09-05
 
@@ -58,6 +58,7 @@ Last activity: 2026-09-05
 | Phase 04 P01 | 50min | 3 tasks | 7 files |
 | Phase 04 P02 | 5min | 3 tasks | 5 files |
 | Phase 05 P01 | 9min | 3 tasks | 5 files |
+| Phase 05 P02 | 5min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,10 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase 05]: 旧 llm_trace.ref_id 经 _migrate_trace_link 按 call_type→候选表 probe 命中才拆 trace_link('source')，未命中保留原 ref_id
 - [Phase 05]: score→trace 运行时写点仅主观题（客观/INVALIDATED 无 LLM trace，trace_id=None 不写 link）
 - [Phase 05]: test 文件懒导入 _locate_span（Task 2 子集先可收集，Task 3 落地后三 span 测试可用）
+- [Phase 05]: adjudicate 冲突阈值=2 取低留人工标记；_normalize_score 统一 (score−1)/4（关口 A 裁决，作废 score/5 两尺度混用）
+- [Phase 05]: IMPUTE_RATIO_THRESHOLD=0.2；可测量普通 item = 非 gate 且 importance≠required 且 category≠qualification
+- [Phase 05]: 测试纯函数懒导入 adjudicate/_impute_r/_normalize_score（Task 2 子集先可收集，Task 3 落地 _impute_r）
+- [Phase 05]: aggregate 新增 coverage/review_status/observation_status/provisional；report.py 透传（状态机落库属 05-03）
 
 ### Pending Todos
 
@@ -105,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-05T09:54:35.838Z
-Stopped at: Completed 05-01-PLAN.md (证据链 span 定位 + trace_link 统一审计链)
+Last session: 2026-09-05T10:10:42.269Z
+Stopped at: Completed 05-02-PLAN.md (item_measurement 统一裁决 + IMPUTED 补算 + required 缺失 PROVISIONAL)
 Resume file: None
