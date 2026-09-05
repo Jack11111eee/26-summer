@@ -192,16 +192,29 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
     ).fetchone()
     if of is not None:
         open_form = whitelist_form(json.loads(of["schema_snapshot"]))
+    # position_name：JOIN position 表取岗位名；岗位缺失/空则 None（不抛异常，REF-7.6 刷新恢复渲染）
+    pos_row = conn.execute(
+        "SELECT name FROM position WHERE position_id=?", (s["position_id"],)
+    ).fetchone()
+    position_name = pos_row["name"] if pos_row else None
+    # messages：会话消息时序（刷新恢复/断线重连渲染契约；role/content/created_at 三键）
+    messages = [dict(r) for r in conn.execute(
+        "SELECT role, content, created_at FROM assessment_message"
+        " WHERE session_id=? ORDER BY sequence_no, created_at",
+        (session_id,),
+    ).fetchall()]
     return {
         "session_id": s["session_id"],
         "status": s["status"],
         "phase": s.get("phase"),
         "position_id": s["position_id"],
+        "position_name": position_name,
         "model_version": s["model_version"],
         "current_question": dict(cur) if cur else None,
         "answered_count": answered,
         "total_count": total,
         "open_form": open_form,
+        "messages": messages,
     }
 
 
