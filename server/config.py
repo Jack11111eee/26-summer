@@ -76,3 +76,10 @@ TRACE_RETENTION_DAYS = None  # 实施期校准 — 待用户裁决（trace 保�
 TRACE_DESENSITIZE = None  # 实施期校准 — 待用户裁决（trace 脱敏开关）
 # 幂等清理开放参数（SSOT §31-6）：清理阈值——None 占位待裁决
 IDEMPOTENCY_CLEANUP_THRESHOLD = None  # 实施期校准 — 待用户裁决（幂等清理阈值）
+
+# ---- 模块一·消歧/归岗开放参数（SSOT §31-4）----
+# 词典候选 top10 匹配阈值与清洗标题词表：开放参数——占位待裁决（禁止臆造默认值）。
+# 只落占位不接线消费：DICT_MATCH_THRESHOLD=None（消歧候选阈值）、
+# TITLE_CLEAN_WORDS=[]（归岗标题清洗词表），实施期校准后由用户裁决取值。
+DICT_MATCH_THRESHOLD = None  # 实施期校准 — 待用户裁决（词典候选 top10 匹配阈值）
+TITLE_CLEAN_WORDS: list[str] = []  # 实施期校准 — 待用户裁决（清洗标题词表）
