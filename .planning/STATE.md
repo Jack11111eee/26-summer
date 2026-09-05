@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 05-03-PLAN.md (report publish state machine + 7 consistency checks + versioned INSERT + publish endpoint + trace_link)
-last_updated: "2026-09-05T10:47:10.679Z"
+status: verifying
+stopped_at: "Completed 05-04-PLAN.md (feedback 审计链闭环: user_id + REVIEW_FEEDBACK_RECEIVED + admin note 持久化 + question_reviews item_id)"
+last_updated: "2026-09-05T10:57:42.700Z"
 last_activity: 2026-09-05
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 20
-  completed_plans: 19
-  percent: 67
+  completed_plans: 20
+  percent: 83
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 
 Phase: 05 (evidence-report-contract) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-05
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
@@ -60,6 +60,7 @@ Last activity: 2026-09-05
 | Phase 05 P01 | 9min | 3 tasks | 5 files |
 | Phase 05 P02 | 5min | 3 tasks | 3 files |
 | Phase 05 P03 | 9min | 3 tasks | 12 files |
+| Phase 05 P04 | 3min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,9 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase 05]: 05-03 存量回填 PUBLISHED+NONE+version=1；REVIEW_STATUSES 六值含 HUMAN_REVIEW_REQUIRED；HIRING_REDLINE_WORDS 六词表集中 report_checks.py（关口 A 裁决）
 - [Phase 05]: 05-03 校验②改 agg-vs-DB weight 一致性（m6 种子 Σ=0.40，绝对值 Σ≈1.0 失真）；校验⑦加 report_text 参数扫红线词
 - [Phase 05]: 05-03 report→trace 写点：generate_report 落 report 行后 link_entity reported(report)/source(session)，闭合 D-56 五要素
+- [Phase 05]: feedback 审计列命名 = user_id/review_note/reviewer_id/reviewed_at（D-66 简写落为 plan 权威口径）
+- [Phase 05]: 存量 feedback 行四审计列保持 NULL（迁移不虚构提交人/处理人）
+- [Phase 05]: REVIEW_FEEDBACK_RECEIVED 事件 actor_type=candidate actor_id=user_id 与 feedback INSERT 同事务单 commit
 
 ### Pending Todos
 
@@ -114,6 +118,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-05T10:47:10.665Z
-Stopped at: Completed 05-03-PLAN.md (report publish state machine + 7 consistency checks + versioned INSERT + publish endpoint + trace_link)
+Last session: 2026-09-05T10:57:42.685Z
+Stopped at: Completed 05-04-PLAN.md (feedback 审计链闭环: user_id + REVIEW_FEEDBACK_RECEIVED + admin note 持久化 + question_reviews item_id)
 Resume file: None

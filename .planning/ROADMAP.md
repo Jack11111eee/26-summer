@@ -17,7 +17,7 @@
 - [x] **Phase 2: 动态选题与有界循环** - 四层选题 / 难度状态机 / 回答状态分类 / 评分链 50-50 废除 / 7:3 权重口径 (completed 2026-09-05)
 - [x] **Phase 3: 表单/SSE/幂等/计时** - 表单实例链 / 真实 SSE / 幂等并发 / 计时区间 / 上下文三层 (completed 2026-09-05)
 - [x] **Phase 4: 题库版本绑定与模块一收口** - model/version 绑定 / 生成失败可见 / orphan 路由 / 模型编辑校验 (completed 2026-09-05)
-- [ ] **Phase 5: 证据链与报告契约** - 证据 span + trace_link / 报告状态机与发布 / item 裁决与补算 / feedback 补全
+- [x] **Phase 5: 证据链与报告契约** - 证据 span + trace_link / 报告状态机与发布 / item 裁决与补算 / feedback 补全 (completed 2026-09-05)
 - [ ] **Phase 6: 迁移体系与测试闭环收口** - schema_version 收口 / pytest 统一 + CI / M1 回归 / E2E / eval 隔离 / bad case
 
 ## Phase Details
@@ -189,7 +189,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 05-04: feedback/question_reviews 字段补全 + item 归属校验
+- [x] 05-04: feedback/question_reviews 字段补全 + item 归属校验
 
 ### Phase 6: 迁移体系与测试闭环收口
 
@@ -225,5 +225,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-05 |
 | 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
 | 4. 题库版本绑定与模块一收口 | 2/2 | Complete   | 2026-09-05 |
-| 5. 证据链与报告契约 | 3/4 | In Progress|  |
+| 5. 证据链与报告契约 | 4/4 | Complete   | 2026-09-05 |
 | 6. 迁移体系与测试闭环收口 | 0/5 | Not started | - |
