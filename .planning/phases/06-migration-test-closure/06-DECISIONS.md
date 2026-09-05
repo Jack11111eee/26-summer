@@ -80,6 +80,18 @@ plan 落 config 占位（`None`/`[]` + 注释「实施期校准 — 待用户裁
 | [06-010] | 2026-09-06 | post-merge test gate（auto） | 全量回归 `5 failed / 218 passed`。3 个 test_phase2_migration 回归已修复；剩余 5 个均以基线（commit 13f6743，无 conftest）核实为**既有失败**，记 deferred-items.md | 基线全量 98 failed（无 conftest DB_PATH 首导入冻结污染 + 13 文件缺双列），06-01 conftest + 06-03 补列把 98→5 |
 | [06-011] | 2026-09-06 | 回归修复（auto） | test_phase2_migration 3 回归根因 = 06-01 conftest 先 import server.db 冻结 DB_PATH，使该文件模块级 `os.environ["DB_PATH"]` 失效。修复：module 级 `set_db_path(_tmp_db)` → function 级 autouse `_point_old_db` fixture（set→yield→reset None）+ 3 处 `db_module.DB_PATH` 改 `set_db_path()` | module 级 set_db_path 会泄漏全局 `_DB_PATH_OVERRIDE` 到 test_phase3_forms（实测 net +1 failure），function 级 fixture 正确隔离 |
 
+| [06-012] | 2026-09-06 | code-review gate（auto，advisory） | 标准深度 36 文件评审：**0 critical / 5 warning / 8 info**。0 critical → 不阻塞，5 warning 记档 defer（详见 06-REVIEW.md），继续 verify/secure | 章程 §1 例行关口代确认 + workflow「code review advisory 永不阻塞」 |
+
+## 代码评审 5 warning 处置（0 critical，全部 defer，详见 06-REVIEW.md）
+
+| Warning | 性质 | 处置 |
+|---------|------|------|
+| WR-01 db.py 备份文件名 `isoformat()` 含 `:`/`+`（Windows NTFS 崩溃）+ 新库 13 冗余备份 | Phase 6 自身新代码 minor | defer：本机 macOS 不受影响；新库 13 备份仅在首次全新部署发生（既有 data/app.db 只触发新增迁移 0~1 次） |
+| WR-02 input_limits.py 死代码（仅自身测试 import） | **按设计**（REF-6.3 开放参数占位，None 时放行，待用户裁决） | 维持占位，用户裁决后接线 |
+| WR-03 eval.py list_history 未钳 limit（`limit=-1`=无限制） | Phase 6 自身 loose end（clamp_pagination_limit 已建未接线） | defer，可低成本跟进：list_history 内调 clamp |
+| WR-04 eval 两脚本 get_conn() 不 close（background_tasks 长驻泄漏） | Phase 6 触及脚本 minor | defer，可低成本跟进 |
+| WR-05 conftest import 序冻结 DB_PATH 使 ~15 文件 `os.environ` 隔离失效 | **已知既有**（deferred-items 已记 test_phase4_binding/test_phase5_evidence 同根因） | 同 deferred-items，不重复 |
+
 ## 执行期回归修复纪要
 
 - **第一版修复失败（module 级 set_db_path 泄漏）**：初版在 test_phase2_migration.py 模块级加 `set_db_path(_tmp_db)`，隔离跑 8 passed，但全局 `_DB_PATH_OVERRIDE` 泄漏到 `test_phase3_forms.py`（其 252-299 行用 `db_module.DB_PATH` 直改），致 `test_new_db_direct_path` 新失败，全量 9 failed。改为 function 级 autouse fixture 后全量回到 5 failed。教训：`set_db_path` 是 module 级全局，测试隔离必须用 function 级 fixture 且 teardown 复位。
