@@ -151,7 +151,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — question_bank 绑定 model/version（落库填充 model_id/model_version/item_id/rubric_version="v1" + 4 处判重键升级）+ 消费侧收紧（readiness 三处 + selection 一处 WHERE 加 model_id+model_version）+ 生成失败可见（FAILED 分支 + get_todos 的 question_bank_failed 明细）—— REF-2.5/3.4/8.4
+- [x] 04-01-PLAN.md — question_bank 绑定 model/version（落库填充 model_id/model_version/item_id/rubric_version="v1" + 4 处判重键升级）+ 消费侧收紧（readiness 三处 + selection 一处 WHERE 加 model_id+model_version）+ 生成失败可见（FAILED 分支 + get_todos 的 question_bank_failed 明细）—— REF-2.5/3.4/8.4
 
 **Wave 2** *(blocked on 04-01——positions.py 共享文件冲突)*
 
@@ -213,6 +213,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
 | 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-05 |
 | 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
-| 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
+| 4. 题库版本绑定与模块一收口 | 1/2 | In Progress|  |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |
 | 6. 迁移体系与测试闭环收口 | 0/5 | Not started | - |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 hard gate A (plan review)
-last_updated: "2026-09-05T06:04:03.509Z"
-last_activity: 2026-09-05 -- Phase 04 planning complete
+stopped_at: Completed 04-01-PLAN.md (题库版本绑定 + 失败可见)
+last_updated: "2026-09-05T06:46:11.621Z"
+last_activity: 2026-09-05
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 50
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-02)
 
 **Core value:** 端到端可演示（JD 解析→测评框架→交互测评→画像生成）+ 全链可审计（LLM trace 留痕、状态事件 append-only、报告可回溯）
-**Current focus:** Phase 04 — 题库版本绑定与模块一收口
+**Current focus:** Phase 04 — question-bank-version
 
 ## Current Position
 
-Phase: 04 (question-bank-version) — PLANNED (2 plans, checker PASS)
-Plan: 04-01 (binding/fail-visible) + 04-02 (orphan/model-edit) — ready
-Status: Ready to execute（待硬关口 A 用户批准）
-Last activity: 2026-09-05 -- Phase 04 planning complete
+Phase: 04 (question-bank-version) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-09-05
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
 - **下一动作**：硬关口 A 呈报停车（plan 审查）→ 用户批准后 `/gsd-execute-phase 4`
@@ -55,6 +55,7 @@ Last activity: 2026-09-05 -- Phase 04 planning complete
 
 *Updated after each plan completion*
 | Phase 02 P02 | 41min | 5 tasks | 9 files |
+| Phase 04 P01 | 50min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase ?]: [02-02] 层②uncovered required 优先须在配额剩余槽位内——否则 §10.5 例外分支不可达
 - [Phase ?]: [02-02] 决策 finish 在池未空时降级 next（is_last 旧口径失真）——02-04 裁决层接管前的 API 层过渡
 - [Phase ?]: [02-02] ORDINARY_PLAN_N=10 经关口 A 用户裁决 [02-007] 落地——Task 5 checkpoint 免停车
+- [Phase 04]: [04-01] 落库绑定：_insert_question 写 model_id/model_version/item_id/rubric_version='v1'，判重键升级为 (model_id,model_version,std_name,category,difficulty)（D-47/D-49）
+- [Phase 04]: [04-01] 消费侧强制双列匹配：readiness 三处 count/tier WHERE 与 selection _load_candidate_rows 均加 model_id+model_version 谓词，去 NULL 放行（D-50）
+- [Phase 04]: [04-01] 失败可见：readiness FAILED 分支返回 QUESTION_BANK_INCOMPLETE + error_msg[:200]；get_todos 新增 question_bank_failed 明细（D-51/REF-8.4）
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-04T08:53:22.815Z
-Stopped at: Phase 2 context gathered
+Last session: 2026-09-05T06:46:11.613Z
+Stopped at: Completed 04-01-PLAN.md (题库版本绑定 + 失败可见)
 Resume file: None

@@ -38,7 +38,7 @@
 - [ ] **REF-2.2** [P0] 新表 assessment_state_event（append-only，UNIQUE(session_id,sequence_no)）→ Phase 1
 - [ ] **REF-2.3** [结构] 新表 trace_link（统一审计链）→ Phase 5
 - [ ] **REF-2.4** [结构] 新表 form_instance（schema 快照/生命周期）→ Phase 3
-- [ ] **REF-2.5** [结构] question_bank 演进（model/version 绑定、question_type、measurement_stage、rubric_version、锚点、综合绑定）→ Phase 4 主体（锚点列随 Phase 2 难度状态机先行）
+- [x] **REF-2.5** [结构] question_bank 演进（model/version 绑定、question_type、measurement_stage、rubric_version、锚点、综合绑定）→ Phase 4 主体（锚点列随 Phase 2 难度状态机先行）
 - [ ] **REF-2.6** [结构] assessment_session 演进（phase/计时区间/abandoned/状态机 PENDING_START→ACTIVE→SCORING→COMPLETED）→ Phase 3
 - [ ] **REF-2.7** [结构] assessment_question 演进（动态实例列/封存/selection_reason/路径快照；(session_id,sequence_no) 唯一）→ Phase 2
 - [ ] **REF-2.8** [结构] assessment_message 分列（raw_content/raw_hash/refined_content/client_request_id/sequence_no）→ Phase 3
@@ -51,7 +51,7 @@
 - [x] **REF-3.1** [结构] 岗位级 N + 7:3 最大余数 + tier 0.8/0.6/1.7 公式（废弃固定 CATEGORY_QUOTA）→ Phase 2
 - [x] **REF-3.2** [结构] 四层动态选题替换 create_session 一次性预选 → Phase 2
 - [ ] **REF-3.3** [结构] experience/qualification 出普通题库，改走表单 → Phase 3
-- [ ] **REF-3.4** [一般] 题库绑定 model/version；升版须重建题库否则阻止开考 → Phase 4
+- [x] **REF-3.4** [一般] 题库绑定 model/version；升版须重建题库否则阻止开考 → Phase 4
 - [ ] **REF-3.5** [P0] 开考前可测量性检查（题库 readiness/配额可行/表单 schema；不通过阻止开考+管理员待办）→ Phase 1
 - [x] **REF-3.6** [一般] required 刚性例外（每 item 最多一次、仅 medium/hard）→ Phase 2
 - [x] **REF-3.7** [结构] 难度→1-5 等级锚点映射（easy[2,3]/medium[3,4]/hard[4,5]，observable_level 列）→ Phase 2
@@ -108,7 +108,7 @@
 - [x] **REF-8.1** [结构] 空 answer_key 客观题恒满分漏洞（并入 REF-5.2）→ Phase 2
 - [ ] **REF-8.2** [一般] completed 会话仍可重复评分/报告（POST /score、/report 无状态护栏）→ Phase 1
 - [ ] **REF-8.3** [一般] 报告后台任务异常静默 pass（FAILED 态应可见，前端可区分"生成中/失败"）→ Phase 5
-- [ ] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4
+- [x] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4
 - [ ] **REF-8.5** [一般] 模型 items 为空不阻断开考（并入 REF-3.5 开考检查）→ Phase 1
 - [ ] **REF-8.6** [一般] mock interviewer 主观题固定 3 分（测试重构时处理）→ Phase 6
 - [ ] **REF-8.7** [结构] llm_trace ref_id 单字段弱关联（随 trace_link 落地迁移导入）→ Phase 5
