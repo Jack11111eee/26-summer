@@ -224,10 +224,14 @@ def generate_report(session_id: str) -> dict:
         "created_at": now_iso(),
     }
 
-    # 七项一致性校验（聚合后、版本化 INSERT 前）；⑦ 需 report_data 全文，故组装后跑
-    errors = _run_consistency_checks(
-        agg, session_id, report_text=json.dumps(report_data, ensure_ascii=False)
-    )
+    # 七项一致性校验（聚合后、版本化 INSERT 前）；⑦ 只校验 LLM 产出的文案段（不信任 LLM 文案，
+    # 而非候选人可控文本——WR-06）
+    llm_text = "\n".join(filter(None, (
+        llm_out.get("strengths_text"),
+        llm_out.get("weaknesses_text"),
+        llm_out.get("suggestions_text"),
+    )))
+    errors = _run_consistency_checks(agg, session_id, report_text=llm_text)
     if errors:
         _insert_report_row(
             conn, session_id, status="FAILED",
