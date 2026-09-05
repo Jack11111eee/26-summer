@@ -430,6 +430,7 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
         " WHERE session_id=? AND interval_type='paused' AND ended_at IS NULL",
         (session_id,),
     ).fetchone() is not None:
+        conn.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": "SESSION_PAUSED",
                                     "message": "会话已暂停，请先恢复"})
@@ -438,9 +439,11 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
         (question_id, session_id),
     ).fetchone()
     if q is None:
+        conn.rollback()
         raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不属于该会话")
     if q["answered_at"] is not None:
         # WR-01：409 detail 统一为 {error_code, message} 结构（与 readiness 三态一致）
+        conn.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": "QUESTION_ALREADY_ANSWERED",
                                     "message": "该题已作答"})
