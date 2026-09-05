@@ -32,11 +32,13 @@ class _ReviewBody(BaseModel):
 
 
 @router.post("/{feedback_id}/review")
-def review_feedback(feedback_id: str, body: _ReviewBody) -> dict:
-    """标记反馈为已处理（不做改分，仅留痕）。"""
+def review_feedback(feedback_id: str, body: _ReviewBody, admin: dict = Depends(require_admin)) -> dict:
+    """标记反馈为已处理（不做改分，仅留痕 note + reviewer + reviewed_at）。"""
     conn = get_conn()
     cur = conn.execute(
-        "UPDATE feedback SET status='reviewed' WHERE feedback_id=?", (feedback_id,)
+        "UPDATE feedback SET status='reviewed', review_note=?, reviewer_id=?, reviewed_at=?"
+        " WHERE feedback_id=?",
+        (body.note, admin["user_id"], now_iso(), feedback_id),
     )
     conn.commit()
     if cur.rowcount == 0:
@@ -45,11 +47,13 @@ def review_feedback(feedback_id: str, body: _ReviewBody) -> dict:
 
 
 @router.post("/{feedback_id}/bad-case")
-def mark_bad_case(feedback_id: str, body: _ReviewBody) -> dict:
-    """标记为 bad case（沉淀为评测素材）。"""
+def mark_bad_case(feedback_id: str, body: _ReviewBody, admin: dict = Depends(require_admin)) -> dict:
+    """标记为 bad case（沉淀为评测素材），同样留痕 note + reviewer + reviewed_at。"""
     conn = get_conn()
     cur = conn.execute(
-        "UPDATE feedback SET status='bad_case' WHERE feedback_id=?", (feedback_id,)
+        "UPDATE feedback SET status='bad_case', review_note=?, reviewer_id=?, reviewed_at=?"
+        " WHERE feedback_id=?",
+        (body.note, admin["user_id"], now_iso(), feedback_id),
     )
     conn.commit()
     if cur.rowcount == 0:
