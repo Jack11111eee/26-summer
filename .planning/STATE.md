@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: verifying
-stopped_at: "Completed 05-04-PLAN.md (feedback 审计链闭环: user_id + REVIEW_FEEDBACK_RECEIVED + admin note 持久化 + question_reviews item_id)"
-last_updated: "2026-09-05T10:57:42.700Z"
+status: ready_to_plan
+stopped_at: Phase 5 complete (5/5) — ready to discuss Phase 6
+last_updated: 2026-09-05T12:03:43.777Z
 last_activity: 2026-09-05
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 20
-  completed_plans: 20
+  completed_plans: 21
   percent: 83
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-02)
 
 **Core value:** 端到端可演示（JD 解析→测评框架→交互测评→画像生成）+ 全链可审计（LLM trace 留痕、状态事件 append-only、报告可回溯）
-**Current focus:** Phase 05 — evidence-report-contract
+**Current focus:** Phase 6 — 迁移体系与测试闭环收口
 
 ## Current Position
 
-Phase: 05 (evidence-report-contract) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
+Phase: 6
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-09-05
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
@@ -38,7 +38,7 @@ Last activity: 2026-09-05
 
 **Velocity:**
 
-- Total plans completed: 2
+- Total plans completed: 7
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -47,6 +47,7 @@ Last activity: 2026-09-05
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 04 | 2 | - | - |
+| 5 | 5 | - | - |
 
 **Recent Trend:**
 

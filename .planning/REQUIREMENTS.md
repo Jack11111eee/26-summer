@@ -13,7 +13,7 @@
 - [ ] **REQ-jd-parse-model**: JD 文本（粘贴/JSONL）→ 六工位流水线 → 结构化岗位胜任力模型 + 7:3 类目权重（人审 confirm 升版本，confirmed 不被静默覆盖）
 - [ ] **REQ-dynamic-question-generation**: 基于岗位 + confirmed 模型版本绑定的题库 + 动态实例化四层选题（不是 LLM 自由出题）；追问每题最多 2 次（代码硬约束）
 - [ ] **REQ-interactive-multiturn-assessment**: 有界测评循环（Observation→Policy→Act→Evaluation→Persist）；LLM 输出结构化观察、代码裁决；LLM 不能自行决定切题/结束
-- [ ] **REQ-talent-profile-report**: 报告五段式（总分+门槛标签/雷达/逐项明细含逐行异议/优势短板建议/逐题回顾）；score_final 锚点评分；代码排序优势短板；状态机 + 明确点击发布
+- [x] **REQ-talent-profile-report**: 报告五段式（总分+门槛标签/雷达/逐项明细含逐行异议/优势短板建议/逐题回顾）；score_final 锚点评分；代码排序优势短板；状态机 + 明确点击发布
 - [ ] **REQ-data-compliance**: 禁恶意爬虫；JD 接入只走粘贴/JSONL 文件导入；输入限额按类型配置；trace/JD/原文数据分级管理
 - [ ] **REQ-e2e-demo-deliverables**: 候选人端完整 E2E（注册→选岗→session→作答/追问→表单→完成→评分→报告→异议）+ 统一 pytest 收集 + CI 为验收入口
 - [ ] **REQ-iterative-loop**: 测试闭环（b 一致性 / c 虚拟考生 / bad case 候选 / eval 隔离）；反馈可回溯、异议永不触发改分
@@ -138,7 +138,7 @@
 | REQ-jd-parse-model | Phase 4（M1 回归验收在 Phase 6） | Pending |
 | REQ-dynamic-question-generation | Phase 2 | Pending |
 | REQ-interactive-multiturn-assessment | Phase 2（传输/表单/计时深化在 Phase 3） | Pending |
-| REQ-talent-profile-report | Phase 5（链路修复前提在 Phase 1） | Pending |
+| REQ-talent-profile-report | Phase 5（链路修复前提在 Phase 1） | Complete |
 | REQ-data-compliance | Phase 6 | Pending |
 | REQ-e2e-demo-deliverables | Phase 6 | Pending |
 | REQ-iterative-loop | Phase 6 | Pending |
