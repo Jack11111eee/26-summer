@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 03 (sse) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 03
-Last activity: 2026-09-05 -- Phase 03 execution started
+Plan: 2 of 5
+Status: Executing Phase 03 — wave 1/5 merged (03-01 表单链, e9bd3ab), 36 tests green
+Last activity: 2026-09-05 -- wave 1/5 complete, wave 2/5 (03-02 SSE) starting
 Progress: [██████████] 100%
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
