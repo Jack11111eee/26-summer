@@ -180,7 +180,7 @@ def generate_report(session_id: str) -> dict:
     radar_items = [it for it in agg["item_scores"]
                    if not it.get("gate") and it.get("actual_level") is not None]
     radar_data = {
-        "indicators": [{"name": it["std_name"], "max": 5} for it in radar_items],
+        "indicators": [{"name": it["std_name"], "max": 5, "imputed": bool(it.get("imputed"))} for it in radar_items],
         "required": [it["required_level"] or 0 for it in radar_items],
         "actual": [it["actual_level"] for it in radar_items],
     }
