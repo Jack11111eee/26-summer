@@ -14,8 +14,8 @@
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: P0 安全与主链修复** - 所有权校验 / score→report 串行 / 开考检查 / 状态事件表 + 附带护栏 (completed 2026-09-03)
-- [ ] **Phase 2: 动态选题与有界循环** - 四层选题 / 难度状态机 / 回答状态分类 / 评分链 50-50 废除 / 7:3 权重口径
-- [ ] **Phase 3: 表单/SSE/幂等/计时** - 表单实例链 / 真实 SSE / 幂等并发 / 计时区间 / 上下文三层
+- [x] **Phase 2: 动态选题与有界循环** - 四层选题 / 难度状态机 / 回答状态分类 / 评分链 50-50 废除 / 7:3 权重口径 (completed 2026-09-05)
+- [x] **Phase 3: 表单/SSE/幂等/计时** - 表单实例链 / 真实 SSE / 幂等并发 / 计时区间 / 上下文三层 (completed 2026-09-05)
 - [ ] **Phase 4: 题库版本绑定与模块一收口** - model/version 绑定 / 生成失败可见 / orphan 路由 / 模型编辑校验
 - [ ] **Phase 5: 证据链与报告契约** - 证据 span + trace_link / 报告状态机与发布 / item 裁决与补算 / feedback 补全
 - [ ] **Phase 6: 迁移体系与测试闭环收口** - schema_version 收口 / pytest 统一 + CI / M1 回归 / E2E / eval 隔离 / bad case
@@ -115,23 +115,23 @@ Plans:
 
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — 表单链（form_instance 不可变快照 + gate 九列四步放宽[A2 呈报] + render 池耗尽扩展 + GET /forms 白名单 + 六维校验 + GATE_EVALUATED + admin 覆盖 + 双源迁移 + score_session gate 行保留）—— REF-2.4/3.3/4.7/4.10
+- [x] 03-01-PLAN.md — 表单链（form_instance 不可变快照 + gate 九列四步放宽[A2 呈报] + render 池耗尽扩展 + GET /forms 白名单 + 六维校验 + GATE_EVALUATED + admin 覆盖 + 双源迁移 + score_session gate 行保留）—— REF-2.4/3.3/4.7/4.10
 
 **Wave 2** *(blocked on 03-01——submit_answer form 分支返回值先定形)*
 
-- [ ] 03-02-PLAN.md — 真实 SSE（三相 commit 后 StreamingResponse；generator 零 DB；reply 假流分块；AnswerRequest Pydantic；7 回归文件流式解析适配）—— REF-4.6/4.7
+- [x] 03-02-PLAN.md — 真实 SSE（三相 commit 后 StreamingResponse；generator 零 DB；reply 假流分块；AnswerRequest Pydantic；7 回归文件流式解析适配）—— REF-4.6/4.7
 
 **Wave 3** *(blocked on 03-02——answer 返回形态定形后幂等快照才有基准)*
 
-- [ ] 03-03-PLAN.md — 幂等（idempotency_record 三键 + 两阶段 PENDING/COMMITTED + 快照 200 JSON 回放[A1 呈报] + revision 乐观锁 + 无 key 零影响）—— REF-4.9
+- [x] 03-03-PLAN.md — 幂等（idempotency_record 三键 + 两阶段 PENDING/COMMITTED + 快照 200 JSON 回放[A1 呈报] + revision 乐观锁 + 无 key 零影响）—— REF-4.9
 
 **Wave 4** *(blocked on 03-03——A4 前置区时序在幂等之后挂计时)*
 
-- [ ] 03-04-PLAN.md — 计时区间（session_time_intervals + partial unique + Python merge + 单题超时第四路 + 全场超时收尾 + 6h ABANDONED 惰性 + phase 双轨 + 分列三列 + 滑窗[MAX_CONTEXT_TOKENS 占位呈报]）—— REF-2.6/2.8/4.8/4.12
+- [x] 03-04-PLAN.md — 计时区间（session_time_intervals + partial unique + Python merge + 单题超时第四路 + 全场超时收尾 + 6h ABANDONED 惰性 + phase 双轨 + 分列三列 + 滑窗[MAX_CONTEXT_TOKENS 占位呈报]）—— REF-2.6/2.8/4.8/4.12
 
 **Wave 5** *(blocked on 03-04——pause 409 消费面与 timer 服务就绪后收口)*
 
-- [ ] 03-05-PLAN.md — 收口（start/pause/resume 三端点 + Pitfall 12 派发条件 + INJECTION_DETECTED 白名单留痕 + 12 文件 PENDING_START 拦截面全量适配）—— REF-2.6/4.7/6.4
+- [x] 03-05-PLAN.md — 收口（start/pause/resume 三端点 + Pitfall 12 派发条件 + INJECTION_DETECTED 白名单留痕 + 12 文件 PENDING_START 拦截面全量适配）—— REF-2.6/4.7/6.4
 
 ### Phase 4: 题库版本绑定与模块一收口
 
@@ -206,8 +206,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
-| 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-04 |
-| 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
+| 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-05 |
+| 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
 | 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
 | 5. 证据链与报告契约 | 0/4 | Not started | - |
 | 6. 迁移体系与测试闭环收口 | 0/5 | Not started | - |
