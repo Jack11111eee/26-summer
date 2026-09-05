@@ -750,7 +750,7 @@ def _migrate_trace_link(conn: sqlite3.Connection) -> None:
         "interviewer": ("assessment_question", "assessment_session"),
         "refine": ("assessment_question", "assessment_session"),
         "score": ("assessment_question", "assessment_session"),
-        "report": ("report",),
+        "report": ("report", "assessment_session"),
     }
     pk_by_table = {
         "jd_record": "jd_id",
