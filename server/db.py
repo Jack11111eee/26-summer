@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS form_submission (
 CREATE TABLE IF NOT EXISTS question_score (
   score_id       TEXT PRIMARY KEY,
   session_id     TEXT NOT NULL REFERENCES assessment_session,
-  question_id    TEXT NOT NULL REFERENCES assessment_question,
+  question_id    TEXT REFERENCES assessment_question,
   item_id        TEXT NOT NULL REFERENCES competency_item,
   score_live     INTEGER,
   score_final    INTEGER,
@@ -207,7 +207,36 @@ CREATE TABLE IF NOT EXISTS question_score (
   reason         TEXT,
   created_at     TEXT NOT NULL,
   -- ============ Phase 2 v2 新列（SSOT §12.4——02-05 消费点切换后 final_score 旧列已 DROP）============
-  score_state    TEXT NOT NULL DEFAULT 'SCORED'
+  score_state    TEXT,
+  -- ============ Phase 3 表单链新列（SSOT §16.1——03-01 gate 结构化结果 + 人工覆盖）============
+  -- question_id/score_state 去 NOT NULL（gate 行这两列 NULL——A2 四步放宽法 [03-008]）；
+  -- gate 五列 + 覆盖四列：gate 行才填，普通评分行 NULL（N11 无 DB CHECK）
+  gate_result              TEXT,
+  gate_status              TEXT,
+  gate_reason              TEXT,
+  evaluated_schema_version TEXT,
+  evaluated_at             TEXT,
+  automated_gate_result    TEXT,
+  human_override           TEXT,
+  override_reason          TEXT,
+  reviewer_id              TEXT
+);
+
+-- ============ 表单实例表（SSOT §16.1——03-01 form_instance 不可变 schema 快照）============
+-- status 三态 rendered/submitted/superseded 代码校验（N11 无 DB CHECK）；
+-- revision 不可变：修订 = INSERT 新行 revision+1（同 form_instance_id），旧行 UPDATE status='superseded'；
+-- render 触发（assessment 池耗尽未采集 gate）→ GET /forms/{id} 白名单 → submit-v2 六维校验消费。
+CREATE TABLE IF NOT EXISTS form_instance (
+  form_instance_id TEXT PRIMARY KEY,
+  session_id       TEXT NOT NULL REFERENCES assessment_session,
+  form_type        TEXT NOT NULL,
+  schema_version   TEXT NOT NULL,
+  schema_snapshot  TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'rendered',
+  revision         INTEGER NOT NULL DEFAULT 1,
+  payload_json     TEXT,
+  created_at       TEXT NOT NULL,
+  submitted_at     TEXT
 );
 
 -- ============ 模块三新增（07 文档 §10.5，2 张表）============
@@ -459,6 +488,74 @@ def _migrate_question_score_v2(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE question_score DROP COLUMN final_score")
 
 
+def _migrate_question_score_phase3(conn: sqlite3.Connection) -> None:
+    """Phase 3（SSOT §16.1）：question_score 加 gate 五列 + 覆盖四列，并放宽 question_id/
+    score_state 的 NOT NULL（gate 行这两列 NULL——结构化 gate 结果复用评分表）。
+
+    - gate 五列（gate_result/gate_status/gate_reason/evaluated_schema_version/evaluated_at）
+      与覆盖四列（automated_gate_result/human_override/override_reason/reviewer_id）
+      全部可空、无 DB CHECK（N11）——gate 行才填，普通评分行 NULL。
+    - NOT NULL 放宽采用 A2 四步放宽法（ADD *_v2 → UPDATE 拷值 → DROP 原列 → RENAME COLUMN）：
+      A2 四步放宽法——02-RESEARCH 实验 9/10 验证 + 关口包裁决 [03-008]（2026-09-05）；
+      gate 行 question_id NULL 与 D-31 字面 'question_score gate 项行' 的兼容取舍已裁决。
+      旧行值保留（放宽不丢数据）：question_id_v2 拷原值、score_state_v2 回填 COALESCE 原值。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL，已含新列）
+    for name, decl in (
+        ("gate_result", "TEXT"),
+        ("gate_status", "TEXT"),
+        ("gate_reason", "TEXT"),
+        ("evaluated_schema_version", "TEXT"),
+        ("evaluated_at", "TEXT"),
+        ("automated_gate_result", "TEXT"),
+        ("human_override", "TEXT"),
+        ("override_reason", "TEXT"),
+        ("reviewer_id", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE question_score ADD COLUMN {name} {decl}")
+
+    def _relax(column: str, copy_expr: str) -> None:
+        """A2 四步放宽法：目标列若仍 NOT NULL 则 ADD v2 → UPDATE 拷 → DROP → RENAME。
+
+        init_db 的 conn 为裸 sqlite3.connect（无 row_factory），PRAGMA table_info 返回元组
+        (cid, name, type, notnull, dflt_value, pk)——notnull 取下标 3。
+        """
+        info = {r[1]: r for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
+        if info[column][3] == 0:
+            return  # 已放宽（幂等嗅探：二次 init_db 直接跳过）
+        conn.execute(f"ALTER TABLE question_score ADD COLUMN {column}_v2 TEXT")
+        conn.execute(f"UPDATE question_score SET {column}_v2 = {copy_expr}")
+        conn.execute(f"ALTER TABLE question_score DROP COLUMN {column}")
+        conn.execute(f"ALTER TABLE question_score RENAME COLUMN {column}_v2 TO {column}")
+
+    _relax("question_id", "question_id")
+    _relax("score_state", "COALESCE(score_state, 'SCORED')")
+
+
+def _migrate_form_instance(conn: sqlite3.Connection) -> None:
+    """Phase 3（SSOT §16.1）：补建 form_instance（老库无此表；CREATE IF NOT EXISTS 幂等）。
+
+    新表走 _DDL 直建；存量库走本函数（与 _migrate_question_bank_v2 双轨纪律同形态）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS form_instance (
+      form_instance_id TEXT PRIMARY KEY,
+      session_id       TEXT NOT NULL REFERENCES assessment_session,
+      form_type        TEXT NOT NULL,
+      schema_version   TEXT NOT NULL,
+      schema_snapshot  TEXT NOT NULL,
+      status           TEXT NOT NULL DEFAULT 'rendered',
+      revision         INTEGER NOT NULL DEFAULT 1,
+      payload_json     TEXT,
+      created_at       TEXT NOT NULL,
+      submitted_at     TEXT
+    );
+    """)
+
+
 def init_db() -> None:
     """建表（幂等）+ 老库迁移，启动时调用一次。"""
     db_dir = os.path.dirname(DB_PATH)
@@ -471,6 +568,8 @@ def init_db() -> None:
         _migrate_question_bank_v2(conn)
         _migrate_assessment_question_v2(conn)
         _migrate_question_score_v2(conn)
+        _migrate_question_score_phase3(conn)
+        _migrate_form_instance(conn)
         conn.executescript(_DDL)
         conn.commit()
     finally:
