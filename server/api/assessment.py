@@ -4,7 +4,7 @@ import math
 from typing import Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .. import config as _config
 from ..core.security import load_owned_report, load_owned_session, require_login
@@ -18,6 +18,7 @@ from ..services.forms import (
     whitelist_form,
 )
 from ..services.interview import decide_next_action
+from ..services.idempotency import check_idempotency, finalize_idempotency, request_hash_of
 from ..services.pipeline import new_id, now_iso
 from ..services.question_selection import exception_granted_items, select_next_question
 from ..services.readiness import check_session_readiness
@@ -224,6 +225,21 @@ def _event_stream(decision: dict, action: str, question_id: str,
                       "next_question_id": next_question_id})
 
 
+def _answer_snapshot(action: str, decision: dict, question_id: str,
+                     next_question_id: str | None) -> dict:
+    """幂等响应快照 = 决策结果 dict（SSOT §13.4/Pitfall 5——白名单键，不含候选人输入原文——A1）。
+
+    键集合 ⊆ {action, reply, question_id, next_question_id, score_live, answer_state,
+    evidence_sufficient}——重复请求 200 application/json 直返（sse.js 形态 B 消费）。
+    reply 取 .get or "" 与 _event_stream 重装语义对齐（防 MODEL_UNCERTAIN 降级缺键面）。
+    """
+    return {"action": action, "reply": decision.get("reply") or "",
+            "question_id": question_id, "next_question_id": next_question_id,
+            "score_live": decision.get("score_live"),
+            "answer_state": decision.get("answer_state"),
+            "evidence_sufficient": decision.get("evidence_sufficient")}
+
+
 def _render_form_branch(conn, session_id: str, question_id: str, decision: dict) -> StreamingResponse:
     """池耗尽且 gate 未采集（D-30）→ 渲染表单 + assistant 消息（📎[form:id] 标记）+ commit。
 
@@ -265,6 +281,18 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
 
     conn = get_conn()
     s = load_owned_session(conn, session_id, user)
+    # 幂等前置（D-36 可选——无 key 零路径；A4 时序：幂等最先，先于单题超时点检 03-04 后插）：
+    # 命中 COMMITTED 且 hash 一致 → 200 JSON 快照直返（不进 SSE 链）；异 hash/PENDING 由
+    # check_idempotency 内 409 抛出（endpoint 层不重复判）
+    if body.idempotency_key:
+        snap = check_idempotency(
+            conn, session_id=session_id, endpoint="answer", key=body.idempotency_key,
+            request_hash=request_hash_of(body.model_dump(), {
+                "question_instance_id": question_id,
+                "expected_question_revision": body.expected_revision,
+                "client_attempt_id": body.client_attempt_id}))
+        if snap is not None:
+            return JSONResponse(content=snap, status_code=200)
     if s["status"] != "in_progress":
         # WR-01：409 detail 统一为 {error_code, message} 结构（与 readiness 三态一致）
         raise HTTPException(status.HTTP_409_CONFLICT,
@@ -283,6 +311,22 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
                                     "message": "该题已作答"})
 
     now = now_iso()
+    # 乐观锁（D-37 可选——带 expected_revision 才走，无 key 零行为变化 A/B 兼容）：
+    # UPDATE WHERE revision=? 原子判（rowcount==0 → 409——先 SELECT 后比对有 TOCTOU 窗口）
+    if body.expected_revision is not None:
+        cur = conn.execute(
+            "UPDATE assessment_question SET revision=revision+1"
+            " WHERE question_id=? AND revision=?",
+            (question_id, body.expected_revision),
+        )
+        if cur.rowcount == 0:
+            # UPDATE 已起写事务（RESERVED 锁）——write-then-raise 须先 rollback 释放锁，
+            # 否则连接泄漏持锁 >5s，阻塞后续测试/请求的写库（SQLite 单写者）
+            conn.rollback()
+            # WR-01：409 detail 统一为 {error_code, message} 结构
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                detail={"error_code": "QUESTION_REVISION_CONFLICT",
+                                        "message": f"题目版本冲突（expected={body.expected_revision}）"})
     # 1. 用户消息（长输入走精炼，原文哈希归档）
     refined, raw_hash = refine_user_input(answer)
     conn.execute(
@@ -405,6 +449,10 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
             # 可选池耗尽（普通计划 + required 例外全完成）→ 先判 gate 全采集（D-30）：
             # 未采集走表单 render（📎[form:id] 标记），已采集才 finish 收尾
             if not _all_gate_items_collected(conn, session_id):
+                if body.idempotency_key:
+                    finalize_idempotency(session_id=session_id, endpoint="answer",
+                                         key=body.idempotency_key,
+                                         snapshot=_answer_snapshot("form", decision, question_id, None))
                 return _render_form_branch(conn, session_id, question_id, decision)
             conn.execute(
                 "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
@@ -413,6 +461,10 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
             append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                          from_state="in_progress", to_state="completed", actor_type="system")
             conn.commit()
+            if body.idempotency_key:
+                finalize_idempotency(session_id=session_id, endpoint="answer",
+                                     key=body.idempotency_key,
+                                     snapshot=_answer_snapshot("finish", decision, question_id, None))
             return StreamingResponse(
                 _event_stream(decision, "finish", question_id, None),
                 media_type="text/event-stream",
@@ -429,6 +481,10 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
             if nxt is None:
                 # legacy 会话同样先判 gate 全采集（D-30 两处对称插入）
                 if not _all_gate_items_collected(conn, session_id):
+                    if body.idempotency_key:
+                        finalize_idempotency(session_id=session_id, endpoint="answer",
+                                             key=body.idempotency_key,
+                                             snapshot=_answer_snapshot("form", decision, question_id, None))
                     return _render_form_branch(conn, session_id, question_id, decision)
                 conn.execute(
                     "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
@@ -437,6 +493,10 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
                 append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                              from_state="in_progress", to_state="completed", actor_type="system")
                 conn.commit()
+                if body.idempotency_key:
+                    finalize_idempotency(session_id=session_id, endpoint="answer",
+                                         key=body.idempotency_key,
+                                         snapshot=_answer_snapshot("finish", decision, question_id, None))
                 return StreamingResponse(
                     _event_stream(decision, "finish", question_id, None),
                     media_type="text/event-stream",
@@ -453,6 +513,11 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
     action = _out_action
     if action == "finish" and next_question_id is not None and not _is_legacy_session:
         action = "next"
+    # 幂等收尾（尾段——终态 commit 后、return 前）：全部持久化完成 → UPDATE COMMITTED + 快照
+    if body.idempotency_key:
+        finalize_idempotency(session_id=session_id, endpoint="answer",
+                             key=body.idempotency_key,
+                             snapshot=_answer_snapshot(action, decision, question_id, next_question_id))
     return StreamingResponse(
         _event_stream(decision, action, question_id, next_question_id),
         media_type="text/event-stream",
@@ -604,9 +669,18 @@ def submit_form_v2(session_id: str, body: FormSubmitRequest,
 
     提交成功即 gate 全采集；触发器 B1：池未空 → action='next'（带下一题 id），
     池耗尽 → 复用主链 finish 三步（无 assistant 消息——表单提交无决策 reply）。
+    幂等（D-36 可选）：命中 COMMITTED 且 hash 一致 → 200 快照直返（不进六维——状态维
+    FORM_ALREADY_SUBMITTED 不触发）。
     """
     conn = get_conn()
     load_owned_session(conn, session_id, user)
+    # 幂等前置（endpoint='form_submit'——与 answer 三键隔离）：命中且 hash 一致 → 快照 200 直返
+    if body.idempotency_key:
+        snap = check_idempotency(conn, session_id=session_id, endpoint="form_submit",
+                                 key=body.idempotency_key,
+                                 request_hash=request_hash_of(body.model_dump()))
+        if snap is not None:
+            return JSONResponse(content=snap, status_code=200)
     result = validate_and_submit(
         conn, session_id=session_id, form_instance_id=body.form_instance_id,
         payload=body.payload, expected_revision=body.expected_revision, user=user,
@@ -641,10 +715,17 @@ def submit_form_v2(session_id: str, body: FormSubmitRequest,
             append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                          from_state="in_progress", to_state="completed", actor_type="system")
             conn.commit()
-            return {**base, "action": "finish", "next_question_id": None}
-        return {**base, "action": "next", "next_question_id": next_id}
-    # 提交成功即 gate 全采集，理论上不达此分支；防御性回 form（状态维由 validate 兜底）
-    return {**base, "action": "form", "next_question_id": None}
+            out = {**base, "action": "finish", "next_question_id": None}
+        else:
+            out = {**base, "action": "next", "next_question_id": next_id}
+    else:
+        # 提交成功即 gate 全采集，理论上不达此分支；防御性回 form（状态维由 validate 兜底）
+        out = {**base, "action": "form", "next_question_id": None}
+    # 幂等收尾：validate_and_submit 的 commit 后 → COMMITTED 快照（= 首次返回体）
+    if body.idempotency_key:
+        finalize_idempotency(session_id=session_id, endpoint="form_submit",
+                             key=body.idempotency_key, snapshot=out)
+    return out
 
 
 @router.post("/sessions/{session_id}/score")

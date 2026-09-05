@@ -680,3 +680,25 @@ def test_exp_qual_not_in_selection():
     )
     cats = {r["category"] for r in rows}
     assert cats and cats <= {"hard_skill", "soft_skill"}, f"终局选题不得含 experience/qualification，实得 {cats}"
+
+
+def test_form_submit_idempotent():
+    """携 idempotency_key 提交表单 → 重放 200 同体；gate 行与事件零重复写（幂等快照直返）。"""
+    pid, _mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid)
+    headers = _auth_headers("p3_formidem")
+    sid = _create_session(pid, headers)
+    form_id = _answer_until_form(sid, headers)
+    body = {"form_instance_id": form_id, "schema_version": "v1", "expected_revision": 1,
+            "payload": {"years_of_experience": 5, "本科学历": "是"},
+            "idempotency_key": "k-form-1"}
+    r1 = client.post(f"/api/assessment/sessions/{sid}/forms/submit-v2", json=body, headers=headers)
+    assert r1.status_code in (200, 201), r1.text
+    r2 = client.post(f"/api/assessment/sessions/{sid}/forms/submit-v2", json=body, headers=headers)
+    assert r2.status_code == 200, r2.text
+    assert r2.json() == r1.json(), "重放应返回首次返回体同构"
+    # 零重复写：gate 行 / GATE_EVALUATED 事件均不增（validate_and_submit 未二次进入）
+    assert _q("SELECT COUNT(*) c FROM question_score WHERE session_id=? AND gate_result IS NOT NULL", (sid,))[0]["c"] == 2
+    assert _q("SELECT COUNT(*) c FROM assessment_state_event WHERE session_id=? AND event_type='GATE_EVALUATED'", (sid,))[0]["c"] == 2
+    # 幂等记录 COMMITTED 恰好 1 行（endpoint='form_submit' 与 answer 三键隔离）
+    assert _q("SELECT status FROM idempotency_record WHERE session_id=? AND endpoint='form_submit'", (sid,))[0]["status"] == "COMMITTED"
