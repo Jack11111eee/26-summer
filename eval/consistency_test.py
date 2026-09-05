@@ -46,13 +46,16 @@ def _run_isolated(fn, *args):
 
 def _load_answered_questions(session_id: str) -> list[dict]:
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT aq.question_id, b.stem FROM assessment_question aq"
-        " JOIN question_bank b ON b.question_id=aq.bank_question_id"
-        " WHERE aq.session_id=? AND aq.answered_at IS NOT NULL ORDER BY aq.seq",
-        (session_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    try:
+        rows = conn.execute(
+            "SELECT aq.question_id, b.stem FROM assessment_question aq"
+            " JOIN question_bank b ON b.question_id=aq.bank_question_id"
+            " WHERE aq.session_id=? AND aq.answered_at IS NOT NULL ORDER BY aq.seq",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def test_scoring_consistency(session_id: str, runs: int = 3) -> dict:
@@ -66,9 +69,12 @@ def test_scoring_consistency(session_id: str, runs: int = 3) -> dict:
       {test_name, session_id, runs, passed, details}
     """
     conn = get_conn()
-    s = conn.execute(
-        "SELECT status FROM assessment_session WHERE session_id=?", (session_id,)
-    ).fetchone()
+    try:
+        s = conn.execute(
+            "SELECT status FROM assessment_session WHERE session_id=?", (session_id,)
+        ).fetchone()
+    finally:
+        conn.close()
     if s is None:
         return {
             "test_name": "scoring_consistency",

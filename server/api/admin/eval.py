@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ...core.security import require_admin
 from ...db import get_conn, set_db_path
+from ...services.input_limits import clamp_pagination_limit
 from ...services.pipeline import new_id, now_iso
 
 # eval/ 在仓库根，不在 server 包内，动态加路径
@@ -118,6 +119,7 @@ def get_result(task_id: str) -> dict:
 @router.get("/history")
 def list_history(limit: int = 20) -> list[dict]:
     """评测历史列表。"""
+    limit = clamp_pagination_limit(limit)
     conn = get_conn()
     rows = conn.execute(
         "SELECT task_id, test_name, status, created_at, completed_at"

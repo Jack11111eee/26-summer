@@ -75,99 +75,105 @@ def _answers_for_tier(tier: str, questions: list[dict]) -> list[str]:
 def _get_or_seed_bank(position_id: str) -> str:
     """确保该岗位存在可测的客观题；没有则按 fixture 造 3 道（idempotent）。返回 model_id。"""
     conn = get_conn()
-    model = conn.execute(
-        "SELECT model_id FROM competency_model WHERE position_id=? AND status='confirmed'"
-        " ORDER BY version DESC LIMIT 1",
-        (position_id,),
-    ).fetchone()
-    if model is None:
-        raise ValueError(f"岗位 {position_id} 无 confirmed 模型，无法跑虚拟考生")
-    model_id = model["model_id"]
+    try:
+        model = conn.execute(
+            "SELECT model_id FROM competency_model WHERE position_id=? AND status='confirmed'"
+            " ORDER BY version DESC LIMIT 1",
+            (position_id,),
+        ).fetchone()
+        if model is None:
+            raise ValueError(f"岗位 {position_id} 无 confirmed 模型，无法跑虚拟考生")
+        model_id = model["model_id"]
 
-    items = conn.execute(
-        "SELECT item_id, std_name FROM competency_item WHERE model_id=? AND category='hard_skill'"
-        " ORDER BY weight DESC LIMIT 3",
-        (model_id,),
-    ).fetchall()
-    if not items:
-        raise ValueError(f"模型 {model_id} 无 hard_skill 能力项，无法造题")
+        items = conn.execute(
+            "SELECT item_id, std_name FROM competency_item WHERE model_id=? AND category='hard_skill'"
+            " ORDER BY weight DESC LIMIT 3",
+            (model_id,),
+        ).fetchall()
+        if not items:
+            raise ValueError(f"模型 {model_id} 无 hard_skill 能力项，无法造题")
 
-    existing = conn.execute(
-        "SELECT COUNT(*) AS c FROM question_bank WHERE position_id=? AND qtype='objective'"
-        " AND status IN ('active','eval_seed')",
-        (position_id,),
-    ).fetchone()["c"]
-    if existing >= 3:
+        existing = conn.execute(
+            "SELECT COUNT(*) AS c FROM question_bank WHERE position_id=? AND qtype='objective'"
+            " AND status IN ('active','eval_seed')",
+            (position_id,),
+        ).fetchone()["c"]
+        if existing >= 3:
+            return model_id
+
+        # 造 3 道客观题（answer_key = fixture 关键词）。
+        # WR-13：占位题写 status='eval_seed' 隔离态（表无 status CHECK，无需迁移）——
+        # 选题（question_selection）与 readiness 计数口径均为 status='active'，
+        # 占位题不进真实候选人选题池、不计配额；仅本工具自身会话可见。
+        for i, item in enumerate(items[:3]):
+            conn.execute(
+                "INSERT OR IGNORE INTO question_bank(question_id, scope, position_id, std_name, category,"
+                " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,"
+                " source, status, created_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    f"qb_eval_{item['item_id'][:8]}_{i}",
+                    "position", position_id, item["std_name"], "hard_skill",
+                    "easy", "objective",
+                    f"（虚拟考生造题）请简述 {item['std_name']} 的核心概念。",
+                    _KEYWORDS[i % len(_KEYWORDS)], None,
+                    f"eval_{item['item_id'][:8]}", 1,
+                    "human", "eval_seed", now_iso(),
+                ),
+            )
+        conn.commit()
         return model_id
-
-    # 造 3 道客观题（answer_key = fixture 关键词）。
-    # WR-13：占位题写 status='eval_seed' 隔离态（表无 status CHECK，无需迁移）——
-    # 选题（question_selection）与 readiness 计数口径均为 status='active'，
-    # 占位题不进真实候选人选题池、不计配额；仅本工具自身会话可见。
-    for i, item in enumerate(items[:3]):
-        conn.execute(
-            "INSERT OR IGNORE INTO question_bank(question_id, scope, position_id, std_name, category,"
-            " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,"
-            " source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                f"qb_eval_{item['item_id'][:8]}_{i}",
-                "position", position_id, item["std_name"], "hard_skill",
-                "easy", "objective",
-                f"（虚拟考生造题）请简述 {item['std_name']} 的核心概念。",
-                _KEYWORDS[i % len(_KEYWORDS)], None,
-                f"eval_{item['item_id'][:8]}", 1,
-                "human", "eval_seed", now_iso(),
-            ),
-        )
-    conn.commit()
-    return model_id
+    finally:
+        conn.close()
 
 
 def _run_one_tier(position_id: str, user_id: str, tier: str, model_id: str) -> dict:
     """跑一档：会话→作答→打分→聚合，返回 {session_id, total_score}。"""
     conn = get_conn()
-    session_id = new_id("as")
-    model = conn.execute(
-        "SELECT version FROM competency_model WHERE model_id=?", (model_id,)
-    ).fetchone()
-    conn.execute(
-        "INSERT INTO assessment_session(session_id, user_id, position_id, model_id, model_version,"
-        " status, started_at, created_at) VALUES(?,?,?,?,?,?,?,?)",
-        (session_id, user_id, position_id, model_id, model["version"],
-         "in_progress", now_iso(), now_iso()),
-    )
-    questions = conn.execute(
-        "SELECT question_id, answer_key FROM question_bank"
-        " WHERE position_id=? AND qtype='objective' AND status IN ('active','eval_seed')"
-        " ORDER BY question_id LIMIT 3",
-        (position_id,),
-    ).fetchall()
-    answers = _answers_for_tier(tier, [dict(q) for q in questions])
-
-    for seq, (q, ans) in enumerate(zip(questions, answers), 1):
-        aq_id = new_id("aq")
+    try:
+        session_id = new_id("as")
+        model = conn.execute(
+            "SELECT version FROM competency_model WHERE model_id=?", (model_id,)
+        ).fetchone()
         conn.execute(
-            "INSERT INTO assessment_question(question_id, session_id, bank_question_id,"
-            " seq, asked_at, answered_at, created_at) VALUES(?,?,?,?,?,?,?)",
-            (aq_id, session_id, q["question_id"], seq, now_iso(), now_iso(), now_iso()),
+            "INSERT INTO assessment_session(session_id, user_id, position_id, model_id, model_version,"
+            " status, started_at, created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (session_id, user_id, position_id, model_id, model["version"],
+             "in_progress", now_iso(), now_iso()),
         )
-        conn.execute(
-            "INSERT INTO assessment_message(message_id, session_id, question_id,"
-            " role, content, created_at) VALUES(?,?,?,?,?,?)",
-            (new_id("am"), session_id, aq_id, "user", ans, now_iso()),
-        )
-    # 先落库再评分（score_session 用独立连接）；评分须在置 completed 之前（01-03 护栏）
-    conn.commit()
+        questions = conn.execute(
+            "SELECT question_id, answer_key FROM question_bank"
+            " WHERE position_id=? AND qtype='objective' AND status IN ('active','eval_seed')"
+            " ORDER BY question_id LIMIT 3",
+            (position_id,),
+        ).fetchall()
+        answers = _answers_for_tier(tier, [dict(q) for q in questions])
 
-    score_session(session_id)
-    conn.execute(
-        "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
-        (now_iso(), session_id),
-    )
-    conn.commit()
-    agg = aggregate_session_scores(session_id)
-    return {"session_id": session_id, "total_score": agg["total_score"]}
+        for seq, (q, ans) in enumerate(zip(questions, answers), 1):
+            aq_id = new_id("aq")
+            conn.execute(
+                "INSERT INTO assessment_question(question_id, session_id, bank_question_id,"
+                " seq, asked_at, answered_at, created_at) VALUES(?,?,?,?,?,?,?)",
+                (aq_id, session_id, q["question_id"], seq, now_iso(), now_iso(), now_iso()),
+            )
+            conn.execute(
+                "INSERT INTO assessment_message(message_id, session_id, question_id,"
+                " role, content, created_at) VALUES(?,?,?,?,?,?)",
+                (new_id("am"), session_id, aq_id, "user", ans, now_iso()),
+            )
+        # 先落库再评分（score_session 用独立连接）；评分须在置 completed 之前（01-03 护栏）
+        conn.commit()
+
+        score_session(session_id)
+        conn.execute(
+            "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+            (now_iso(), session_id),
+        )
+        conn.commit()
+        agg = aggregate_session_scores(session_id)
+        return {"session_id": session_id, "total_score": agg["total_score"]}
+    finally:
+        conn.close()
 
 
 def run_virtual_candidate(position_id: str, tier: str, user_id: str = "eval_user") -> dict:
@@ -179,14 +185,17 @@ def run_virtual_candidate(position_id: str, tier: str, user_id: str = "eval_user
 
 def _ensure_eval_user(user_id: str) -> None:
     conn = get_conn()
-    row = conn.execute("SELECT user_id FROM user WHERE user_id=?", (user_id,)).fetchone()
-    if row is None:
-        conn.execute(
-            "INSERT INTO user(user_id, username, password_hash, role, is_active, created_at)"
-            " VALUES(?,?,?,?,1,?)",
-            (user_id, user_id, "eval_placeholder", "candidate", now_iso()),
-        )
-        conn.commit()
+    try:
+        row = conn.execute("SELECT user_id FROM user WHERE user_id=?", (user_id,)).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO user(user_id, username, password_hash, role, is_active, created_at)"
+                " VALUES(?,?,?,?,1,?)",
+                (user_id, user_id, "eval_placeholder", "candidate", now_iso()),
+            )
+            conn.commit()
+    finally:
+        conn.close()
 
 
 def test_virtual_candidates(position_id: str) -> dict:

@@ -912,15 +912,27 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
 ]
 
 
-def _backup_before_migration(conn: sqlite3.Connection, version: int) -> None:
-    """未登记迁移执行前，用 stdlib conn.backup() 备份当前库到 backups/（回滚路径，§28-6）。"""
-    if conn.execute("SELECT 1 FROM schema_version WHERE version=?", (version,)).fetchone():
+_backup_done_for_this_init = False
+
+
+def _safe_ts() -> str:
+    """文件系统安全时间戳（isoformat 的 ':'/'+' 在 NTFS 非法，Windows 会崩溃）。"""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def _backup_before_migration(conn: sqlite3.Connection) -> None:
+    """未登记迁移执行前，用 stdlib conn.backup() 备份当前库到 backups/（回滚路径，§28-6）。
+
+    每次 init_db() 至多备份一次（单次 pre-migration 快照覆盖本批全部迁移），避免全新库
+    首次建表时对 13 个迁移各备份一次；文件名用文件系统安全时间戳（_safe_ts）。
+    """
+    global _backup_done_for_this_init
+    if _backup_done_for_this_init:
         return
+    _backup_done_for_this_init = True
     bdir = os.path.join(os.path.dirname(os.path.abspath(_resolve_db_path())), "backups")
     os.makedirs(bdir, exist_ok=True)
-    target = sqlite3.connect(
-        os.path.join(bdir, f"app-{datetime.now(timezone.utc).isoformat()}-pre-{version}.db")
-    )
+    target = sqlite3.connect(os.path.join(bdir, f"app-{_safe_ts()}-pre-migration.db"))
     try:
         conn.backup(target)
     finally:
@@ -933,6 +945,7 @@ def init_db() -> None:
     schema_version 登记簿（D-68/REF-2.11）取代旧硬编码 13 次调用：引导登记簿 →
     读 applied → 循环 MIGRATIONS（未登记先备份再迁移再登记、逐迁移 commit）→ 尾部 _DDL。
     """
+    global _backup_done_for_this_init
     path = _resolve_db_path()
     db_dir = os.path.dirname(path)
     if db_dir:
@@ -941,10 +954,11 @@ def init_db() -> None:
     try:
         conn.executescript(_SCHEMA_VERSION_DDL)
         applied = {r[0] for r in conn.execute("SELECT version FROM schema_version").fetchall()}
+        _backup_done_for_this_init = False
         for version, name, fn in MIGRATIONS:
             if version in applied:
                 continue
-            _backup_before_migration(conn, version)
+            _backup_before_migration(conn)
             fn(conn)
             conn.execute(
                 "INSERT INTO schema_version(version, name, applied_at) VALUES(?,?,?)",

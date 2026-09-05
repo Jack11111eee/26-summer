@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFi
 from ... import schemas
 from ...core.security import require_admin
 from ...db import get_conn
+from ...services.input_limits import validate_jd_length
 from ...services.pipeline import new_id, now_iso, run_parse_pipeline
 
 router = APIRouter(prefix="/api/admin", tags=["admin-jds"], dependencies=[Depends(require_admin)])
@@ -24,6 +25,8 @@ def list_positions() -> list[dict]:
 
 
 def _insert_jd(jd_text: str, company: str | None, source_type: str) -> str:
+    if not validate_jd_length(jd_text):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "JD 文本超长")
     jd_id = new_id("jd")
     conn = get_conn()
     conn.execute(
