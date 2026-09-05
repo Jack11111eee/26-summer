@@ -1158,7 +1158,7 @@ def submit_feedback(report_id: str, body: dict, user: dict = Depends(require_log
     if not item_id or not feedback_text:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 item_id 或 feedback_text")
     conn = get_conn()
-    load_owned_report(conn, report_id, user)
+    rpt = load_owned_report(conn, report_id, user)
     # WR-06：item_id 须属于本报告会话锚定的模型（非全表存在性校验——
     # 挂入无关模型的能力项会破坏反馈回溯链 report→item 的数据完整性）
     it = conn.execute(
@@ -1172,9 +1172,14 @@ def submit_feedback(report_id: str, body: dict, user: dict = Depends(require_log
         raise HTTPException(status.HTTP_404_NOT_FOUND, "能力项不存在")
     feedback_id = new_id("fb")
     conn.execute(
-        "INSERT INTO feedback(feedback_id, report_id, item_id, feedback_text, status, created_at)"
-        " VALUES(?,?,?,?,?,?)",
-        (feedback_id, report_id, item_id, feedback_text, "pending", now_iso()),
+        "INSERT INTO feedback(feedback_id, report_id, item_id, feedback_text, status, created_at, user_id)"
+        " VALUES(?,?,?,?,?,?,?)",
+        (feedback_id, report_id, item_id, feedback_text, "pending", now_iso(), user["user_id"]),
     )
+    # D-067 一切留痕：同事务写 REVIEW_FEEDBACK_RECEIVED 事件（append_event 不 commit，
+    # 由下方 conn.commit() 覆盖），actor 落候选人本人。
+    append_event(conn, session_id=rpt["session_id"], event_type="REVIEW_FEEDBACK_RECEIVED",
+                 actor_type="candidate", actor_id=user["user_id"],
+                 payload={"report_id": report_id, "item_id": item_id, "feedback_id": feedback_id})
     conn.commit()
     return {"feedback_id": feedback_id, "status": "pending"}

@@ -305,7 +305,14 @@ CREATE TABLE IF NOT EXISTS feedback (
   item_id       TEXT NOT NULL REFERENCES competency_item,
   feedback_text TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','bad_case')),
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  -- ============ Phase 5 审计列（SSOT §13.2/D-66/D-67——05-04 feedback 留痕）============
+  -- user_id（提交人）/review_note（admin 处理备注）/reviewer_id（处理人）/reviewed_at（处理时间）
+  -- 全可空、无 DB CHECK（N11）；存量行 NULL（历史异议无审计字段，接受——D-66 只保证新行全字段）。
+  user_id       TEXT,
+  review_note   TEXT,
+  reviewer_id   TEXT,
+  reviewed_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS eval_results (
@@ -823,6 +830,26 @@ def _migrate_report_phase5(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_feedback_phase5(conn: sqlite3.Connection) -> None:
+    """Phase 5（SSOT §13.2/D-66/D-67）：feedback 加 4 审计列（全可空、无 DB CHECK）。
+
+    - PRAGMA 嗅探逐列 ALTER（幂等）；新库表已含新列自然跳过。
+    - 存量行 user_id/review_note/reviewer_id/reviewed_at 保持 NULL（历史异议无审计字段，
+      接受——迁移不虚构提交人/处理人，只有未来新提交/新处理才有溯源）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(feedback)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL，已含新列）
+    for name, decl in (
+        ("user_id", "TEXT"),
+        ("review_note", "TEXT"),
+        ("reviewer_id", "TEXT"),
+        ("reviewed_at", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE feedback ADD COLUMN {name} {decl}")
+
+
 def init_db() -> None:
     """建表（幂等）+ 老库迁移，启动时调用一次。"""
     db_dir = os.path.dirname(DB_PATH)
@@ -842,6 +869,7 @@ def init_db() -> None:
         _migrate_trace_link(conn)
         _migrate_question_score_phase5(conn)
         _migrate_report_phase5(conn)
+        _migrate_feedback_phase5(conn)
         conn.executescript(_DDL)
         conn.commit()
     finally:
