@@ -57,3 +57,9 @@ ABANDON_HOURS = 6
 # 滑窗 Token 上限（SSOT §31-2 开放参数：「参数待定，留接口」——
 # 已裁决 8000（关口包 [03-007]，2026-09-05），mock 模式全量直通）
 MAX_CONTEXT_TOKENS = 8000  # 已裁决值（关口包 [03-007]——不再 checkpoint 停车）
+
+# ---- 模块四·Phase 6 评测收口（REF-5.11 bad case 双分背离）----
+# |score_live - score_final| ≥ 阈值 → 自动 INSERT bad_case_candidate（status='pending'），
+# 永不自动改分（D-031）。阈值 = SSOT §2.3「配置阈值」开放参数——None 占位，
+# 实施期校准待用户裁决（禁止臆造默认值）；None 时 _detect_bad_case_divergence 直接跳过不检测。
+BAD_CASE_DIVERGENCE_THRESHOLD = None  # 实施期校准 — 待用户裁决（双分背离阈值）

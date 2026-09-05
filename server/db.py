@@ -432,6 +432,25 @@ CREATE TABLE IF NOT EXISTS trace_link (
   created_at  TEXT NOT NULL,
   UNIQUE(trace_id, entity_type, entity_id, link_role)
 );
+
+-- ============ bad case 候选表（SSOT §2.3/REF-5.11——06-05 双分背离检测）============
+-- score_live/score_final 双分背离 ≥ 阈值 → INSERT 候选（status='pending'），
+-- 管理员审核确认，永不自动改分（D-031）。status 三态 pending/reviewed/dismissed
+-- 由 CHECK 兜底（本表新表，非存量迁移，直接落 _DDL 最新口径——无需 ALTER）。
+CREATE TABLE IF NOT EXISTS bad_case_candidate (
+  candidate_id TEXT PRIMARY KEY,
+  session_id   TEXT NOT NULL REFERENCES assessment_session,
+  item_id      TEXT NOT NULL REFERENCES competency_item,
+  question_id  TEXT,
+  score_live   REAL,
+  score_final  REAL,
+  divergence   REAL,
+  status       TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','dismissed')),
+  detected_at  TEXT NOT NULL,
+  review_note  TEXT,
+  reviewed_by  TEXT,
+  reviewed_at  TEXT
+);
 """
 
 

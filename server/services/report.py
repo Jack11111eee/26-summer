@@ -10,6 +10,7 @@ report_status = PROVISIONAL（provisional 或 HUMAN_REVIEW_REQUIRED）否则 REA
 """
 import json
 
+from .. import config
 from ..db import get_conn
 from .aggregation import aggregate_session_scores
 from .llm import call_llm_json
@@ -157,6 +158,46 @@ def _collect_evidence_quotes(session_id: str, item_ids: list[str]) -> dict:
     return out
 
 
+def _detect_bad_case_divergence(conn, session_id: str) -> int:
+    """双分背离检测（REF-5.11/D-075）：|score_live - score_final| ≥ 阈值 → INSERT
+    bad_case_candidate（status='pending'），永不 UPDATE question_score 的 score 字段（D-031）。
+
+    阈值为 None（占位待裁决）时直接返回 0 不检测——不臆造数值。幂等：同
+    (session_id, item_id, question_id) 已有 pending 候选则跳过（报告版本化重复生成不重复建）。
+    返回本次新建候选行数。调用方（generate_report）负责 conn.commit()。
+    """
+    threshold = config.BAD_CASE_DIVERGENCE_THRESHOLD
+    if threshold is None:
+        return 0
+    rows = conn.execute(
+        "SELECT question_id, item_id, score_live, score_final FROM question_score"
+        " WHERE session_id=? AND score_live IS NOT NULL AND score_final IS NOT NULL",
+        (session_id,),
+    ).fetchall()
+    created = 0
+    for r in rows:
+        divergence = abs((r["score_live"] or 0) - (r["score_final"] or 0))
+        if divergence < threshold:
+            continue
+        qid = r["question_id"]
+        exists = conn.execute(
+            "SELECT 1 FROM bad_case_candidate WHERE session_id=? AND item_id=?"
+            " AND status='pending' AND question_id IS ?",
+            (session_id, r["item_id"], qid),
+        ).fetchone()
+        if exists is not None:
+            continue
+        conn.execute(
+            "INSERT INTO bad_case_candidate(candidate_id, session_id, item_id, question_id,"
+            " score_live, score_final, divergence, status, detected_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (new_id("bc"), session_id, r["item_id"], qid,
+             r["score_live"], r["score_final"], divergence, "pending", now_iso()),
+        )
+        created += 1
+    return created
+
+
 def generate_report(session_id: str) -> dict:
     """生成报告（版本化：同会话重复生成追加新版本行，不覆盖旧行——REF-5.9 SC-3）。
 
@@ -175,6 +216,9 @@ def generate_report(session_id: str) -> dict:
 
     agg = aggregate_session_scores(session_id)
     question_reviews = _load_question_reviews(session_id)
+    # 双分背离候选检测（REF-5.11）：评分已由 score_session 单独 commit，此处 conn 读取
+    # 已落库的 score_live/score_final，INSERT 候选随本 conn 末尾 commit 一并落库（D-031 不改分）
+    _detect_bad_case_divergence(conn, session_id)
 
     # 雷达图数据（ECharts）：required vs actual，按 item 顺序对齐；gate/无数据项跳过
     radar_items = [it for it in agg["item_scores"]
