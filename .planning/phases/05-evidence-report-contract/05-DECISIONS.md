@@ -31,4 +31,10 @@
 
 ## 硬关口 A 用户裁决
 
-（待 Phase 5 plan 产出后，打包呈现关口包，等用户批准——见 05-PLAN.md 打包。）
+| 开放项 | 用户裁决 | 落点 |
+|--------|----------|------|
+| 总分归一化公式（§20.1 vs §20.3） | **统一 `(score−1)/4`**（选择 A，作废 `score/5`） | 05-02 `_normalize_score` 两分支 + 主循环；附带 SSOT §20.3 补公式（另走 §14 原子 commit） |
+| 补算复核阈值（§31-3） | **`0.2`**（coverage_ratio > 0.2 → PROVISIONAL + 人工复核） | 05-02 `IMPUTE_RATIO_THRESHOLD = 0.2` |
+| 存量 report 行回填默认值 | **`PUBLISHED` + `NONE` + `version=1`** | 05-03 `_migrate_report_phase5` 回填 |
+
+附注（非硬关口，已定值透明记录）：review_status 六值并集（D-60 `HUMAN_REVIEW_REQUIRED` 并入 §21.1 五值）；七项校验「录用判断」词表 = D-002 红线词表（Phase 6 bad case 收口）。
