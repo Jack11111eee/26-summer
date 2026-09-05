@@ -15,6 +15,39 @@ import json
 from ..db import get_conn
 
 
+# §19 重大冲突取低：观测等级极差 ≥ 此阈值视为重大冲突（实施期可调）
+ADJUDICATE_CONFLICT_THRESHOLD = 2
+# 归一化 source 标签（§20.1 s_i=(score−1)/4 与 §20.3 normalized_item_score 同尺度）
+NORMALIZE_IMPUTED = "imputed"
+NORMALIZE_OBSERVED = "observed"
+# §31-3 补算复核阈值：IMPUTED 覆盖率超过此值 → 人工复核（关口 A 已裁决 0.2）
+IMPUTE_RATIO_THRESHOLD = 0.2
+
+
+def _normalize_score(score: float, source: str) -> float:
+    """归一化 1–5 级 → [0,1]（§20.1 s_i=(score−1)/4）。
+
+    关口 A 已裁决：observed/imputed 两分支统一 (score−1)/4，作废旧实现 score/5
+    两尺度混用——归一化张力隔离进本函数。
+    """
+    return (score - 1) / 4.0
+
+
+def adjudicate(measurements: list[dict]) -> tuple[float | None, bool]:
+    """返回 (item_final_level, human_review)。
+
+    §19：不按来源加权、不按题数重复乘 item.weight；重大冲突取低留人工标记。
+    冲突量化阈值 ADJUDICATE_CONFLICT_THRESHOLD 一处定义；一致场景取 round(mean, 2)。
+    measurements 元素为 item_measurement 记录，键 observed_level 承载观测等级。
+    """
+    levels = [m["observed_level"] for m in measurements if m.get("observed_level") is not None]
+    if not levels:
+        return None, False
+    if max(levels) - min(levels) >= ADJUDICATE_CONFLICT_THRESHOLD:
+        return float(min(levels)), True
+    return round(sum(levels) / len(levels), 2), False
+
+
 def _load_model_items(session_id: str) -> dict[str, dict]:
     """item_id → {std_name, category, required_level, weight, gate, years}"""
     conn = get_conn()
