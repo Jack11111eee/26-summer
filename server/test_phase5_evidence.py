@@ -24,7 +24,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from server.db import init_db, get_conn, _migrate_trace_link  # noqa: E402
 from server.main import app  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
-from server.services.scoring import _locate_span  # noqa: E402
 from server.services.trace_link import LINK_ROLES, link_entity  # noqa: E402
 
 init_db()  # TestClient 不触发 startup 事件，显式建表
@@ -47,6 +46,7 @@ def _sha(quote: str) -> str:
 # ---------- REF-2.10：span 定位 / 降级 / Unicode ----------
 
 def test_span_located_in_original():
+    from server.services.scoring import _locate_span  # noqa: E402 (Task 3 落地后可用)
     answer_text = "我们在压测时发现了一个性能问题，主要是连接池配置不当。"
     quote = "性能问题"
     span = _locate_span(answer_text, quote, source_message_id="msg_located")
@@ -59,12 +59,14 @@ def test_span_located_in_original():
 
 
 def test_span_degrade_on_mock_quote():
+    from server.services.scoring import _locate_span  # noqa: E402 (Task 3 落地后可用)
     answer_text = "候选人的真实回答文本，不含 mock 占位。"
     quote = "mock quote"
     assert _locate_span(answer_text, quote, source_message_id="msg_degrade") is None
 
 
 def test_span_unicode_code_point():
+    from server.services.scoring import _locate_span  # noqa: E402 (Task 3 落地后可用)
     # 😀 是单 code point（UTF-16 双码元）；𠀀𠀁 是 CJK 扩展 B 生僻字（UTF-16 各双码元）
     answer_text = "😀开头，然后𠀀𠀁生僻字，最后是中文。"
     quote = "𠀀𠀁生僻字"

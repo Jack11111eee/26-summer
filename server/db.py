@@ -367,6 +367,19 @@ CREATE TABLE IF NOT EXISTS idempotency_record (
   UNIQUE(session_id, endpoint, idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS idx_idem_created ON idempotency_record(created_at);
+
+-- ============ trace_link 统一审计链（SSOT §13.3/D-56——05-01）============
+-- link_role 枚举（input/output/caused_by/scored/reported/source）代码校验、无 DB CHECK（N11）；
+-- entity_type/entity_id 弱关联（业务表不加 FK——D-020）；UNIQUE 兜底幂等。
+CREATE TABLE IF NOT EXISTS trace_link (
+  id          TEXT PRIMARY KEY,
+  trace_id    TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id   TEXT NOT NULL,
+  link_role   TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  UNIQUE(trace_id, entity_type, entity_id, link_role)
+);
 """
 
 
@@ -677,6 +690,70 @@ def _migrate_session_phase3(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_trace_link(conn: sqlite3.Connection) -> None:
+    """Phase 5（SSOT §13.3/D-56/D-57）：补建 trace_link + 旧 ref_id 导入。
+
+    建表走 CREATE IF NOT EXISTS（与 _DDL 双轨同串）；旧 llm_trace.ref_id 按 call_type
+    逐候选实体表 SELECT 1 命中探测，命中即拆 entity_type/entity_id 导成 link_role='source'
+    行（INSERT OR IGNORE 幂等）；命不中保留 ref_id 原值不拆（弱关联不强造，T-05-02）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS trace_link (
+      id          TEXT PRIMARY KEY,
+      trace_id    TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id   TEXT NOT NULL,
+      link_role   TEXT NOT NULL,
+      created_at  TEXT NOT NULL,
+      UNIQUE(trace_id, entity_type, entity_id, link_role)
+    );
+    """)
+    # 新库此时 llm_trace 尚未建（走 _DDL 尾部），无旧行可导——跳过
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='llm_trace'"
+    ).fetchone() is None:
+        return
+
+    # call_type → 候选实体表（D-57 语义域映射；interviewer/refine/score 的 ref_id 可能指向
+    # question_id 或 session_id——以「能命中实体表」为准，逐表探测取首个命中）
+    tables_by_call = {
+        "extract": ("jd_record", "position", "competency_model"),
+        "disambiguate": ("jd_record", "position", "competency_model"),
+        "aggregate_level": ("jd_record", "position", "competency_model"),
+        "question_gen": ("assessment_question", "assessment_session"),
+        "interviewer": ("assessment_question", "assessment_session"),
+        "refine": ("assessment_question", "assessment_session"),
+        "score": ("assessment_question", "assessment_session"),
+        "report": ("report",),
+    }
+    pk_by_table = {
+        "jd_record": "jd_id",
+        "position": "position_id",
+        "competency_model": "model_id",
+        "assessment_question": "question_id",
+        "assessment_session": "session_id",
+        "report": "report_id",
+    }
+    from .services.pipeline import new_id
+
+    rows = conn.execute(
+        "SELECT trace_id, call_type, ref_id, created_at FROM llm_trace"
+    ).fetchall()
+    for trace_id, call_type, ref_id, created_at in rows:
+        for table in tables_by_call.get(call_type, ()):
+            pk = pk_by_table[table]
+            hit = conn.execute(
+                f"SELECT 1 FROM {table} WHERE {pk}=?", (ref_id,)
+            ).fetchone()
+            if hit is not None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO trace_link(id, trace_id, entity_type, entity_id,"
+                    " link_role, created_at) VALUES(?,?,?,?,?,?)",
+                    (new_id("tl"), trace_id, table, ref_id, "source", created_at),
+                )
+                break
+
+
 def init_db() -> None:
     """建表（幂等）+ 老库迁移，启动时调用一次。"""
     db_dir = os.path.dirname(DB_PATH)
@@ -693,6 +770,7 @@ def init_db() -> None:
         _migrate_form_instance(conn)
         _migrate_idempotency_record(conn)
         _migrate_session_phase3(conn)
+        _migrate_trace_link(conn)
         conn.executescript(_DDL)
         conn.commit()
     finally:

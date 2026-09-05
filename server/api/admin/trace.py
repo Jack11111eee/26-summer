@@ -47,7 +47,12 @@ def list_traces(
 
 @router.get("/by-session/{session_id}")
 def get_session_traces(session_id: str) -> list[dict]:
-    """取一条测评会话的全部 trace：ref_id 可能是 session_id / question_id / report 相关 id。"""
+    """取一条测评会话的全部 trace：ref_id 可能是 session_id / question_id / report 相关 id。
+
+    保留现有 ref_id IN 并集（弱关联不破坏），另加 trace_link 反查
+    （entity_type='assessment_session' AND entity_id=session_id → trace_id → JOIN llm_trace）
+    合并去重（D-56/D-57 消费升级）。
+    """
     conn = get_conn()
     q_ids = [r["question_id"] for r in conn.execute(
         "SELECT question_id FROM assessment_question WHERE session_id=?", (session_id,)
@@ -59,10 +64,32 @@ def get_session_traces(session_id: str) -> list[dict]:
         f" FROM llm_trace WHERE ref_id IN ({marks}) ORDER BY created_at",
         ids,
     ).fetchall()
+
+    # trace_link 反查（统一审计链）：entity_type='assessment_session' → trace_id → llm_trace
+    linked_ids = [r["trace_id"] for r in conn.execute(
+        "SELECT trace_id FROM trace_link WHERE entity_type='assessment_session' AND entity_id=?",
+        (session_id,),
+    ).fetchall()]
+    linked_rows = []
+    if linked_ids:
+        lmarks = ",".join("?" * len(linked_ids))
+        linked_rows = conn.execute(
+            f"SELECT trace_id, call_type, ref_id, attempt, success, created_at"
+            f" FROM llm_trace WHERE trace_id IN ({lmarks}) ORDER BY created_at",
+            linked_ids,
+        ).fetchall()
+
     out = [dict(r) for r in rows]
+    out += [dict(r) for r in linked_rows]
+    seen: set[str] = set()
+    deduped: list[dict] = []
     for t in out:
         t["success"] = bool(t["success"])
-    return out
+        if t["trace_id"] in seen:
+            continue
+        seen.add(t["trace_id"])
+        deduped.append(t)
+    return deduped
 
 
 @router.get("/{trace_id}")

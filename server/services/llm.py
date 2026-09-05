@@ -11,14 +11,17 @@ from .pipeline import now_iso, new_id
 
 
 def _record_trace(call_type: str, ref_id: str, attempt: int,
-                  prompt: str, response: str | None, success: bool, error: str | None) -> None:
+                  prompt: str, response: str | None, success: bool, error: str | None) -> str:
+    """落一条 llm_trace 审计行并返回 trace_id（05-01：供下游 trace_link 关联）。"""
+    trace_id = new_id("t")
     conn = get_conn()
     conn.execute(
         "INSERT INTO llm_trace(trace_id, call_type, ref_id, attempt, prompt, response, success, error, created_at)"
         " VALUES(?,?,?,?,?,?,?,?,?)",
-        (new_id("t"), call_type, ref_id, attempt, prompt, response, int(success), error, now_iso()),
+        (trace_id, call_type, ref_id, attempt, prompt, response, int(success), error, now_iso()),
     )
     conn.commit()
+    return trace_id
 
 
 def _chat(system_prompt: str, user_prompt: str) -> str:
@@ -39,10 +42,12 @@ def _chat(system_prompt: str, user_prompt: str) -> str:
 
 
 def call_llm_json(call_type: str, ref_id: str, system_prompt: str, user_prompt: str,
-                  mock_fn=None) -> dict[str, Any]:
+                  mock_fn=None, trace_out: list | None = None) -> dict[str, Any]:
     """调 LLM 并解析 JSON。失败带错误信息重试 LLM_RETRY 次，全败抛异常。
 
     mock_fn: provider=mock 时替代真实调用的函数，签名 (system_prompt, user_prompt)->dict。
+    trace_out: 非 None 时把成功产出 trace 的 trace_id append 进去（失败重试路径不追加——
+    仅成功 trace 供下游 trace_link 关联）。
     """
     last_err: str | None = None
     for attempt in range(1, config.LLM_RETRY + 2):  # 首次 + 重试 LLM_RETRY 次
@@ -54,7 +59,9 @@ def call_llm_json(call_type: str, ref_id: str, system_prompt: str, user_prompt: 
             else:
                 raw = _chat(system_prompt, user_prompt)
                 result = json.loads(raw)
-            _record_trace(call_type, ref_id, attempt, prompt_for_trace, raw, True, None)
+            trace_id = _record_trace(call_type, ref_id, attempt, prompt_for_trace, raw, True, None)
+            if trace_out is not None:
+                trace_out.append(trace_id)
             return result
         except Exception as e:  # noqa: BLE001 - 网络/解析错误统一重试
             last_err = str(e)
