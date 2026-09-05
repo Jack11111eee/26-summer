@@ -13,6 +13,8 @@ import os
 import sys
 import tempfile
 
+import pytest
+
 # 必须在 import server 之前设环境变量（config 在 import 时读取）
 _tmp_db = os.path.join(tempfile.mkdtemp(), "test_phase4_binding.db")
 os.environ["DB_PATH"] = _tmp_db
@@ -21,13 +23,21 @@ os.environ["JWT_SECRET"] = "test-secret"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from server.db import init_db, get_conn  # noqa: E402
+from server.db import init_db, get_conn, set_db_path  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
 from server.services.question_bank import generate_question_bank  # noqa: E402
 from server.services.question_selection import select_next_question  # noqa: E402
 from server.services.readiness import check_session_readiness  # noqa: E402
 
-init_db()  # TestClient 不触发 startup 事件，显式建表
+# 06-01 conftest 先 import server.db 冻结 DB_PATH，模块级 os.environ["DB_PATH"] 赋值已失效；
+# 用 function 级 autouse fixture 把 get_conn()/init_db() 指向自建 _tmp_db（隔离于 conftest
+# session 共享库），测试结束复位 None，避免 module 级 set_db_path 泄漏到其他测试文件。
+@pytest.fixture(autouse=True)
+def _point_binding_db():
+    set_db_path(_tmp_db)
+    init_db()  # 幂等，在 _tmp_db 建表（本文件无 TestClient，显式建表保确定性）
+    yield
+    set_db_path(None)
 
 
 def _q(sql: str, params: tuple = ()) -> list[dict]:

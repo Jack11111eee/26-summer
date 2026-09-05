@@ -21,12 +21,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from server.db import init_db, get_conn, _migrate_trace_link  # noqa: E402
+from server.db import init_db, get_conn, set_db_path, _migrate_trace_link  # noqa: E402
 from server.main import app  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
 from server.services.trace_link import LINK_ROLES, link_entity  # noqa: E402
 
-init_db()  # TestClient 不触发 startup 事件，显式建表
+# 06-01 conftest 先 import server.db 冻结 DB_PATH，模块级 os.environ["DB_PATH"] 赋值已失效；
+# 用 function 级 autouse fixture 把 init_db()/get_conn() 指向自建 _tmp_db（隔离于 conftest
+# session 共享库），测试结束复位 None，避免 module 级 set_db_path 泄漏到其他测试文件。
+# 本文件 test_ref_id_import_migration 用裸 sqlite3.connect(_tmp_db) 直插行，故须先在 _tmp_db 建表。
+@pytest.fixture(autouse=True)
+def _point_evidence_db():
+    set_db_path(_tmp_db)
+    init_db()  # 幂等，在 _tmp_db 建表（TestClient 不触发 startup 事件，显式建表）
+    yield
+    set_db_path(None)
+
+
 client = TestClient(app)  # noqa: F841
 
 
