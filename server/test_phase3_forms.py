@@ -196,6 +196,23 @@ def _create_session(pid: str, headers: dict) -> str:
     return r.json()["session_id"]
 
 
+def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
 def _answer_until_form(sid: str, headers: dict) -> str:
     """答完普通题直到 action=='form'，返回 form_instance_id（reply 正则提取）。"""
     form_id = None
@@ -205,20 +222,15 @@ def _answer_until_form(sid: str, headers: dict) -> str:
         cur = r.json()["current_question"]
         if cur is None:
             break
-        r = client.post(
-            f"/api/assessment/sessions/{sid}/answer",
-            json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-        action = r.json()["action"]
+        resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
+        action = resp["action"]
         if action == "form":
-            reply = r.json().get("reply", "")
+            reply = resp.get("reply", "")
             m = re.search(r"📎\[form:([^\]]+)\]", reply)
             assert m, f"reply 应含 📎[form:id] 标记，实得 {reply}"
             form_id = m.group(1)
             break
-        assert action == "next", r.text
+        assert action == "next", resp
     assert form_id is not None, "会话应触发表单渲染（action=form）"
     return form_id
 
@@ -469,11 +481,8 @@ def test_submit_next_when_pool_left():
     # 答 1 题（池未耗尽）
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     cur = r.json()["current_question"]
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": cur["question_id"], "answer": _LONG_ANSWER}, headers=headers,
-    )
-    assert r.status_code == 200 and r.json()["action"] == "next", r.text
+    resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
+    assert resp["action"] == "next", resp
 
     # 直插一个 rendered form_instance（模拟过早 render）
     snapshot = {

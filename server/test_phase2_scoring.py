@@ -131,10 +131,19 @@ def _cur_q(sid: str, headers: dict) -> dict | None:
 
 
 def _answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": question_id, "answer": answer}, headers=headers)
-    assert r.status_code == 200, r.text
-    return r.json()
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
 
 
 # 答案文案（02-04 词表口径——避开 _EVIDENCE_WORDS 会触发实义路径：

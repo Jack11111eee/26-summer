@@ -185,19 +185,30 @@ def test_session_creation_no_preselection():
     assert n == 0, f"会话创建应零预选（实得 {n} 行）"
 
 
+def _stream_answer(sid, headers, question_id, answer) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
 def _answer_one(sid, headers, answer=_LONG_ANSWER) -> dict:
-    """取当前题并提交一次回答，返回响应 json。"""
+    """取当前题并提交一次回答，返回组回 dict。"""
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     cur = r.json()["current_question"]
     assert cur is not None, "get_session 应已有派发实例"
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": cur["question_id"], "answer": answer},
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    return r.json()
+    return _stream_answer(sid, headers, cur["question_id"], answer)
 
 
 def test_dynamic_dispatch_per_next():
@@ -294,13 +305,8 @@ def test_followup_does_not_create_instance():
         before = _q("SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (sid,))[0]["c"]
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
         qid = r.json()["current_question"]["question_id"]
-        r = client.post(
-            f"/api/assessment/sessions/{sid}/answer",
-            json={"question_id": qid, "answer": "不知道"},
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-        assert r.json()["action"] == "followup", "短答应触发 followup"
+        r2 = _stream_answer(sid, headers, qid, "不知道")
+        assert r2["action"] == "followup", "短答应触发 followup"
         after = _q("SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (sid,))[0]["c"]
         assert after == before, f"followup 不应增实例（{before} → {after}）"
 
@@ -476,13 +482,7 @@ def test_legacy_session_continues():
         "SELECT question_id FROM assessment_question WHERE session_id=? ORDER BY seq",
         (sid,))[0]["question_id"], "legacy 会话应按 seq 顺序派发"
 
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
+    body = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
     assert body["action"] in ("next", "finish"), body
     legacy_rows = _q(
         "SELECT question_id FROM assessment_question WHERE session_id=? ORDER BY seq", (sid,))

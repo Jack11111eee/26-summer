@@ -135,6 +135,23 @@ def _auth_headers(username: str = "m5_candidate") -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
+def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
 # ---------- 测试 ----------
 
 def test_session_creation_and_question_selection():
@@ -223,26 +240,20 @@ def test_answer_flow_and_scoring():
     # 第一题：短回答触发 followup，再长回答 next
     q1 = _current_q()
     assert q1 is not None
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": q1["question_id"], "answer": "不知道"}, headers=headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["action"] == "followup"
+    r = _stream_answer(sid, headers, q1["question_id"], "不知道")
+    assert r["action"] == "followup"
 
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": q1["question_id"], "answer": long_answer}, headers=headers)
-    assert r.json()["action"] == "next"
-    assert r.json()["next_question_id"] is not None
+    r = _stream_answer(sid, headers, q1["question_id"], long_answer)
+    assert r["action"] == "next"
+    assert r["next_question_id"] is not None
 
     # 剩余题全部长回答：逐题 GET current_question → POST answer，直到 finish
     while True:
         cur = _current_q()
         if cur is None:
             break
-        r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                        json={"question_id": cur["question_id"], "answer": long_answer * 2},
-                        headers=headers)
-        assert r.status_code == 200, r.text
-        if r.json()["action"] == "finish":
+        r = _stream_answer(sid, headers, cur["question_id"], long_answer * 2)
+        if r["action"] == "finish":
             break
 
     # 整场类别断言（SC-2）：hard=7 / soft=3（N=10 配额），experience 不出现

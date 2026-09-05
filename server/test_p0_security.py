@@ -163,6 +163,23 @@ _LONG_ANSWER = (
 )
 
 
+def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
 def _answer_whole_session(sid: str, headers: dict) -> None:
     """把一场会话全部题答完（长回答触发 next/finish），不出现任何 score 直调。"""
     while True:
@@ -171,13 +188,8 @@ def _answer_whole_session(sid: str, headers: dict) -> None:
         cur = r.json()["current_question"]
         if cur is None:
             break
-        r = client.post(
-            f"/api/assessment/sessions/{sid}/answer",
-            json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-        if r.json()["action"] == "finish":
+        resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
+        if resp["action"] == "finish":
             break
 
 
@@ -212,13 +224,8 @@ def _seed_in_progress_session(headers: dict) -> str:
     sid = r.json()["session_id"]
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     cur = r.json()["current_question"]
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["action"] == "next", "只答 1 题后应仍 in_progress"
+    resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
+    assert resp["action"] == "next", "只答 1 题后应仍 in_progress"
     return sid
 
 

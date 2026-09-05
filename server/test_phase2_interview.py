@@ -139,10 +139,19 @@ def _cur_q(sid: str, headers: dict) -> dict:
 
 
 def _answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": question_id, "answer": answer}, headers=headers)
-    assert r.status_code == 200, r.text
-    return r.json()
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
 
 
 # 答案文案：避开 _DECLINE_WORDS 与 _EVIDENCE_WORDS 的相近词（plan Task 1 提醒）
@@ -344,12 +353,8 @@ def test_llm_failure_degrades_model_uncertain(monkeypatch):
     qid = cur["question_id"]
 
     monkeypatch.setattr(interview_mod, "call_llm_json", _boom)
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": qid, "answer": _EVIDENCE_ANSWER}, headers=headers)
+    resp = _answer(sid, headers, qid, _EVIDENCE_ANSWER)
     monkeypatch.undo()
-    assert r.status_code == 200, f"LLM 失败不得 500（主链断裂），实得 {r.status_code}: {r.text}"
-
-    resp = r.json()
     assert resp["action"] in ("next", "finish"), \
         f"MODEL_UNCERTAIN 按规则 3 应 next 推进，实得 {resp['action']}"
     # 决策观察留痕已落（审计链完整，非静默吞异常）

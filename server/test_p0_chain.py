@@ -160,6 +160,23 @@ _LONG_ANSWER = (
 )
 
 
+def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
 def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
     """把一场会话全部题答完（长回答触发 next/finish），返回题目列表。
 
@@ -176,16 +193,11 @@ def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
         if cur is None:
             break
         questions.append(cur)
-        r = client.post(
-            f"/api/assessment/sessions/{sid}/answer",
-            json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-        assert r.json()["action"] in ("next", "finish", "form"), r.text
-        if r.json()["action"] == "form":
+        resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
+        assert resp["action"] in ("next", "finish", "form"), resp
+        if resp["action"] == "form":
             # 表单步骤（03-01）：提取 form_instance_id → submit-v2（experience 项填年限）
-            reply = r.json().get("reply", "")
+            reply = resp.get("reply", "")
             m = re.search(r"📎\[form:([^\]]+)\]", reply)
             assert m, f"reply 应含 📎[form:id]，实得 {reply}"
             form_id = m.group(1)
@@ -423,13 +435,8 @@ def test_in_progress_report_rejected():
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     q_id = r.json()["current_question"]["question_id"]
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": q_id, "answer": _LONG_ANSWER},
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["action"] == "next"
+    resp = _stream_answer(sid, headers, q_id, _LONG_ANSWER)
+    assert resp["action"] == "next"
     sess = _q("SELECT status FROM assessment_session WHERE session_id=?", (sid,))[0]
     assert sess["status"] == "in_progress"
 
