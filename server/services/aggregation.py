@@ -267,6 +267,10 @@ def aggregate_session_scores(session_id: str) -> dict:
         if item_measurements:
             # 有测量 → adjudicate 裁决（冲突取低留人工标记）
             item_final_level, human_review = adjudicate(item_measurements)
+            if human_review:
+                # 重大冲突 → 顶层 PROVISIONAL + HUMAN_REVIEW_REQUIRED（§19 留人工标记）
+                provisional = True
+                review_status = "HUMAN_REVIEW_REQUIRED"
             gap = (required - item_final_level) if required is not None else None
             contribution = weight * _normalize_score(item_final_level, NORMALIZE_OBSERVED) * 100.0
             item_scores.append({

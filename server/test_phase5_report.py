@@ -160,6 +160,48 @@ def test_required_missing_provisional():
     assert py_item["no_data"] is True
 
 
+def test_conflict_propagates_provisional():
+    # 重大冲突（同 item 观测 1 vs 5）→ 顶层 provisional + HUMAN_REVIEW_REQUIRED（CR-01）
+    session_id, item_ids = _seed_session([
+        {"std_name": "Python", "category": "hard_skill", "importance": "preferred", "weight": 0.3},
+    ])
+    conn = get_conn()
+    for score_final in (1, 5):
+        conn.execute(
+            "INSERT INTO question_score(score_id, session_id, question_id, item_id, score_final,"
+            " score_state, created_at) VALUES(?,?,?,?,?,?,?)",
+            (new_id("qs"), session_id, None, item_ids[0], score_final, "SCORED", now_iso()),
+        )
+    conn.commit()
+    conn.close()
+    agg = aggregate_session_scores(session_id)
+    assert agg["provisional"] is True
+    assert agg["review_status"] == "HUMAN_REVIEW_REQUIRED"
+    py_item = next(it for it in agg["item_scores"] if it["item_id"] == item_ids[0])
+    assert py_item["human_review"] is True
+
+
+def test_conflict_consistency_guard():
+    # ⑥ 冲突标记上浮自洽：human_review=True 但顶层未标 PROVISIONAL 时报错；正确上浮则全过
+    session_id, _ = _seed_session([
+        {"std_name": "Python", "category": "hard_skill", "importance": "preferred", "weight": 0.3},
+    ])
+    bad_agg = {
+        "item_scores": [{"score": 0.0, "weight": 0.3, "human_review": True}],
+        "total_score": 0.0,
+        "provisional": False,
+        "review_status": None,
+        "missing_warnings": [],
+        "observation_status": None,
+    }
+    errors = _run_consistency_checks(bad_agg, session_id)
+    assert any("human_review" in e for e in errors)
+    good_agg = dict(bad_agg)
+    good_agg["provisional"] = True
+    good_agg["review_status"] = "HUMAN_REVIEW_REQUIRED"
+    assert _run_consistency_checks(good_agg, session_id) == []
+
+
 # ============ 05-03 追加：报告状态机 / 七项校验 / 版本化 / publish / FAILED ============
 
 def _ensure_admin() -> None:

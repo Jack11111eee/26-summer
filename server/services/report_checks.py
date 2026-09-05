@@ -78,6 +78,10 @@ def _run_consistency_checks(agg: dict, session_id: str, report_text: str = "") -
         agg.get("provisional") or agg.get("observation_status") == "NO_VALID_OBSERVATION"
     ):
         errors.append("review_status=HUMAN_REVIEW_REQUIRED 但既非 required 缺失也非 O=∅")
+    if any(it.get("human_review") for it in agg.get("item_scores", [])) and not (
+        agg.get("provisional") and agg.get("review_status") == "HUMAN_REVIEW_REQUIRED"
+    ):
+        errors.append("item 冲突 human_review 为真但顶层未标 PROVISIONAL/HUMAN_REVIEW_REQUIRED")
 
     # ⑦ 文案无录用判断表述（D-002 红线词表；report_text 由调用方序列化后传入）
     if report_text and any(w in report_text for w in HIRING_REDLINE_WORDS):
