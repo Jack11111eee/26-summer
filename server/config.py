@@ -63,3 +63,16 @@ MAX_CONTEXT_TOKENS = 8000  # 已裁决值（关口包 [03-007]——不再 check
 # 永不自动改分（D-031）。阈值 = SSOT §2.3「配置阈值」开放参数——None 占位，
 # 实施期校准待用户裁决（禁止臆造默认值）；None 时 _detect_bad_case_divergence 直接跳过不检测。
 BAD_CASE_DIVERGENCE_THRESHOLD = None  # 实施期校准 — 待用户裁决（双分背离阈值）
+
+# ---- 模块四·Phase 6 安全收尾（REF-6.3 输入限额 + §31-5/§31-6 开放参数）----
+# 输入限额按类型配置（REF-6.3/D-078）：各类型具体数值为开放参数——None 占位，
+# 实施期校准待用户裁决（禁止臆造默认值）。已决值沿用：MAX_ANSWER_LEN=64*1024
+# （services/scoring.py）、MAX_CONTEXT_TOKENS=8000（本文件上方）。
+MAX_JD_LENGTH = None  # 实施期校准 — 待用户裁决（JD 文本长度上限）
+MAX_JD_FILE_LINES = None  # 实施期校准 — 待用户裁决（JSONL 文件行数上限）
+MAX_PAGINATION_LIMIT = None  # 实施期校准 — 待用户裁决（分页 limit 上限）
+# trace 数据治理开放参数（SSOT §31-5）：保留期/脱敏开关——None 占位待裁决
+TRACE_RETENTION_DAYS = None  # 实施期校准 — 待用户裁决（trace 保留期天数）
+TRACE_DESENSITIZE = None  # 实施期校准 — 待用户裁决（trace 脱敏开关）
+# 幂等清理开放参数（SSOT §31-6）：清理阈值——None 占位待裁决
+IDEMPOTENCY_CLEANUP_THRESHOLD = None  # 实施期校准 — 待用户裁决（幂等清理阈值）
