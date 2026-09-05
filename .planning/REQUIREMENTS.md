@@ -34,7 +34,7 @@
 
 #### 矩阵 §2 数据库（REF-2.1~2.11）——演进随阶段走，Phase 6 收口 schema_version
 
-- [ ] **REF-2.1** [结构] 全局 21 张表对齐（汇总行：三新表 + 六表演进）→ Phase 6 收口清点
+- [x] **REF-2.1** [结构] 全局 21 张表对齐（汇总行：三新表 + 六表演进）→ Phase 6 收口清点
 - [ ] **REF-2.2** [P0] 新表 assessment_state_event（append-only，UNIQUE(session_id,sequence_no)）→ Phase 1
 - [x] **REF-2.3** [结构] 新表 trace_link（统一审计链）→ Phase 5
 - [ ] **REF-2.4** [结构] 新表 form_instance（schema 快照/生命周期）→ Phase 3
@@ -44,7 +44,7 @@
 - [ ] **REF-2.8** [结构] assessment_message 分列（raw_content/raw_hash/refined_content/client_request_id/sequence_no）→ Phase 3
 - [ ] **REF-2.9** [结构] question_score 演进（统一 score_final 废弃 final_score、score_state、override 列）→ Phase 2 主体（human_override 列随 Phase 5）
 - [x] **REF-2.10** [结构] 证据定位结构化（span/offset/quote_hash；hash 复用限单 session）→ Phase 5
-- [ ] **REF-2.11** [结构] schema_version 迁移体系（替换 DDL 字符串嗅探式迁移）→ Phase 6 收口
+- [x] **REF-2.11** [结构] schema_version 迁移体系（替换 DDL 字符串嗅探式迁移）→ Phase 6 收口
 
 #### 矩阵 §3 题库与选题（REF-3.1~3.9）
 

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-09-05T13:58:17.173Z"
-last_activity: 2026-09-05 -- Phase 06 execution started
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-09-05T14:30:06.708Z"
+last_activity: 2026-09-05
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 26
-  completed_plans: 21
-  percent: 81
+  completed_plans: 22
+  percent: 83
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 06 (migration-test-closure) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 06
-Last activity: 2026-09-05 -- Phase 06 execution started
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-09-05
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
 - **下一动作**：Phase 4 已完结 → 启动 Phase 5 discuss（证据链与报告契约）→ 停在 Phase 5 硬关口 A（plan 审查）
@@ -62,6 +62,7 @@ Last activity: 2026-09-05 -- Phase 06 execution started
 | Phase 05 P02 | 5min | 3 tasks | 3 files |
 | Phase 05 P03 | 9min | 3 tasks | 12 files |
 | Phase 05 P04 | 3min | 3 tasks | 5 files |
+| Phase 06 P01 | 25min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,8 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase 05]: feedback 审计列命名 = user_id/review_note/reviewer_id/reviewed_at（D-66 简写落为 plan 权威口径）
 - [Phase 05]: 存量 feedback 行四审计列保持 NULL（迁移不虚构提交人/处理人）
 - [Phase 05]: REVIEW_FEEDBACK_RECEIVED 事件 actor_type=candidate actor_id=user_id 与 feedback INSERT 同事务单 commit
+- [Phase 06]: schema_version 登记簿取代 DDL 字符串嗅探：init_db 主判据查 schema_version 登记簿，13 迁移注册进 MIGRATIONS；两个 DDL 重建迁移（_migrate_llm_trace/_migrate_feedback_status）保留内部 'report'/'bad_case' 嗅探为 belt-and-suspenders 幂等 — D-68/REF-2.11
+- [Phase 06]: set_db_path()/_DB_PATH_OVERRIDE 进程内覆盖 get_conn/init_db 的 DB 路径（不落盘不改 env），迁移前 stdlib conn.backup() 备份到 backups/；conftest.py mock 三件套 + session 级临时 DB fixture 落地为 Wave 0 linchpin — D-74/D-69
 
 ### Pending Todos
 
@@ -119,6 +122,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-05T12:15:52.954Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-migration-test-closure/06-CONTEXT.md
+Last session: 2026-09-05T14:30:06.699Z
+Stopped at: Completed 06-01-PLAN.md
+Resume file: None

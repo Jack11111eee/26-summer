@@ -210,7 +210,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — schema_version 迁移登记簿收口（MIGRATIONS 注册 + 迁移测试 + 备份/回滚）+ conftest.py mock 三件套（Wave 0 linchpin）
+- [x] 06-01-PLAN.md — schema_version 迁移登记簿收口（MIGRATIONS 注册 + 迁移测试 + 备份/回滚）+ conftest.py mock 三件套（Wave 0 linchpin）
 
 **Wave 2** *(blocked on 06-01)*
 
@@ -234,4 +234,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
 | 4. 题库版本绑定与模块一收口 | 2/2 | Complete   | 2026-09-05 |
 | 5. 证据链与报告契约 | 5/5 | Complete    | 2026-09-05 |
-| 6. 迁移体系与测试闭环收口 | 0/5 | Not started | - |
+| 6. 迁移体系与测试闭环收口 | 1/5 | In Progress|  |
