@@ -241,7 +241,10 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
         )
 
     # 2) 单事务写库
-    conn.execute("DELETE FROM question_score WHERE session_id=?", (session_id,))
+    # gate 行非评分重算面（03-01）：DELETE 只清评分行（gate_result IS NULL），
+    # 表单链 gate 结构化结果必须幸存——顺序链 _generate_report_task 与 UI request_report
+    # 都走 score_session，吞掉 gate 行会导致表单链死循环（gate 永不采集→finish 不可达）。
+    conn.execute("DELETE FROM question_score WHERE session_id=? AND gate_result IS NULL", (session_id,))
     conn.executemany(
         "INSERT INTO question_score(score_id, session_id, question_id, item_id,"
         " score_live, score_final, score_state, evidence_quote, reason, created_at)"

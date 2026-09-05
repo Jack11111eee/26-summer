@@ -45,6 +45,21 @@ def _load_form_payload(session_id: str) -> dict:
     return merged
 
 
+def _gate_row(conn, session_id: str, item_id: str) -> tuple | None:
+    """新链 gate 行（表单链 submit-v2 写 question_score gate 结构化结果）。
+
+    返回 (gate_result, gate_reason) 或 None（无 gate 行——旧链 form_submission 兜底）。
+    """
+    row = conn.execute(
+        "SELECT gate_result, gate_reason FROM question_score"
+        " WHERE session_id=? AND item_id=? AND gate_result IS NOT NULL LIMIT 1",
+        (session_id, item_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return (row["gate_result"], row["gate_reason"])
+
+
 def _gate_check(item: dict, form_payload: dict) -> tuple[bool, str]:
     """门槛项二值判定。规则：按 category/std_name 在表单 payload 中查对应字段。
 
@@ -116,7 +131,13 @@ def aggregate_session_scores(session_id: str) -> dict:
     for item_id, item in model_items.items():
         weight = item.get("weight") or 0.0
         if item.get("gate"):
-            passed, reason = _gate_check(item, form_payload)
+            # 双源（D-31）：先查 gate 行（新链表单链 submit-v2），无行回退
+            # _gate_check(item, form_payload)（旧链 form_submission——m6 脚本路径不变）
+            row = _gate_row(conn, session_id, item_id)
+            if row is not None:
+                passed, reason = (row[0] == "true", row[1])
+            else:
+                passed, reason = _gate_check(item, form_payload)
             contribution = weight * 100.0 if passed else 0.0
             gate_items.append({
                 "item_id": item_id, "std_name": item["std_name"],
