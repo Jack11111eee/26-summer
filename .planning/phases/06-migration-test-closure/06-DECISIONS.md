@@ -80,17 +80,35 @@ plan 落 config 占位（`None`/`[]` + 注释「实施期校准 — 待用户裁
 | [06-010] | 2026-09-06 | post-merge test gate（auto） | 全量回归 `5 failed / 218 passed`。3 个 test_phase2_migration 回归已修复；剩余 5 个均以基线（commit 13f6743，无 conftest）核实为**既有失败**，记 deferred-items.md | 基线全量 98 failed（无 conftest DB_PATH 首导入冻结污染 + 13 文件缺双列），06-01 conftest + 06-03 补列把 98→5 |
 | [06-011] | 2026-09-06 | 回归修复（auto） | test_phase2_migration 3 回归根因 = 06-01 conftest 先 import server.db 冻结 DB_PATH，使该文件模块级 `os.environ["DB_PATH"]` 失效。修复：module 级 `set_db_path(_tmp_db)` → function 级 autouse `_point_old_db` fixture（set→yield→reset None）+ 3 处 `db_module.DB_PATH` 改 `set_db_path()` | module 级 set_db_path 会泄漏全局 `_DB_PATH_OVERRIDE` 到 test_phase3_forms（实测 net +1 failure），function 级 fixture 正确隔离 |
 
-| [06-012] | 2026-09-06 | code-review gate（auto，advisory） | 标准深度 36 文件评审：**0 critical / 5 warning / 8 info**。0 critical → 不阻塞，5 warning 记档 defer（详见 06-REVIEW.md），继续 verify/secure | 章程 §1 例行关口代确认 + workflow「code review advisory 永不阻塞」 |
+| [06-012] | 2026-09-06 | code-review gate（auto，advisory） | 标准深度 36 文件评审：**0 critical / 5 warning / 8 info**。0 critical → 不阻塞；5 warning 依章程 §1 行 20「Critical/Warning 自动 `--fix` 修复」全部自动修复（WR-01~WR-05，见下表），8 info 搁置记档 | 章程 §1 行 20 + workflow「code review advisory 永不阻塞」 |
 
-## 代码评审 5 warning 处置（0 critical，全部 defer，详见 06-REVIEW.md）
+## 代码评审 5 warning 处置（0 critical，全部自动修复，详见 06-REVIEW.md）
 
-| Warning | 性质 | 处置 |
+依章程 §1 行 20「code-review Critical/Warning 自动 `--fix` 修复」全部修复（commit fba6f68 / 1002d2f）：
+
+| Warning | 性质 | 修复 |
 |---------|------|------|
-| WR-01 db.py 备份文件名 `isoformat()` 含 `:`/`+`（Windows NTFS 崩溃）+ 新库 13 冗余备份 | Phase 6 自身新代码 minor | defer：本机 macOS 不受影响；新库 13 备份仅在首次全新部署发生（既有 data/app.db 只触发新增迁移 0~1 次） |
-| WR-02 input_limits.py 死代码（仅自身测试 import） | **按设计**（REF-6.3 开放参数占位，None 时放行，待用户裁决） | 维持占位，用户裁决后接线 |
-| WR-03 eval.py list_history 未钳 limit（`limit=-1`=无限制） | Phase 6 自身 loose end（clamp_pagination_limit 已建未接线） | defer，可低成本跟进：list_history 内调 clamp |
-| WR-04 eval 两脚本 get_conn() 不 close（background_tasks 长驻泄漏） | Phase 6 触及脚本 minor | defer，可低成本跟进 |
-| WR-05 conftest import 序冻结 DB_PATH 使 ~15 文件 `os.environ` 隔离失效 | **已知既有**（deferred-items 已记 test_phase4_binding/test_phase5_evidence 同根因） | 同 deferred-items，不重复 |
+| WR-01 db.py 备份文件名 `isoformat()` 含 `:`/`+`（Windows NTFS 崩溃）+ 新库 13 冗余备份 | Phase 6 自身新代码 | 改 `_backup_before_migration(conn)`：每次 init_db 至多备份一次（module 级 `_backup_done_for_this_init` 标志，init_db 开头复位）+ `_safe_ts()` 文件系统安全时间戳（`%Y%m%dT%H%M%S%fZ`） |
+| WR-02 input_limits.py 死代码（仅自身测试 import） | 按设计（REF-6.3 占位） | `validate_jd_length` 接线到 `jds.py::_insert_jd`（None 时放行，裁决后生效）；`clamp_pagination_limit` 接线到 WR-03 |
+| WR-03 eval.py list_history 未钳 limit（`limit=-1`=无限制） | Phase 6 loose end | `list_history` 首行 `limit = clamp_pagination_limit(limit)` |
+| WR-04 eval 两脚本 get_conn() 不 close（长驻泄漏） | Phase 6 触及脚本 | consistency_test 2 处 + virtual_candidates 3 处 `get_conn()` 均包 try/finally close |
+| WR-05 conftest import 序冻结 DB_PATH 使 ~15 文件 `os.environ` 隔离失效 | 已知既有 | test_phase4_binding + test_phase5_evidence 迁到 function 级 autouse `set_db_path` fixture（全量 5→3 failed） |
+
+8 info 依章程 §1 行 21 搁置记档（IN-01~IN-08，不改）。
+
+## verify 缺口闭环 + SSOT gap 符号发现（[06-013]）
+
+verify（06-VERIFICATION.md）标 SC5-c「c 虚拟考生」仅 1/6 兑现（`assert_weakness_identified` 已定义却无调用点）。修复：把 `generate_report` 接入 c 评测链路，`test_virtual_candidates` 补 4/5 子项断言（报告状态 / 证据引用 / required 覆盖 / 缺失状态，均绿），并接线 `assert_weakness_identified` 断言短板定位。
+
+**发现（SSOT §21 gap 符号约定与 §23「短板定位」语义张力，待用户裁决）：**
+
+- SSOT §21（行 561）约定 `短板=gap<0`（gap=required_level−actual_level，§20.3 行 553），代码与 test_m6 均忠实实现。
+- c 评测 weak 档全部 miss → `actual=1 < required=3` → `gap=+2 >0` → 现约定落入 **strengths**（优势）而非 **weaknesses**（短板）。故 `assert_weakness_identified(report, expected_weakness)` 对 weak 档恒返回「实际短板=[]」。
+- 「短板」自然语义 = 木桶短板 = 低于要求（actual<required，即 gap>0），与 §21 公式相反——疑似 §21 符号反转（短板应为 `gap>0`、优势应为 `gap≤0`）。**SSOT 修改权 exclusively 属用户（章程 §3.1），本项未动 SSOT/aggregation.py/test_m6，留待用户裁决。**
+
+| ID | 日期 | 步骤 | 决定 | 依据 |
+|----|------|------|------|------|
+| [06-013] | 2026-09-06 | verify gap 闭环（auto） | c 评测接入报告生成 + 补 4/5 子项断言；`assert_weakness_identified` 接线但如实报告 failure（暴露 §21 符号张力），不动 SSOT | 章程 §1 行 22（verify 发现记档）+ §3.1（SSOT 修改须授权） |
 
 ## 执行期回归修复纪要
 

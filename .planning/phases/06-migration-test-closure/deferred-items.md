@@ -55,6 +55,19 @@
 - **Pre-existing 证据:** 基线同测**同样失败**（98 failed 之列）。非 06-01 新引入。
 - **Why out of scope:** 修复即让 `_tmp_db` 真正被 init（迁移到 `set_db_path()` 模式或裸连后手动 `executescript` 建 assessment_session），超出 5 计划 files_modified。**可低成本跟进**：同 test_phase4_binding，改 `set_db_path()` 隔离模式。
 
+## From verify-gap closure — SSOT §21 gap 符号约定 vs §23「短板定位」语义张力（§2.2 硬关口，待用户裁决）
+
+**发现于 [06-013]**（verify SC5-c「c 虚拟考生」缺口闭环时接线 `assert_weakness_identified`）：
+
+- **现象**：weak 档虚拟考生全部 miss → `actual_level=1 < required_level=3`。但 `generate_report` 产出的报告 `weaknesses=[]`、`strengths` 却含这些低于要求的项——与「短板定位」直觉相反，`assert_weakness_identified(report, expected_weakness)` 对 weak 档恒失败。
+- **根因（SSOT 符号约定）**：SSOT §21（行 561）约定 `gap = required_level − actual_level`（§20.3 行 553），短板=`gap<0`、优势=`gap≥0`。代码 `server/services/aggregation.py:275` 与 `test_m6_backend.py` 均忠实实现该公式。于是 `actual<required`（低于要求，即自然语义的「短板」）算出 `gap>0` → 落入 **strengths**；`actual>required`（超出要求）算出 `gap<0` → 落入 **weaknesses**。符号与「木桶短板=低于要求」的自然语义相反。
+- **性质**：疑似 SSOT §21 符号反转（短板应为 `gap>0`、优势应为 `gap≤0`），或 §23「短板定位」应改读「超配项」——两种改法都属于 **SSOT 条款歧义/需修改 SSOT**，属章程 §2.2 硬关口。**未动 SSOT / aggregation.py / test_m6_backend.py**（SSOT 修改权 exclusively 属用户，§3.1）。
+- **现状**：`test_virtual_candidates` 的 weakness 子项如实报告 failure（其余 5 子项 ordering/report_status/evidence/required_coverage/missing_state 均绿）；代码注释与 [06-013] 均已指向本项。
+- **待用户裁决**（三选一，见 06-DECISIONS [06-013]）：
+  1. 改 SSOT §21 公式（短板=`gap>0`、优势=`gap≤0`）→ 需同步改 `aggregation.py` + `test_m6_backend.py` + 本断言；
+  2. 维持 §21 公式，改 §23「短板定位」语义为「超配项」→ 改本断言期望；
+  3. 维持现状（weak 档「短板=[]」为可接受口径）→ 移除/软化 weakness 子项断言。
+
 ## Other notes
 
 - **06-01 did not run `init_db()` against the business `data/app.db`** (red line: business DB never used for tests). The first real server startup by the user will backfill `schema_version` 1..13 on `data/app.db` (idempotent migrations make this safe), with a pre-migration `backups/app-*.db` backup. This is a deployment-time smoke test, not an executor-run test.
