@@ -220,7 +220,8 @@ def aggregate_session_scores(session_id: str) -> dict:
         and it.get("category") != "qualification"
     ]
     total_measureable = len(measurable_item_ids)
-    observed_count = len(observed_items)
+    measurable_ids = set(measurable_item_ids)
+    observed_count = sum(1 for o in observed_items if o["item_id"] in measurable_ids)
     coverage_ratio = observed_count / total_measureable if total_measureable else 0.0
 
     measurements_by_item: dict[str, list[dict]] = {}
@@ -325,6 +326,7 @@ def aggregate_session_scores(session_id: str) -> dict:
             gap = (required - actual_level) if required is not None else None
             contribution = weight * _normalize_score(actual_level, NORMALIZE_OBSERVED) * 100.0
             imputed_count += 1
+            imputed_ratio = (imputed_count / total_measureable) if total_measureable else 0.0
             item_scores.append({
                 "item_id": item_id, "std_name": item["std_name"],
                 "category": item["category"],
@@ -334,7 +336,7 @@ def aggregate_session_scores(session_id: str) -> dict:
                 "weight": weight, "score": round(contribution, 2),
                 "gate": False,
                 "no_data": False, "imputed": True,
-                "human_review": coverage_ratio > IMPUTE_RATIO_THRESHOLD,
+                "human_review": imputed_ratio > IMPUTE_RATIO_THRESHOLD,
             })
             total_score += contribution
             continue
