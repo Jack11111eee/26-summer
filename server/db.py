@@ -110,7 +110,16 @@ CREATE TABLE IF NOT EXISTS assessment_session (
   status        TEXT NOT NULL CHECK(status IN ('in_progress','completed','abandoned')),
   started_at    TEXT NOT NULL,
   ended_at      TEXT,
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  -- ============ Phase 3 计时新列（SSOT §12.1/D-39~D-42；无 DB CHECK——N11）============
+  -- phase 状态机 PENDING_START→ACTIVE→SCORING→COMPLETED/ABANDONED 与 status 双轨并存
+  -- （status CHECK 不动——Anti-pattern 4：PENDING_START/SCORING 落 phase 列）
+  phase                     TEXT,
+  active_elapsed_seconds    INTEGER,
+  last_activity_at          TEXT,
+  abandoned_at              TEXT,
+  policy_version            TEXT,
+  session_time_intervals_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS question_bank (
@@ -179,8 +188,26 @@ CREATE TABLE IF NOT EXISTS assessment_message (
   reason            TEXT,
   score_live        INTEGER,
   score_live_reason TEXT,
-  created_at        TEXT NOT NULL
+  created_at        TEXT NOT NULL,
+  -- ============ Phase 3 消息分列三列（D-43，SSOT §12.1；全可空）============
+  refined_content   TEXT,
+  client_request_id TEXT,
+  sequence_no       INTEGER
 );
+
+-- ============ 计时区间表（SSOT §15/D-39~D-42——03-04 服务端权威区间）============
+-- interval_type ∈ {active, paused} 代码校验（N11 无 DB CHECK）；reason 敏感不进评分 prompt（D-40）；
+-- 部分唯一索引 uq_sti_open（session_id WHERE ended_at IS NULL）保证同 session 至多一个 open 区间（实验 6）。
+CREATE TABLE IF NOT EXISTS session_time_intervals (
+  interval_id   TEXT PRIMARY KEY,
+  session_id    TEXT NOT NULL REFERENCES assessment_session,
+  interval_type TEXT NOT NULL,
+  reason        TEXT,
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sti_open ON session_time_intervals(session_id) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sti_session ON session_time_intervals(session_id);
 
 CREATE TABLE IF NOT EXISTS context_raw (
   raw_id     TEXT PRIMARY KEY,
@@ -601,6 +628,55 @@ def _migrate_idempotency_record(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_session_phase3(conn: sqlite3.Connection) -> None:
+    """Phase 3（SSOT §12.1/§15/D-39~D-43）：assessment_session 加 6 计时列 + assessment_message
+    加 3 分列 + 补建 session_time_intervals 与 uq_sti_open 部分唯一索引。
+
+    - 新列 PRAGMA 嗅探 if-not-in-ADD（幂等）；旧行 phase 回填 'PENDING_START'（WHERE phase IS NULL）。
+    - session_time_intervals 表与索引走 CREATE IF NOT EXISTS（与 _DDL 双轨同语句——
+      02-01 双轨纪律；部分索引 WHERE ended_at IS NULL 子句与 _DDL 同串——W4 sqlite_master 断言口径）。
+    - status CHECK 不动（Anti-pattern 4：PENDING_START/SCORING 落 phase 列，status 存量语义不动）。
+    """
+    sess_cols = {r[1] for r in conn.execute("PRAGMA table_info(assessment_session)").fetchall()}
+    if sess_cols:
+        for name, decl in (
+            ("phase", "TEXT"),
+            ("active_elapsed_seconds", "INTEGER"),
+            ("last_activity_at", "TEXT"),
+            ("abandoned_at", "TEXT"),
+            ("policy_version", "TEXT"),
+            ("session_time_intervals_json", "TEXT"),
+        ):
+            if name not in sess_cols:
+                conn.execute(f"ALTER TABLE assessment_session ADD COLUMN {name} {decl}")
+        conn.execute(
+            "UPDATE assessment_session SET phase='PENDING_START' WHERE phase IS NULL"
+        )
+
+    msg_cols = {r[1] for r in conn.execute("PRAGMA table_info(assessment_message)").fetchall()}
+    if msg_cols:
+        for name, decl in (
+            ("refined_content", "TEXT"),
+            ("client_request_id", "TEXT"),
+            ("sequence_no", "INTEGER"),
+        ):
+            if name not in msg_cols:
+                conn.execute(f"ALTER TABLE assessment_message ADD COLUMN {name} {decl}")
+
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS session_time_intervals (
+      interval_id   TEXT PRIMARY KEY,
+      session_id    TEXT NOT NULL REFERENCES assessment_session,
+      interval_type TEXT NOT NULL,
+      reason        TEXT,
+      started_at    TEXT NOT NULL,
+      ended_at      TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_sti_open ON session_time_intervals(session_id) WHERE ended_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_sti_session ON session_time_intervals(session_id);
+    """)
+
+
 def init_db() -> None:
     """建表（幂等）+ 老库迁移，启动时调用一次。"""
     db_dir = os.path.dirname(DB_PATH)
@@ -616,6 +692,7 @@ def init_db() -> None:
         _migrate_question_score_phase3(conn)
         _migrate_form_instance(conn)
         _migrate_idempotency_record(conn)
+        _migrate_session_phase3(conn)
         conn.executescript(_DDL)
         conn.commit()
     finally:

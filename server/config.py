@@ -49,3 +49,11 @@ ORDINARY_PLAN_N = 10  # 生产默认值——2026-09-04 关口 A 用户裁决（
 REFINE_MIN_TOKENS = int(os.environ.get("REFINE_MIN_TOKENS", "500"))
 # 单题追问上限（07 §7.2）
 FOLLOWUP_MAX = int(os.environ.get("FOLLOWUP_MAX", "2"))
+
+# ---- 模块二·Phase 3 计时（SSOT §15——40/20/6 硬编码非开放参数）----
+SESSION_TOTAL_MINUTES = 40
+QUESTION_TIMEOUT_MINUTES = 20
+ABANDON_HOURS = 6
+# 滑窗 Token 上限（SSOT §31-2 开放参数：「参数待定，留接口」——
+# 已裁决 8000（关口包 [03-007]，2026-09-05），mock 模式全量直通）
+MAX_CONTEXT_TOKENS = 8000  # 已裁决值（关口包 [03-007]——不再 checkpoint 停车）

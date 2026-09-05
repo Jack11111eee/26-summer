@@ -72,6 +72,26 @@ def _is_confirmed_refusal(session_id: str, question_id: str) -> bool:
     return row["c"] > 0
 
 
+def _truncate_history(history: list[dict], max_tokens: int) -> list[dict]:
+    """滑窗截断（SSOT §31-2/D-43——Code Examples #6 reversed 累积 + len//2 近似 token）。
+
+    从最新往前累积，超出 max_tokens 则丢弃更早的历史（保尾部 + 保当前题——最新一条必保留）。
+    近似 token = len(content)//2（refine.py _approx_tokens 同口径）。纯函数不看 LLM_PROVIDER
+    （Pitfall 9 裁量：mock 全量由调用方 decide_next_action 决定形态）。当前题 stem 与
+    user_message 在 _build_user_prompt 组装面外（Pitfall 7——不进截断面）。
+    """
+    kept: list[dict] = []
+    budget = max_tokens
+    for m in reversed(history):
+        cost = len(m.get("content", "")) // 2
+        if budget - cost < 0 and kept:
+            break  # 已保留最新优先；更早的丢弃
+        kept.append(m)
+        budget -= cost
+    kept.reverse()
+    return kept
+
+
 def _build_user_prompt(session: dict, question: dict, history: list[dict],
                        user_message: str, is_last: bool) -> str:
     lines = [
@@ -203,6 +223,9 @@ def decide_next_action(session_id: str, question_id: str, user_message: str) -> 
         (session_id,),
     ).fetchall()
     history = [dict(r) for r in history_rows]
+    # 滑窗截断（D-43/Pitfall 9）：mock 全量直通，真实模式按 MAX_CONTEXT_TOKENS 截尾保当前题
+    history = (_truncate_history(history, config.MAX_CONTEXT_TOKENS)
+               if config.LLM_PROVIDER != "mock" else history)
 
     # 1) 观察层：LLM 结构化观察 → InterviewObservation（aggregate.py:77 同款消费先例）
     # CR-01：call_llm_json 重试全败 raise RuntimeError——观察层捕获降级 MODEL_UNCERTAIN
