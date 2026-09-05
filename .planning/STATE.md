@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-04-PLAN.md
-last_updated: "2026-09-05T15:11:26.573Z"
+stopped_at: Completed 06-05-PLAN.md
+last_updated: "2026-09-05T15:38:07.646Z"
 last_activity: 2026-09-05
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 26
-  completed_plans: 24
-  percent: 92
+  completed_plans: 25
+  percent: 83
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 06 (migration-test-closure) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-09-05
 
@@ -65,6 +65,7 @@ Last activity: 2026-09-05
 | Phase 06 P01 | 25min | 3 tasks | 3 files |
 | Phase 06 P02 | 11min | 2 tasks | 4 files |
 | Phase 06 P04 | 15min | 3 tasks | 5 files |
+| Phase 06 P05 | 9min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,10 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase 06]: E2E question_bank 直插种子写 model_id/model_version（Phase 4 消费侧收紧 D-50，readiness/选题按双列过滤）
 - [Phase 06]: submit-v2 body 带 schema_version:'v1'（FormSubmitRequest.schema_version 必填，计划 body 规格遗漏）
 - [Phase 06]: missing_reasons 渲染在 Report.vue 非 Chat.vue；报告失败重试 UI 已存在（D-79）
+- [Phase 06]: 06-05 D-76 JWT 方向 = jwt-cookie-migrate（本期仅锁方向，迁移后续计划）[06-009]
+- [Phase 06]: 06-05 REF-6.2 secret = secret-failclosed-keep（锁定 main.py fail-closed-always 现状，零生产改动）[06-009]
+- [Phase 06]: 06-05 eval 隔离 = sqlite3 backup 全量业务库只读快照到临时库（RESEARCH Pattern 4）
+- [Phase 06]: 06-05 bad_case 幂等 guard = question_id IS NULL-safe 比较，报告版本化不重复建候选
 
 ### Pending Todos
 
@@ -129,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-05T15:11:26.432Z
-Stopped at: Completed 06-04-PLAN.md
+Last session: 2026-09-05T15:37:56.962Z
+Stopped at: Completed 06-05-PLAN.md
 Resume file: None

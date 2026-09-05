@@ -14,9 +14,9 @@
 - [ ] **REQ-dynamic-question-generation**: 基于岗位 + confirmed 模型版本绑定的题库 + 动态实例化四层选题（不是 LLM 自由出题）；追问每题最多 2 次（代码硬约束）
 - [ ] **REQ-interactive-multiturn-assessment**: 有界测评循环（Observation→Policy→Act→Evaluation→Persist）；LLM 输出结构化观察、代码裁决；LLM 不能自行决定切题/结束
 - [x] **REQ-talent-profile-report**: 报告五段式（总分+门槛标签/雷达/逐项明细含逐行异议/优势短板建议/逐题回顾）；score_final 锚点评分；代码排序优势短板；状态机 + 明确点击发布
-- [ ] **REQ-data-compliance**: 禁恶意爬虫；JD 接入只走粘贴/JSONL 文件导入；输入限额按类型配置；trace/JD/原文数据分级管理
+- [x] **REQ-data-compliance**: 禁恶意爬虫；JD 接入只走粘贴/JSONL 文件导入；输入限额按类型配置；trace/JD/原文数据分级管理
 - [x] **REQ-e2e-demo-deliverables**: 候选人端完整 E2E（注册→选岗→session→作答/追问→表单→完成→评分→报告→异议）+ 统一 pytest 收集 + CI 为验收入口
-- [ ] **REQ-iterative-loop**: 测试闭环（b 一致性 / c 虚拟考生 / bad case 候选 / eval 隔离）；反馈可回溯、异议永不触发改分
+- [x] **REQ-iterative-loop**: 测试闭环（b 一致性 / c 虚拟考生 / bad case 候选 / eval 隔离）；反馈可回溯、异议永不触发改分
 
 ### 契约级（REF）— 按矩阵分节
 
@@ -85,13 +85,13 @@
 - [ ] **REF-5.8** [保持] 报告五段式已合规（雷达 required vs actual 合规，保持）
 - [x] **REF-5.9** [P0] 报告状态机（GENERATING→PROVISIONAL|READY→PUBLISHED|FAILED）+ review_status + 发布前七项一致性校验 + 管理员明确点击发布 + 报告版本化 → Phase 5
 - [ ] **REF-5.10** [P0] score→report 串行（实测前端零步断裂：从不调 POST /score，报告聚合恒 no_data；服务端串联修复）→ Phase 1
-- [ ] **REF-5.11** [一般] score_live/score_final 双分背离 ≥ 阈值自动创建 bad case 候选（不自动改分）→ Phase 6
+- [x] **REF-5.11** [一般] score_live/score_final 双分背离 ≥ 阈值自动创建 bad case 候选（不自动改分）→ Phase 6
 
 #### 矩阵 §6 安全（REF-6.1~6.4）
 
-- [ ] **REF-6.1** [一般] JWT HttpOnly cookie 方向（现 Bearer；SSOT 标"方向"，实施期决定，非 P0）→ Phase 6
-- [ ] **REF-6.2** [一般] 生产 secret 启动校验（默认值拒绝/告警）→ Phase 6
-- [ ] **REF-6.3** [一般] 输入限额按类型配置（文件/行数/JD/回答/prompt/max_tokens/分页）→ Phase 6
+- [x] **REF-6.1** [一般] JWT HttpOnly cookie 方向（现 Bearer；SSOT 标"方向"，实施期决定，非 P0）→ Phase 6
+- [x] **REF-6.2** [一般] 生产 secret 启动校验（默认值拒绝/告警）→ Phase 6
+- [x] **REF-6.3** [一般] 输入限额按类型配置（文件/行数/JD/回答/prompt/max_tokens/分页）→ Phase 6
 - [ ] **REF-6.4** [一般] Prompt injection 防护 + INJECTION_DETECTED 事件留痕 → Phase 3
 
 #### 矩阵 §7 §28 对账项（REF-7.1~7.6，矩阵 §7 中未被 §1-6/§8 覆盖的独立工作项）
@@ -112,7 +112,7 @@
 - [ ] **REF-8.5** [一般] 模型 items 为空不阻断开考（并入 REF-3.5 开考检查）→ Phase 1
 - [ ] **REF-8.6** [一般] mock interviewer 主观题固定 3 分（测试重构时处理）→ Phase 6
 - [x] **REF-8.7** [结构] llm_trace ref_id 单字段弱关联（随 trace_link 落地迁移导入）→ Phase 5
-- [ ] **REF-8.8** [结构] eval 脚本直接操作业务库（违反 §23 隔离；独立/临时数据库改造）→ Phase 6
+- [x] **REF-8.8** [结构] eval 脚本直接操作业务库（违反 §23 隔离；独立/临时数据库改造）→ Phase 6
 
 ## Deferred（登记不排期）
 
@@ -139,9 +139,9 @@
 | REQ-dynamic-question-generation | Phase 2 | Pending |
 | REQ-interactive-multiturn-assessment | Phase 2（传输/表单/计时深化在 Phase 3） | Pending |
 | REQ-talent-profile-report | Phase 5（链路修复前提在 Phase 1） | Complete |
-| REQ-data-compliance | Phase 6 | Pending |
+| REQ-data-compliance | Phase 6 | Complete |
 | REQ-e2e-demo-deliverables | Phase 6 | Complete |
-| REQ-iterative-loop | Phase 6 | Pending |
+| REQ-iterative-loop | Phase 6 | Complete |
 
 ### REF → Phase（按 Phase 分组；共 68 行：63 排期 + 2 保持 + 3 延后）
 
