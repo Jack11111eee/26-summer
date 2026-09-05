@@ -10,7 +10,7 @@
 
 ### 需求级（REQ）
 
-- [ ] **REQ-jd-parse-model**: JD 文本（粘贴/JSONL）→ 六工位流水线 → 结构化岗位胜任力模型 + 7:3 类目权重（人审 confirm 升版本，confirmed 不被静默覆盖）
+- [x] **REQ-jd-parse-model**: JD 文本（粘贴/JSONL）→ 六工位流水线 → 结构化岗位胜任力模型 + 7:3 类目权重（人审 confirm 升版本，confirmed 不被静默覆盖）
 - [ ] **REQ-dynamic-question-generation**: 基于岗位 + confirmed 模型版本绑定的题库 + 动态实例化四层选题（不是 LLM 自由出题）；追问每题最多 2 次（代码硬约束）
 - [ ] **REQ-interactive-multiturn-assessment**: 有界测评循环（Observation→Policy→Act→Evaluation→Persist）；LLM 输出结构化观察、代码裁决；LLM 不能自行决定切题/结束
 - [x] **REQ-talent-profile-report**: 报告五段式（总分+门槛标签/雷达/逐项明细含逐行异议/优势短板建议/逐题回顾）；score_final 锚点评分；代码排序优势短板；状态机 + 明确点击发布
@@ -100,7 +100,7 @@
 - [x] **REF-7.2** [一般] 模型编辑字段校验（NaN/范围/类别/重复 std_name）→ Phase 4
 - [x] **REF-7.3** [结构] feedback 补 user_id/note/reviewer/时间戳；question_reviews 补 item_id；submit_feedback 校验 item 属于对应模型 → Phase 5
 - [x] **REF-7.4** [结构] 测试统一 pytest 收集（test_m6/question_bank 脚本式重构）+ CI 配置 → Phase 6
-- [ ] **REF-7.5** [结构] M1 回归清单（清洗边界/抽取异常/消歧/权重尾差/冲突 stalled/confirmed 不可覆盖/版本 diff/管理员权限）→ Phase 6
+- [x] **REF-7.5** [结构] M1 回归清单（清洗边界/抽取异常/消歧/权重尾差/冲突 stalled/confirmed 不可覆盖/版本 diff/管理员权限）→ Phase 6
 - [x] **REF-7.6** [结构] 候选人端完整 E2E（含刷新恢复/断线重试/越权/超时）→ Phase 6
 
 #### 矩阵 §8 矩阵外发现（REF-8.1~8.8）
@@ -110,7 +110,7 @@
 - [x] **REF-8.3** [一般] 报告后台任务异常静默 pass（FAILED 态应可见，前端可区分"生成中/失败"）→ Phase 5
 - [x] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4
 - [ ] **REF-8.5** [一般] 模型 items 为空不阻断开考（并入 REF-3.5 开考检查）→ Phase 1
-- [ ] **REF-8.6** [一般] mock interviewer 主观题固定 3 分（测试重构时处理）→ Phase 6
+- [x] **REF-8.6** [一般] mock interviewer 主观题固定 3 分（测试重构时处理）→ Phase 6
 - [x] **REF-8.7** [结构] llm_trace ref_id 单字段弱关联（随 trace_link 落地迁移导入）→ Phase 5
 - [x] **REF-8.8** [结构] eval 脚本直接操作业务库（违反 §23 隔离；独立/临时数据库改造）→ Phase 6
 
@@ -135,7 +135,7 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-jd-parse-model | Phase 4（M1 回归验收在 Phase 6） | Pending |
+| REQ-jd-parse-model | Phase 4（M1 回归验收在 Phase 6） | Complete |
 | REQ-dynamic-question-generation | Phase 2 | Pending |
 | REQ-interactive-multiturn-assessment | Phase 2（传输/表单/计时深化在 Phase 3） | Pending |
 | REQ-talent-profile-report | Phase 5（链路修复前提在 Phase 1） | Complete |

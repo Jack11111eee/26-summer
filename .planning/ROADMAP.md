@@ -18,7 +18,7 @@
 - [x] **Phase 3: 表单/SSE/幂等/计时** - 表单实例链 / 真实 SSE / 幂等并发 / 计时区间 / 上下文三层 (completed 2026-09-05)
 - [x] **Phase 4: 题库版本绑定与模块一收口** - model/version 绑定 / 生成失败可见 / orphan 路由 / 模型编辑校验 (completed 2026-09-05)
 - [x] **Phase 5: 证据链与报告契约** - 证据 span + trace_link / 报告状态机与发布 / item 裁决与补算 / feedback 补全 (completed 2026-09-05)
-- [ ] **Phase 6: 迁移体系与测试闭环收口** - schema_version 收口 / pytest 统一 + CI / M1 回归 / E2E / eval 隔离 / bad case
+- [x] **Phase 6: 迁移体系与测试闭环收口** - schema_version 收口 / pytest 统一 + CI / M1 回归 / E2E / eval 隔离 / bad case (completed 2026-09-05)
 
 ## Phase Details
 
@@ -220,7 +220,7 @@ Plans:
 
 **Wave 3** *(blocked on 06-01 + 06-02 + 06-05)*
 
-- [ ] 06-03-PLAN.md — M1 回归清单（模块一八项）+ mock interviewer 评分恒 3 分记档 + 13 文件 model_id/model_version 补齐
+- [x] 06-03-PLAN.md — M1 回归清单（模块一八项）+ mock interviewer 评分恒 3 分记档 + 13 文件 model_id/model_version 补齐
 
 ## Progress
 
@@ -234,4 +234,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
 | 4. 题库版本绑定与模块一收口 | 2/2 | Complete   | 2026-09-05 |
 | 5. 证据链与报告契约 | 5/5 | Complete    | 2026-09-05 |
-| 6. 迁移体系与测试闭环收口 | 4/5 | In Progress|  |
+| 6. 迁移体系与测试闭环收口 | 5/5 | Complete   | 2026-09-05 |
