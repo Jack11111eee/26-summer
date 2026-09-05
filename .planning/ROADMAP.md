@@ -106,16 +106,32 @@ Plans:
   4. 携 idempotency_key 的重复答题/表单请求返回第一次持久化结果，不重复写消息/计 followup/扣题量；并发双写由事务 + 乐观版本号防护
   5. 计时按服务端权威区间运转：全场 40 分钟（确认开始且首题激活起算）、单题 20 分钟（followup 共用），暂停（候选人/技术/无障碍/管理）不计入且写事件，单题超时封存继续下一题，全场超时进收尾评分；6h 无活动会话 ABANDONED（本期不可恢复，不删证据）
 
-**Plans**: TBD
+**Plans**: 5 plans（全串行 wave 1-5）
 **UI hint**: yes
+
+**Wave 结构说明**（files_modified 冲突实测）：五个计划的 `server/api/assessment.py` 全部重叠（03-01 render 插入/03-02 SSE 干线/03-03 幂等前置/03-04 计时挂载/03-05 三端点），叠加 `server/schemas.py`（03-01/02）与 `server/api/assessment.py` 的 submit_answer 单函数逐计划深度改造（SSE→幂等→计时同函数时序重排），**无任何两计划可并行**——全串行 wave 1→5。次级冲突面同步消解：test_m5_backend/p0_chain/p0_security/test_phase2_* 四组回归文件分别落在 03-02 Task 3（流式解析）/03-04 Task 4（estimated 40）/03-05 Task 3（PENDING_START 拦截面）各一波，无跨 wave 同文件双写。03-01 相对独立先行（表单链只借 assessment.py 池耗尽分支两插入点）；03-05 收口（start 拦截面是前三计划测试的涟漪收束点——B-4 教训前置列全 12 文件）。
 
 Plans:
 
-- [ ] 03-01: form_instance + form schema 版本化 + render_form 代码触发 + GET /forms/{id} + gate 结构化结果（experience/qualification 出题库改走表单）
-- [ ] 03-02: 真实 SSE 端点（话术流式 + 决策非流式先落库）+ 请求/输出 Pydantic schema
-- [ ] 03-03: 幂等协议落地（session_id+endpoint+idempotency_key 作用域、答题三键、事务+乐观版本号、重复返回首次结果）
-- [ ] 03-04: 计时区间（session_time_intervals、active_elapsed、单题超时封存、全场超时收尾、6h ABANDONED 惰性判断+周期扫描）+ 消息 raw/refined 分列 + 上下文三层（滑窗/导航摘要）
-- [ ] 03-05: INJECTION_DETECTED 事件留痕（候选人输入与工具返回永远是数据）
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — 表单链（form_instance 不可变快照 + gate 九列四步放宽[A2 呈报] + render 池耗尽扩展 + GET /forms 白名单 + 六维校验 + GATE_EVALUATED + admin 覆盖 + 双源迁移 + score_session gate 行保留）—— REF-2.4/3.3/4.7/4.10
+
+**Wave 2** *(blocked on 03-01——submit_answer form 分支返回值先定形)*
+
+- [ ] 03-02-PLAN.md — 真实 SSE（三相 commit 后 StreamingResponse；generator 零 DB；reply 假流分块；AnswerRequest Pydantic；7 回归文件流式解析适配）—— REF-4.6/4.7
+
+**Wave 3** *(blocked on 03-02——answer 返回形态定形后幂等快照才有基准)*
+
+- [ ] 03-03-PLAN.md — 幂等（idempotency_record 三键 + 两阶段 PENDING/COMMITTED + 快照 200 JSON 回放[A1 呈报] + revision 乐观锁 + 无 key 零影响）—— REF-4.9
+
+**Wave 4** *(blocked on 03-03——A4 前置区时序在幂等之后挂计时)*
+
+- [ ] 03-04-PLAN.md — 计时区间（session_time_intervals + partial unique + Python merge + 单题超时第四路 + 全场超时收尾 + 6h ABANDONED 惰性 + phase 双轨 + 分列三列 + 滑窗[MAX_CONTEXT_TOKENS 占位呈报]）—— REF-2.6/2.8/4.8/4.12
+
+**Wave 5** *(blocked on 03-04——pause 409 消费面与 timer 服务就绪后收口)*
+
+- [ ] 03-05-PLAN.md — 收口（start/pause/resume 三端点 + Pitfall 12 派发条件 + INJECTION_DETECTED 白名单留痕 + 12 文件 PENDING_START 拦截面全量适配）—— REF-2.6/4.7/6.4
 
 ### Phase 4: 题库版本绑定与模块一收口
 
