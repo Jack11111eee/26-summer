@@ -193,16 +193,16 @@ def _test_aggregation(ctx: dict) -> None:
 
     by_name = {it["std_name"]: it for it in agg["item_scores"]}
     py = by_name["Python"]
-    # Python 两题：客观 5 分 + 主观 3 分 → actual = 4.0
-    check("Python actual_level = (5+3)/2 = 4.0", py["actual_level"] == 4.0,
+    # Python 两题：客观 5 分 + 主观 3 分 → 冲突取低（adjudicate 极差≥2 → 3.0）
+    check("Python actual_level = adjudicate([5,3]) = 3.0", py["actual_level"] == 3.0,
           f"实际 {py['actual_level']}")
-    check("Python gap = 4 - 4 = 0", py["gap"] == 0.0, f"实际 {py['gap']}")
-    check("Python score = 0.19 * 4/5 * 100 = 15.2", abs(py["score"] - 15.2) < 0.01,
+    check("Python gap = 4 - 3 = 1", py["gap"] == 1.0, f"实际 {py['gap']}")
+    check("Python score = 0.19 * (3-1)/4 * 100 = 9.5", abs(py["score"] - 9.5) < 0.01,
           f"实际 {py['score']}")
 
     comm = by_name["沟通能力"]
     check("沟通能力 actual=3 gap=0", comm["actual_level"] == 3.0 and comm["gap"] == 0.0)
-    check("沟通能力 score = 0.12 * 3/5 * 100 = 7.2", abs(comm["score"] - 7.2) < 0.01)
+    check("沟通能力 score = 0.12 * (3-1)/4 * 100 = 6.0", abs(comm["score"] - 6.0) < 0.01)
 
     exp = by_name["后端开发经验"]
     check("后端经验为门槛项", exp["gate"] is True or exp["gate"] == 1)
@@ -213,8 +213,8 @@ def _test_aggregation(ctx: dict) -> None:
     check("本科门槛通过", edu["gate_passed"] is True)
     check("本科 score = 0.01 * 100 = 1.0", abs(edu["score"] - 1.0) < 0.01)
 
-    # 总分 = 15.2 + 7.2 + 8.0 + 1.0 = 31.4
-    check("total_score = 31.4", abs(agg["total_score"] - 31.4) < 0.01,
+    # 总分 = 9.5 + 6.0 + 8.0 + 1.0 = 24.5
+    check("total_score = 24.5", abs(agg["total_score"] - 24.5) < 0.01,
           f"实际 {agg['total_score']}")
 
     check("strengths 含 Python 和沟通能力（gap≥0）",
@@ -230,7 +230,7 @@ def _test_report(ctx: dict) -> None:
     rpt = generate_report(ctx["session_id"])
 
     check("report_id 存在", bool(rpt.get("report_id")))
-    check("total_score 一致", abs(rpt["total_score"] - 31.4) < 0.01)
+    check("total_score 一致", abs(rpt["total_score"] - 24.5) < 0.01)
     check("gate_passed=True", rpt["gate_passed"] is True)
     check("gate_details 2 条", len(rpt["gate_details"]) == 2)
 
@@ -238,7 +238,7 @@ def _test_report(ctx: dict) -> None:
     check("radar 含 Python/沟通 2 项",
           [i["name"] for i in radar["indicators"]] == ["Python", "沟通能力"])
     check("radar required = [4,3]", radar["required"] == [4, 3])
-    check("radar actual = [4.0,3.0]", radar["actual"] == [4.0, 3.0])
+    check("radar actual = [3.0,3.0]", radar["actual"] == [3.0, 3.0])
 
     check("strengths_text 包含 Python 与 沟通能力",
           "Python" in rpt["strengths_text"] and "沟通能力" in rpt["strengths_text"])
@@ -249,13 +249,16 @@ def _test_report(ctx: dict) -> None:
     check("逐题回顾含 answer", "numpy" in obj_rev["answer"])
     check("逐题回顾含 score_final", obj_rev["score_final"] == 5)
 
-    # 落库 + 幂等
+    # 落库 + 版本化（重复生成不再 DELETE 覆盖，追加新版本行）
     conn = get_conn()
     rpt_id_1 = rpt["report_id"]
     rpt2 = generate_report(ctx["session_id"])
     n = conn.execute("SELECT COUNT(*) c FROM report WHERE session_id=?",
                      (ctx["session_id"],)).fetchone()["c"]
-    check("重复生成幂等（同会话仅 1 行 report）", n == 1, f"实际 {n}")
+    maxv = conn.execute("SELECT MAX(version) m FROM report WHERE session_id=?",
+                        (ctx["session_id"],)).fetchone()["m"]
+    check("重复生成追加版本（同会话 2 行 report）", n == 2, f"实际 {n}")
+    check("最新 version = 2", maxv == 2, f"实际 {maxv}")
     check("重新生成 report_id 更新", rpt2["report_id"] != rpt_id_1)
 
     # llm_trace 落 'report' 类型

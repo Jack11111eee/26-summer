@@ -380,9 +380,18 @@ function onResize() {
 async function bootstrap() {
   stopPolling()
   phase.value = 'generating'
-  // 1. 先查是否已有报告
+  // 1. 先查是否已有报告（读 report_status 确定性区分 FAILED/GENERATING/ready）
   try {
     const { data } = await assessment.getReportBySession(sessionId)
+    if (data?.report_status === 'FAILED') {
+      phase.value = 'failed'
+      return
+    }
+    if (data?.report_status === 'GENERATING') {
+      pollCount = 0
+      pollTimer = setInterval(poll, 3000)
+      return
+    }
     await onReportReady(data)
     return
   } catch (e) {
@@ -410,6 +419,18 @@ async function poll() {
   pollCount += 1
   try {
     const { data } = await assessment.getReportBySession(sessionId)
+    if (data?.report_status === 'FAILED') {
+      stopPolling()
+      phase.value = 'failed'
+      return
+    }
+    if (data?.report_status === 'GENERATING') {
+      if (pollCount >= MAX_POLLS) {
+        stopPolling()
+        phase.value = 'failed'
+      }
+      return
+    }
     stopPolling()
     await onReportReady(data)
   } catch (e) {

@@ -1028,12 +1028,40 @@ def _append_task_event(session_id: str, event_type: str, *, payload: dict | None
         conn.close()
 
 
+def _write_failed_report(session_id: str, error: str) -> None:
+    """后台任务异常 → 写 report_status='FAILED' 行（REF-8.3 失败显式可见）。
+
+    有 GENERATING 占位行则 UPDATE 成 FAILED；无则 INSERT 一条 FAILED 行 version=MAX+1。
+    report_json 存 {"error": str(e)[:200]}，前端据此确定性区分生成中/失败。
+    """
+    conn = get_conn()
+    try:
+        error_json = json.dumps({"error": error[:200]}, ensure_ascii=False)
+        cur = conn.execute(
+            "UPDATE report SET report_status='FAILED', report_json=?"
+            " WHERE session_id=? AND report_status='GENERATING'",
+            (error_json, session_id),
+        )
+        if cur.rowcount == 0:
+            version = 1 + (conn.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM report WHERE session_id=?",
+                (session_id,),
+            ).fetchone()[0] or 0)
+            conn.execute(
+                "INSERT INTO report(report_id, session_id, total_score, gate_passed,"
+                " report_json, report_status, version, created_at) VALUES(?,?,?,?,?,?,?,?)",
+                (new_id("rpt"), session_id, 0.0, 0, error_json, "FAILED", version, now_iso()),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _generate_report_task(session_id: str) -> None:
     """后台任务：评分→报告串行链（D-08 方案 B，SSOT §21.1 前端完成后由服务端执行）。
 
-    异常静默（前端轮询 report 表为空即判失败/未完成），TASK_FAILED 事件留痕；
-    FAILED 可见性属 Phase 5（REF-8.3）。completed 会话评分经 allow_completed 内部
-    链豁免（D-03：串行链语义，不经候选人端点）。
+    异常 → 写 FAILED 行 + TASK_FAILED 事件（REF-8.3 失败显式可见，不再静默）。
+    completed 会话评分经 allow_completed 内部链豁免（D-03：串行链语义，不经候选人端点）。
     """
     try:
         # 链入口事件（事实类，D-10 无 SCORING 快照态）
@@ -1050,18 +1078,19 @@ def _generate_report_task(session_id: str) -> None:
         _append_task_event(session_id, "TASK_SUCCEEDED", payload={"step": "report"})
     except Exception as e:  # noqa: BLE001
         try:
+            _write_failed_report(session_id, str(e))
             _append_task_event(session_id, "TASK_FAILED", payload={"error": str(e)[:200]})
         except Exception:  # noqa: BLE001
-            pass  # 事件写入失败不改变静默现状
+            pass  # 事件/FAILED 行写入失败不改变后台任务静默现状
 
 
 @router.post("/sessions/{session_id}/report", status_code=status.HTTP_202_ACCEPTED)
 def request_report(session_id: str, background: BackgroundTasks, user: dict = Depends(require_login)) -> dict:
-    """触发报告生成（异步，前端轮询 GET /reports?session_id= 获取结果）。
+    """触发报告生成（异步，前端轮询 GET /reports/by-session/ 获取结果）。
 
-    三分支裁决（B-1）：(a) 会话非 completed → 409 非法前置（报告必须在完成后请求）；
-    (b) completed 且已存在 report 行 → 409 拒绝重复触发（不重复评分/报告）；
-    (c) completed 且尚无 report 行 → 202 入队（含后台链失败后的重试入口）。
+    三分支裁决：(a) 会话非 completed → 409 SESSION_NOT_COMPLETED；
+    (b) 最新行 report_status=='GENERATING' → 409 REPORT_GENERATING（生成中拒绝重复触发）；
+    (c) 其余（无行 / 已有 FAILED/READY/PUBLISHED 行）→ 写 GENERATING 占位行 + 202 入队。
     评分→报告由服务端串行链执行（D-08 方案 B），前端无需再显式调 POST /score。
     """
     conn = get_conn()
@@ -1072,14 +1101,23 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
                             detail={"error_code": "SESSION_NOT_COMPLETED",
                                     "message": "会话未完成，不能请求报告"})
     report_row = conn.execute(
-        "SELECT 1 FROM report WHERE session_id=?", (session_id,)
+        "SELECT report_status FROM report WHERE session_id=?"
+        " ORDER BY created_at DESC, version DESC LIMIT 1",
+        (session_id,),
     ).fetchone()
-    if report_row is not None:
+    if report_row is not None and report_row["report_status"] == "GENERATING":
         raise HTTPException(status.HTTP_409_CONFLICT,
-                            detail={"error_code": "REPORT_ALREADY_EXISTS",
-                                    "message": "报告已生成，不允许重复报告"})
-    # 仅 (c) 分支入队；TASK_QUEUED 事件独立小事务，务必在 add_task 前落库
-    # （TASK_QUEUED 为事实类事件，无快照态迁移：from/to 留空）
+                            detail={"error_code": "REPORT_GENERATING",
+                                    "message": "报告生成中，请勿重复触发"})
+    # 仅 (c) 分支写 GENERATING 占位行 + 入队；TASK_QUEUED 事件务必在 add_task 前落库
+    version = 1 + (conn.execute(
+        "SELECT COALESCE(MAX(version), 0) FROM report WHERE session_id=?", (session_id,)
+    ).fetchone()[0] or 0)
+    conn.execute(
+        "INSERT INTO report(report_id, session_id, total_score, gate_passed, report_json,"
+        " report_status, version, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (new_id("rpt"), session_id, 0.0, 0, "{}", "GENERATING", version, now_iso()),
+    )
     append_event(conn, session_id=session_id, event_type="TASK_QUEUED",
                  actor_type="system")
     conn.commit()
@@ -1089,10 +1127,10 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
 
 @router.get("/reports/by-session/{session_id}")
 def get_report_by_session(session_id: str, user: dict = Depends(require_login)) -> dict:
-    """按会话取最新报告（前端轮询入口）。未生成 → 404。"""
+    """按会话取最新报告（前端轮询入口），返回 report_json 合并 report_status/version。未生成 → 404。"""
     conn = get_conn()
     rid = conn.execute(
-        "SELECT report_id FROM report WHERE session_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT report_id FROM report WHERE session_id=? ORDER BY created_at DESC, version DESC LIMIT 1",
         (session_id,),
     ).fetchone()
     if rid is None:
@@ -1100,7 +1138,8 @@ def get_report_by_session(session_id: str, user: dict = Depends(require_login)) 
         # 只差在文案即构成存在性 oracle（D-01：统一不存在语义）
         raise HTTPException(status.HTTP_404_NOT_FOUND, "报告不存在")
     r = load_owned_report(conn, rid["report_id"], user, allow_admin_read=True)
-    return json.loads(r["report_json"])
+    return {**json.loads(r["report_json"]), "report_status": r["report_status"],
+            "version": r["version"]}
 
 
 @router.get("/reports/{report_id}")

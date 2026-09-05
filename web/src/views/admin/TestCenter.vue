@@ -229,6 +229,9 @@
                           <span class="kv-key">session_id</span><span class="mono">{{ row.session_id }}</span>
                           <span class="kv-key">item_id</span><span class="mono">{{ row.item_id }}</span>
                         </div>
+                        <div class="form-row" style="margin: 6px 0">
+                          <button class="btn btn-sm btn-primary" @click="onPublish(row)">发布报告</button>
+                        </div>
                         <div class="detail-label">反馈全文</div>
                         <div class="quote">{{ row.feedback_text }}</div>
                       </td>
@@ -449,6 +452,18 @@ async function onBadCase(row) {
     loadFeedback()
   } catch (e) {
     ElMessage.error(e.response?.data?.detail || '操作失败')
+  }
+}
+
+async function onPublish(row) {
+  try {
+    await ElMessageBox.confirm(`确认发布报告 ${row.report_id}？`, '确认', { type: 'info' })
+  } catch { return }
+  try {
+    const { data } = await admin.reports.publish(row.report_id)
+    ElMessage.success(`报告已发布（${data.report_status}）`)
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '发布失败')
   }
 }
 

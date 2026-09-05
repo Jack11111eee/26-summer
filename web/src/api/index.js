@@ -72,6 +72,10 @@ export const admin = {
     review: (feedback_id, note = '') => api.post(`/admin/feedback/${feedback_id}/review`, { note }),
     badCase: (feedback_id, note = '') => api.post(`/admin/feedback/${feedback_id}/bad-case`, { note }),
   },
+  reports: {
+    publish: (report_id, review_outcome = 'CONFIRMED', review_note = '') =>
+      api.post(`/admin/reports/${report_id}/publish`, { review_outcome, review_note }),
+  },
 }
 
 export default api

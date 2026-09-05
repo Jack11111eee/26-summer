@@ -257,6 +257,12 @@ def _seed_audit_chain() -> str:
                     entity_id=score_id, link_role="scored")
         link_entity(conn, trace_id=trace_id, entity_type="assessment_question",
                     entity_id=qid, link_role="source")
+        # 05-03 落地写点：report→session（reported→report / source→assessment_session）
+        report_trace = new_id("t")
+        link_entity(conn, trace_id=report_trace, entity_type="report",
+                    entity_id=report_id, link_role="reported")
+        link_entity(conn, trace_id=report_trace, entity_type="assessment_session",
+                    entity_id=sid, link_role="source")
         conn.commit()
         return report_id
     finally:
