@@ -76,7 +76,7 @@ def _truncate_history(history: list[dict], max_tokens: int) -> list[dict]:
     """滑窗截断（SSOT §31-2/D-43——Code Examples #6 reversed 累积 + len//2 近似 token）。
 
     从最新往前累积，超出 max_tokens 则丢弃更早的历史（保尾部 + 保当前题——最新一条必保留）。
-    近似 token = len(content)//2（refine.py _approx_tokens 同口径）。纯函数不看 LLM_PROVIDER
+    近似 token = len(content)//2（refine.py _approx_tokens 同口径）。纯函数不读 provider 配置
     （Pitfall 9 裁量：mock 全量由调用方 decide_next_action 决定形态）。当前题 stem 与
     user_message 在 _build_user_prompt 组装面外（Pitfall 7——不进截断面）。
     """
