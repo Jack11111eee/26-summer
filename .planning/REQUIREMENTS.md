@@ -36,14 +36,14 @@
 
 - [ ] **REF-2.1** [结构] 全局 21 张表对齐（汇总行：三新表 + 六表演进）→ Phase 6 收口清点
 - [ ] **REF-2.2** [P0] 新表 assessment_state_event（append-only，UNIQUE(session_id,sequence_no)）→ Phase 1
-- [ ] **REF-2.3** [结构] 新表 trace_link（统一审计链）→ Phase 5
+- [x] **REF-2.3** [结构] 新表 trace_link（统一审计链）→ Phase 5
 - [ ] **REF-2.4** [结构] 新表 form_instance（schema 快照/生命周期）→ Phase 3
 - [x] **REF-2.5** [结构] question_bank 演进（model/version 绑定、question_type、measurement_stage、rubric_version、锚点、综合绑定）→ Phase 4 主体（锚点列随 Phase 2 难度状态机先行）
 - [ ] **REF-2.6** [结构] assessment_session 演进（phase/计时区间/abandoned/状态机 PENDING_START→ACTIVE→SCORING→COMPLETED）→ Phase 3
 - [ ] **REF-2.7** [结构] assessment_question 演进（动态实例列/封存/selection_reason/路径快照；(session_id,sequence_no) 唯一）→ Phase 2
 - [ ] **REF-2.8** [结构] assessment_message 分列（raw_content/raw_hash/refined_content/client_request_id/sequence_no）→ Phase 3
 - [ ] **REF-2.9** [结构] question_score 演进（统一 score_final 废弃 final_score、score_state、override 列）→ Phase 2 主体（human_override 列随 Phase 5）
-- [ ] **REF-2.10** [结构] 证据定位结构化（span/offset/quote_hash；hash 复用限单 session）→ Phase 5
+- [x] **REF-2.10** [结构] 证据定位结构化（span/offset/quote_hash；hash 复用限单 session）→ Phase 5
 - [ ] **REF-2.11** [结构] schema_version 迁移体系（替换 DDL 字符串嗅探式迁移）→ Phase 6 收口
 
 #### 矩阵 §3 题库与选题（REF-3.1~3.9）
@@ -111,7 +111,7 @@
 - [x] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4
 - [ ] **REF-8.5** [一般] 模型 items 为空不阻断开考（并入 REF-3.5 开考检查）→ Phase 1
 - [ ] **REF-8.6** [一般] mock interviewer 主观题固定 3 分（测试重构时处理）→ Phase 6
-- [ ] **REF-8.7** [结构] llm_trace ref_id 单字段弱关联（随 trace_link 落地迁移导入）→ Phase 5
+- [x] **REF-8.7** [结构] llm_trace ref_id 单字段弱关联（随 trace_link 落地迁移导入）→ Phase 5
 - [ ] **REF-8.8** [结构] eval 脚本直接操作业务库（违反 §23 隔离；独立/临时数据库改造）→ Phase 6
 
 ## Deferred（登记不排期）

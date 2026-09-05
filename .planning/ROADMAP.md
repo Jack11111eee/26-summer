@@ -177,7 +177,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 05-01: 证据 span 结构化 + hash 复用限单 session + trace_link 表与审计链闭合（旧 ref_id 导入）
+- [x] 05-01: 证据 span 结构化 + hash 复用限单 session + trace_link 表与审计链闭合（旧 ref_id 导入）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -225,5 +225,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-05 |
 | 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
 | 4. 题库版本绑定与模块一收口 | 2/2 | Complete   | 2026-09-05 |
-| 5. 证据链与报告契约 | 0/4 | Not started | - |
+| 5. 证据链与报告契约 | 1/4 | In Progress|  |
 | 6. 迁移体系与测试闭环收口 | 0/5 | Not started | - |

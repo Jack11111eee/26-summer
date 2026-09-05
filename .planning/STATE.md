@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-02-PLAN.md (orphan 路由修复 + 模型编辑校验)
-last_updated: "2026-09-05T09:34:32.374Z"
-last_activity: 2026-09-05 -- Phase 05 execution started
+stopped_at: Completed 05-01-PLAN.md (证据链 span 定位 + trace_link 统一审计链)
+last_updated: "2026-09-05T09:54:35.852Z"
+last_activity: 2026-09-05
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 20
-  completed_plans: 16
+  completed_plans: 17
   percent: 67
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 05 (evidence-report-contract) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 05
-Last activity: 2026-09-05 -- Phase 05 execution started
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-09-05
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
 - **下一动作**：Phase 4 已完结 → 启动 Phase 5 discuss（证据链与报告契约）→ 停在 Phase 5 硬关口 A（plan 审查）
@@ -57,6 +57,7 @@ Last activity: 2026-09-05 -- Phase 05 execution started
 | Phase 02 P02 | 41min | 5 tasks | 9 files |
 | Phase 04 P01 | 50min | 3 tasks | 7 files |
 | Phase 04 P02 | 5min | 3 tasks | 5 files |
+| Phase 05 P01 | 9min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,10 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase 04]: [04-01] 失败可见：readiness FAILED 分支返回 QUESTION_BANK_INCOMPLETE + error_msg[:200]；get_todos 新增 question_bank_failed 明细（D-51/REF-8.4）
 - [Phase 04]: [04-02] orphan 路由前置：/jds/orphan 迁入 jds.py 置于 /jds/{jd_id} 之前，字段口径锁定选项 B（字段子集 + status != 'failed'）（REF-7.1）
 - [Phase 04]: [04-02] 模型编辑校验：ModelItem 字段级校验（allow_inf_nan=False/ge+le/Literal）+ update_model 同 category 重复 std_name 拒绝，保留 Σ=100%（REF-7.2）
+- [Phase 05]: _locate_span 定位失败返回 None，调用方降级为 quote_hash-only span（source_message_id/offset 全 None）
+- [Phase 05]: 旧 llm_trace.ref_id 经 _migrate_trace_link 按 call_type→候选表 probe 命中才拆 trace_link('source')，未命中保留原 ref_id
+- [Phase 05]: score→trace 运行时写点仅主观题（客观/INVALIDATED 无 LLM trace，trace_id=None 不写 link）
+- [Phase 05]: test 文件懒导入 _locate_span（Task 2 子集先可收集，Task 3 落地后三 span 测试可用）
 
 ### Pending Todos
 
@@ -100,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-05T07:09:30.858Z
-Stopped at: Completed 04-02-PLAN.md (orphan 路由修复 + 模型编辑校验)
+Last session: 2026-09-05T09:54:35.838Z
+Stopped at: Completed 05-01-PLAN.md (证据链 span 定位 + trace_link 统一审计链)
 Resume file: None
