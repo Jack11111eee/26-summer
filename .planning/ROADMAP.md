@@ -175,9 +175,20 @@ Plans:
 
 Plans:
 
+**Wave 1**
+
 - [ ] 05-01: 证据 span 结构化 + hash 复用限单 session + trace_link 表与审计链闭合（旧 ref_id 导入）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 05-02: item_measurement 统一裁决 + IMPUTED 补算 + required 缺失 PROVISIONAL/人工复核标记
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 05-03: 报告状态机 + 七项发布校验 + 报告版本化（不可变版本，防 feedback 外键断裂）+ 失败显式可见
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 05-04: feedback/question_reviews 字段补全 + item 归属校验
 
 ### Phase 6: 迁移体系与测试闭环收口
