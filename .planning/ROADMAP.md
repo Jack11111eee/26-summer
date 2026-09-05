@@ -215,7 +215,7 @@ Plans:
 **Wave 2** *(blocked on 06-01)*
 
 - [x] 06-02-PLAN.md — 测试统一 pytest 收集（question_bank/m6 脚本式重构）+ CI 配置 + requirements.txt 补 pytest
-- [ ] 06-04-PLAN.md — 候选人端完整 E2E（主链 + 刷新/断线/越权/超时）+ 前端契约修复（submit-v2/missing_reasons 映射/报告重试）
+- [x] 06-04-PLAN.md — 候选人端完整 E2E（主链 + 刷新/断线/越权/超时）+ 前端契约修复（submit-v2/missing_reasons 映射/报告重试）
 - [ ] 06-05-PLAN.md — eval 隔离 + b/c 评测契约 + bad case 双分背离候选 + 输入限额/secret 校验/JWT 方向等安全收尾
 
 **Wave 3** *(blocked on 06-01 + 06-02 + 06-05)*
@@ -234,4 +234,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
 | 4. 题库版本绑定与模块一收口 | 2/2 | Complete   | 2026-09-05 |
 | 5. 证据链与报告契约 | 5/5 | Complete    | 2026-09-05 |
-| 6. 迁移体系与测试闭环收口 | 2/5 | In Progress|  |
+| 6. 迁移体系与测试闭环收口 | 3/5 | In Progress|  |

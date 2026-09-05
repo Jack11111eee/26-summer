@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-09-05T14:45:32.589Z"
+stopped_at: Completed 06-04-PLAN.md
+last_updated: "2026-09-05T15:11:26.573Z"
 last_activity: 2026-09-05
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 26
-  completed_plans: 23
-  percent: 88
+  completed_plans: 24
+  percent: 92
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 06 (migration-test-closure) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-09-05
 
@@ -64,6 +64,7 @@ Last activity: 2026-09-05
 | Phase 05 P04 | 3min | 3 tasks | 5 files |
 | Phase 06 P01 | 25min | 3 tasks | 3 files |
 | Phase 06 P02 | 11min | 2 tasks | 4 files |
+| Phase 06 P04 | 15min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,9 @@ Decisions are logged in PROJECT.md Key Decisions table (31 locked SSOT decisions
 - [Phase 06]: set_db_path()/_DB_PATH_OVERRIDE 进程内覆盖 get_conn/init_db 的 DB 路径（不落盘不改 env），迁移前 stdlib conn.backup() 备份到 backups/；conftest.py mock 三件套 + session 级临时 DB fixture 落地为 Wave 0 linchpin — D-74/D-69
 - [Phase 06]: test_m6 顺序依赖用 session ctx fixture 单次 seed + 顺序复用（_test_* 转 test_* 保脚本顺序语义）；带参 test_* 改 check_* 消 3 个 fixture 误判（D-69）
 - [Phase 06]: CI = GitHub Actions：backend(pytest .) + frontend(npm ci 与 npm run build) 两 job 并行；requirements.txt 补 pytest>=8（D-70）
+- [Phase 06]: E2E question_bank 直插种子写 model_id/model_version（Phase 4 消费侧收紧 D-50，readiness/选题按双列过滤）
+- [Phase 06]: submit-v2 body 带 schema_version:'v1'（FormSubmitRequest.schema_version 必填，计划 body 规格遗漏）
+- [Phase 06]: missing_reasons 渲染在 Report.vue 非 Chat.vue；报告失败重试 UI 已存在（D-79）
 
 ### Pending Todos
 
@@ -125,6 +129,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-05T14:45:32.580Z
-Stopped at: Completed 06-02-PLAN.md
+Last session: 2026-09-05T15:11:26.432Z
+Stopped at: Completed 06-04-PLAN.md
 Resume file: None

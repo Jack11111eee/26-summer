@@ -15,7 +15,7 @@
 - [ ] **REQ-interactive-multiturn-assessment**: 有界测评循环（Observation→Policy→Act→Evaluation→Persist）；LLM 输出结构化观察、代码裁决；LLM 不能自行决定切题/结束
 - [x] **REQ-talent-profile-report**: 报告五段式（总分+门槛标签/雷达/逐项明细含逐行异议/优势短板建议/逐题回顾）；score_final 锚点评分；代码排序优势短板；状态机 + 明确点击发布
 - [ ] **REQ-data-compliance**: 禁恶意爬虫；JD 接入只走粘贴/JSONL 文件导入；输入限额按类型配置；trace/JD/原文数据分级管理
-- [ ] **REQ-e2e-demo-deliverables**: 候选人端完整 E2E（注册→选岗→session→作答/追问→表单→完成→评分→报告→异议）+ 统一 pytest 收集 + CI 为验收入口
+- [x] **REQ-e2e-demo-deliverables**: 候选人端完整 E2E（注册→选岗→session→作答/追问→表单→完成→评分→报告→异议）+ 统一 pytest 收集 + CI 为验收入口
 - [ ] **REQ-iterative-loop**: 测试闭环（b 一致性 / c 虚拟考生 / bad case 候选 / eval 隔离）；反馈可回溯、异议永不触发改分
 
 ### 契约级（REF）— 按矩阵分节
@@ -101,7 +101,7 @@
 - [x] **REF-7.3** [结构] feedback 补 user_id/note/reviewer/时间戳；question_reviews 补 item_id；submit_feedback 校验 item 属于对应模型 → Phase 5
 - [x] **REF-7.4** [结构] 测试统一 pytest 收集（test_m6/question_bank 脚本式重构）+ CI 配置 → Phase 6
 - [ ] **REF-7.5** [结构] M1 回归清单（清洗边界/抽取异常/消歧/权重尾差/冲突 stalled/confirmed 不可覆盖/版本 diff/管理员权限）→ Phase 6
-- [ ] **REF-7.6** [结构] 候选人端完整 E2E（含刷新恢复/断线重试/越权/超时）→ Phase 6
+- [x] **REF-7.6** [结构] 候选人端完整 E2E（含刷新恢复/断线重试/越权/超时）→ Phase 6
 
 #### 矩阵 §8 矩阵外发现（REF-8.1~8.8）
 
@@ -140,7 +140,7 @@
 | REQ-interactive-multiturn-assessment | Phase 2（传输/表单/计时深化在 Phase 3） | Pending |
 | REQ-talent-profile-report | Phase 5（链路修复前提在 Phase 1） | Complete |
 | REQ-data-compliance | Phase 6 | Pending |
-| REQ-e2e-demo-deliverables | Phase 6 | Pending |
+| REQ-e2e-demo-deliverables | Phase 6 | Complete |
 | REQ-iterative-loop | Phase 6 | Pending |
 
 ### REF → Phase（按 Phase 分组；共 68 行：63 排期 + 2 保持 + 3 延后）
