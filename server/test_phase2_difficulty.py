@@ -416,17 +416,17 @@ def _seed_position_with_confirmed_model(required_level: int = 3) -> tuple[str, s
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """岗位题：Python easy/medium/hard 各 2（降级/承接测试需同 item 多实例）+ 其余配额。"""
     conn = get_conn()
     now = now_iso()
 
     def _add(std_name, category, difficulty):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), "position", pid, std_name, category, difficulty, "subjective",
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), "position", pid, mid, 1, std_name, category, difficulty, "subjective",
              f"{std_name} {difficulty} 题", None, "判据", None, None, "human", "active", now),
         )
 
@@ -496,8 +496,8 @@ def test_events_payload_and_same_transaction():
     """item 先升到 medium（充分证据）再连续两道低分（followup 后强制 next，有效失败）
     → 封存后 DIFFICULTY_LOWERED：payload 四键（criterion/evidence_counts/from/to）+
     最新封存实例行 snapshot current_difficulty == 事件 to_state（§13.1 同事务）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_diff_lower")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -572,7 +572,7 @@ def test_events_payload_and_same_transaction():
 def test_selection_reads_snapshot():
     """item 有 snapshot(current_difficulty=medium) → 该 item 后续实例 difficulty=='medium'（承接）。"""
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_diff_sel")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)

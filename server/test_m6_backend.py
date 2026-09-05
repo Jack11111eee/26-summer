@@ -90,10 +90,10 @@ def _seed_full_chain() -> dict:
     ]
     for q in bank:
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (q["qid"], "position", pid, q["std_name"], q["category"], "medium",
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (q["qid"], "position", pid, mid, 1, q["std_name"], q["category"], "medium",
              q["qtype"], q["stem"], q["answer_key"], q["rubric"], "llm_seed", "active", now),
         )
 

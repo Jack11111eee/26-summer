@@ -124,17 +124,17 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """普通题 hard 2 / soft 1（配额经 clamp 通过）+ gate 项题库行（general 不进普通池）。"""
     conn = get_conn()
     now = now_iso()
 
     def _add(scope, position_id, std_name, category, difficulty, qtype, stem, answer_key, rubric):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, "human", "active", now),
         )
 
@@ -304,8 +304,8 @@ def test_new_db_direct_path():
 def test_render_on_exhaustion():
     """普通题答完（池耗尽）→ action=='form' + 📎[form:id] 标记 + form_instance rendered +
     schema_snapshot 可 json.loads 含 fields + assistant 消息 + FORM_RENDERED 事件。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_render")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -326,8 +326,8 @@ def test_render_idempotent_open():
     """同一会话再触发 render 不产生第二个 rendered 实例（open rendered 幂等复用）。"""
     from server.services.forms import render_form_instance
 
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_idem")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -344,8 +344,8 @@ def test_render_idempotent_open():
 def test_get_form_whitelist():
     """GET /api/assessment/forms/{id} → 200 + 键集合 ⊆ {form_type,title,fields} + fields 键白名单 +
     years 门槛值与 required_level 不出现在响应 JSON。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_wl")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -365,8 +365,8 @@ def test_get_form_whitelist():
 
 def test_get_form_ownership():
     """他人 token GET → 404（D-01 统一不存在语义）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_owner")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -381,8 +381,8 @@ def test_get_form_ownership():
 def test_submit_six_dimensions():
     """六维校验序：缺必填/枚举外值/超长 → 422 三态 error_code；revision 不匹配 → 409；
     成功 → 201 submitted + gate_results；重提交 → 409 FORM_ALREADY_SUBMITTED + 首次结果原样带回。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_sixdim")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -433,8 +433,8 @@ def test_submit_six_dimensions():
 def test_gate_row_written():
     """提交后 gate item 各一行（question_id/score_state NULL + gate_result/gate_reason/
     evaluated_schema_version 落值）；GATE_EVALUATED 事件行数 == gate item 数。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_gaterow")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -461,8 +461,8 @@ def test_gate_row_written():
 
 def test_submit_unblocks_finish():
     """表单提交后（池耗尽 + gate 全采集）→ action=='finish' + status=='completed' + SESSION_COMPLETED 事件。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_finish")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -480,8 +480,8 @@ def test_submit_unblocks_finish():
 
 def test_submit_next_when_pool_left():
     """尚有普通题未答完先被引导提交 → submit-v2 action=='next' 且 next_question_id 非 None（防 finish 误触发）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_next")
     sid = _create_session(pid, headers)
 
@@ -528,8 +528,8 @@ def test_submit_next_when_pool_left():
 
 def test_revision_immutable():
     """修订 = 新行 revision+1（instance_id 不变）+ 旧行 status='superseded'；schema_snapshot 不被 UPDATE。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_rev")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -561,8 +561,8 @@ def test_revision_immutable():
 def test_admin_override_requires_reason():
     """admin 覆盖：无 override_reason → 422；带 reason → 200 + human_override/reviewer_id 落值 +
     GATE_OVERRIDDEN 事件；非 admin → 403。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_admin")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -609,8 +609,8 @@ def test_dual_source_precedence():
     passed==False；会话 B 只走旧链（form_submission）→ 旧 _gate_check 判定不变。"""
     from server.services.aggregation import aggregate_session_scores
 
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_dual_a")
     sid_a = _create_session(pid, headers)
     form_id = _answer_until_form(sid_a, headers)
@@ -638,8 +638,8 @@ def test_dual_source_precedence():
     assert exp_a["passed"] is False, "gate 行应优先（gate_result='false'）"
 
     # 会话 B：仅旧链 form_submission
-    pid2, _mid2 = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid2)
+    pid2, mid2 = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid2, mid2)
     headers_b = _auth_headers("p3_dual_b")
     sid_b = _create_session(pid2, headers_b)
     conn = get_conn()
@@ -663,8 +663,8 @@ def test_score_session_preserves_gate_rows():
     """提交表单后调 score_session → gate 行仍在（DELETE 只清评分行，不吞 gate 行）。"""
     from server.services.scoring import score_session
 
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_preserve")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -683,8 +683,8 @@ def test_score_session_preserves_gate_rows():
 
 def test_exp_qual_not_in_selection():
     """全 session aq JOIN question_bank 的 category 集合 ⊆ {hard_skill,soft_skill}（REF-3.3 终局）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_expqual")
     sid = _create_session(pid, headers)
     _answer_until_form(sid, headers)
@@ -700,8 +700,8 @@ def test_exp_qual_not_in_selection():
 
 def test_form_submit_idempotent():
     """携 idempotency_key 提交表单 → 重放 200 同体；gate 行与事件零重复写（幂等快照直返）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p3_formidem")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)

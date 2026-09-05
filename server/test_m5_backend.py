@@ -73,7 +73,7 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> dict[str, list[str]]:
+def _seed_question_bank(pid: str, mid: str) -> dict[str, list[str]]:
     """岗位题 + 通用题：hard 7 / soft 3 / experience 2 / qualification 1（通用，走表单）。"""
     conn = get_conn()
     now = now_iso()
@@ -83,10 +83,10 @@ def _seed_question_bank(pid: str) -> dict[str, list[str]]:
              chain_key=None, chain_seq=None):
         qid = new_id("qb")
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (qid, scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (qid, scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, chain_key, chain_seq, "human", "active", now),
         )
         ids[category].append(qid)
@@ -163,7 +163,7 @@ def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> di
 def test_session_creation_and_question_selection():
     """建会话：锚定 confirmed 模型；零预选（SC-1 动态选题，02-02 后口径）。"""
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers()
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -183,7 +183,7 @@ def test_session_creation_and_question_selection():
 
 def test_session_state():
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("m5_state_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
 
@@ -230,7 +230,7 @@ def test_answer_flow_and_scoring():
     预读 assessment_question 必空）。
     """
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("m5_flow_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
     _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
@@ -328,8 +328,8 @@ def test_answer_flow_and_scoring():
 
 
 def test_form_submission():
-    pid, _ = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("m5_form_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
 

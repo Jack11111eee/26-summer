@@ -98,17 +98,17 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """普通题 hard×4/soft×2（池耗尽才触发表单）+ gate 项题库行。"""
     conn = get_conn()
     now = now_iso()
 
     def _add(scope, position_id, std_name, category, difficulty, qtype, stem, answer_key, rubric):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, "human", "active", now),
         )
 
@@ -216,8 +216,8 @@ def test_partial_unique_open_index():
 
     W4：先经 API 建会话（合法父行）再直插区间——FK ON 语境直插无父行必 IntegrityError 假红。
     """
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_partialidx")
     sid = _create_session(pid, headers)
 
@@ -252,8 +252,8 @@ def test_partial_unique_open_index():
 
 def test_close_then_open_idempotent():
     """close 无 open 时 no-op；advance_interval 后单 open 行。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_closeopen")
     sid = _create_session(pid, headers)
 
@@ -275,8 +275,8 @@ def test_close_then_open_idempotent():
 
 def test_answer_advances_active_interval():
     """answer 前后 _q 查 session_time_intervals——answer 落 new active 行；全程至多一个 open。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_advance")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -295,8 +295,8 @@ def test_answer_advances_active_interval():
 
 def test_question_timeout_seal():
     """直插 activated_at = now - 25min → answer → timeout 封存 + 两事件 + 续题。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_qtimeout")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -328,8 +328,8 @@ def test_question_timeout_seal():
 
 def test_question_timeout_pitfall10():
     """activated_at NULL（legacy 直插）→ answer 正常路径不 TypeError（Pitfall 10）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_pitfall10")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -347,8 +347,8 @@ def test_question_timeout_pitfall10():
 
 def test_followup_shared_timer():
     """followup 两次提交后 activated_at 不变（共用计时——源数据断言）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_followup")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -364,8 +364,8 @@ def test_followup_shared_timer():
 
 def test_global_timeout_order():
     """直插 active 区间 Σ 超 40min → answer → GLOBAL_TIMEOUT + phase=SCORING + 事件序三行比较。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_global")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -403,8 +403,8 @@ def test_global_timeout_order():
 
 def test_abandoned_6h_lazy():
     """直插 last_activity_at = now - 7h → answer 惰性置 abandoned + 事件；再答 409。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_abandoned")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -439,8 +439,8 @@ def test_abandoned_6h_lazy():
 
 def test_abandoned_evidence_kept():
     """ABANDONED 后消息/实例行零删除（COUNT 不变——不删证据）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_evidence")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -467,8 +467,8 @@ def test_abandoned_evidence_kept():
 
 def test_last_activity_refresh():
     """answer 成功后 last_activity_at 非 NULL 且晚于 answer 前。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_touch")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -484,8 +484,8 @@ def test_last_activity_refresh():
 
 def test_session_paused_guard():
     """直插 open paused 行 → answer → 409 SESSION_PAUSED。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_paused")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -512,8 +512,8 @@ def test_session_paused_guard():
 
 def test_phase_column_defaults():
     """新建会话 phase=='PENDING_START'；旧库直插（无 phase 列）init_db 后回填 PENDING_START；status CHECK 不动。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_phase")
     sid = _create_session(pid, headers)
     assert _q("SELECT phase FROM assessment_session WHERE session_id=?", (sid,))[0]["phase"] == "PENDING_START"
@@ -530,7 +530,7 @@ def test_phase_column_defaults():
         conn.execute(
             "INSERT INTO assessment_session(session_id, user_id, position_id, model_id, model_version,"
             " status, started_at, created_at) VALUES('sess_old', 'u_x', ?, ?, 1, 'completed', ?, ?)",
-            (pid, _mid, now_iso(), now_iso()),
+            (pid, mid, now_iso(), now_iso()),
         )
         conn.execute("UPDATE assessment_session SET phase=NULL WHERE session_id='sess_old'")
         conn.commit()
@@ -546,8 +546,8 @@ def test_phase_column_defaults():
 
 def test_message_columns_split():
     """answer 后用户消息行 refined_content==content 且 client_request_id==提交值 且 sequence_no 递增两行。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_msgcols")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -584,8 +584,8 @@ def test_truncate_history_mock_passthrough():
     history = [{"role": "user", "content": "x" * 100} for _ in range(20)]
     assert len(_truncate_history(history, 300)) < 20
     # mock 调用方（LLM_PROVIDER=mock）走全量不截断——集成面：答题决策正常
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("timer_mockpass")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]

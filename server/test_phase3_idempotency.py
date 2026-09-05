@@ -83,17 +83,17 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """普通题 hard×4/soft×2（池耗尽才触发表单——三连答不耗尽）+ gate 项题库行。"""
     conn = get_conn()
     now = now_iso()
 
     def _add(scope, position_id, std_name, category, difficulty, qtype, stem, answer_key, rubric):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, "human", "active", now),
         )
 
@@ -202,8 +202,8 @@ def _answer_until_form(sid: str, headers: dict) -> str:
 
 def test_same_key_returns_first_snapshot():
     """同 key 同 payload 重发 → 200 application/json 快照（五键一致）+ 消息/事件零重复写。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_replay")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -228,8 +228,8 @@ def test_same_key_returns_first_snapshot():
 
 def test_hash_sensitivity():
     """同 key 不同 payload（answer 文本不同）→ 409 IDEMPOTENCY_KEY_REUSED（不回放首次快照）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_hash")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -245,8 +245,8 @@ def test_hash_sensitivity():
 
 def test_pending_returns_409():
     """手工直插 PENDING 行 → 带 key 请求 → 409 REQUEST_IN_PROGRESS（并发进行中快速失败）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_pending")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -271,8 +271,8 @@ def test_pending_returns_409():
 
 def test_distinct_keys_independent():
     """同 session 两个不同 key → 各自首次处理（消息表各追加行，两条 COMMITTED 记录）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_distinct")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -316,8 +316,8 @@ def test_cross_endpoint_isolation():
 
 def test_revision_optimistic_lock():
     """expected_revision=1 答题 → 200 + revision 1→2；stale 再答 → 409 QUESTION_REVISION_CONFLICT。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_rev")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -335,8 +335,8 @@ def test_revision_optimistic_lock():
 
 def test_revision_absent_no_lock():
     """不带 expected_revision（sse.js 现状）→ 全程无 409，revision 不 bump（A/B 兼容）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_norev")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]
@@ -348,8 +348,8 @@ def test_revision_absent_no_lock():
 
 def test_no_key_no_records():
     """无 key 三连答 → idempotency_record COUNT == 0（缺省不启用）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_nokey")
     sid = _create_session(pid, headers)
     for _ in range(3):
@@ -392,8 +392,8 @@ def test_concurrent_double_insert():
 
 def test_form_submit_idempotent():
     """submit-v2 带 key 成功 → 重发同 key → 200 首次 gate_results 快照 + form_instance/gate 行零重复写。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_form")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
@@ -425,8 +425,8 @@ def test_form_submit_idempotent():
 
 def test_snapshot_schema():
     """COMMITTED 行 response_snapshot 可 json.loads 且键集合 ⊆ 白名单七键，且不含 answer 原文（A1）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("idem_snapshot")
     sid = _create_session(pid, headers)
     qid = _first_question(sid, headers)["question_id"]

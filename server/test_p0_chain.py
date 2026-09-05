@@ -96,7 +96,7 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """岗位题 + 通用题：hard 7 / soft 3 / experience 2（含 py/mysql 难度链）。"""
     conn = get_conn()
     now = now_iso()
@@ -104,10 +104,10 @@ def _seed_question_bank(pid: str) -> None:
     def _add(scope, position_id, std_name, category, difficulty, qtype, stem, answer_key, rubric,
              chain_key=None, chain_seq=None):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, chain_key, chain_seq, "human", "active", now),
         )
 
@@ -251,10 +251,10 @@ def _seed_completed_session_direct(username: str) -> str:
         )
     qid = new_id("qb")
     conn.execute(
-        "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+        "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
         " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (qid, "position", pid, "Python", "hard_skill", "easy", "objective",
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (qid, "position", pid, mid, 1, "Python", "hard_skill", "easy", "objective",
          "Python 中用什么关键字定义函数？", "def", None, "human", "active", now),
     )
     uid = conn.execute(
@@ -326,7 +326,7 @@ def _seed_empty_items_confirmed_model() -> str:
 def _seed_inactive_position_with_full_setup() -> str:
     """pending_review 岗位 + confirmed 模型 + 足量题库（W-2 inactive 分支，直插合法）。"""
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     conn = get_conn()
     conn.execute("UPDATE position SET status='pending_review' WHERE position_id=?", (pid,))
     conn.commit()
@@ -367,8 +367,8 @@ def test_ui_main_chain_score_report_serial():
     零步断裂（前端从不调 /score 导致报告恒 no_data）修复的直接证明——
     断言不经 Python 直调 score_session 掩盖。
     """
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_main")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -401,8 +401,8 @@ def test_completed_session_guardrail():
 
     报告行数仍为 1——重复评分/报告被拒（不重复触发串行链）。
     """
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_guard")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -430,8 +430,8 @@ def test_completed_session_guardrail():
 
 def test_in_progress_report_rejected():
     """in_progress 会话（答题中途）POST /report → 409（非法前置：报告必须在完成后请求）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_inprog")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -472,8 +472,8 @@ def test_completed_without_report_retriggers():
 def test_serial_chain_events():
     """主链完成后事件表含 TASK_QUEUED / TASK_STARTED / SESSION_ENTERED_SCORING /
     TASK_SUCCEEDED（评分子步 + 报告子步至少各一）；同 session sequence_no 无重复。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_events")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -524,7 +524,7 @@ def test_question_bank_generating_blocks_session():
     即使题库当前已足量（生成中状态优先于实际题量判定——判定逻辑 D-12）。
     """
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     _insert_qb_task(pid, mid, 1, "QUEUED")
     headers = _auth_headers("p0_chain_gen")
 
@@ -540,10 +540,10 @@ def test_question_bank_incomplete_blocks_session():
     # 仅插 1 题（远低于新配额：N=10 → hard 7 / soft 3， esperienza/qualification 不占题）
     conn = get_conn()
     conn.execute(
-        "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+        "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
         " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (new_id("qb"), "position", pid, "Python", "hard_skill", "easy", "objective",
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (new_id("qb"), "position", pid, mid, 1, "Python", "hard_skill", "easy", "objective",
          "Python 中用什么关键字定义函数？", "def", None, "human", "active", now_iso()),
     )
     conn.commit()
@@ -584,8 +584,8 @@ def test_inactive_position_blocks_session():
 
 def test_legacy_seed_without_task_row_passes():
     """存量种子形态（无 task 行 + 题库足量，m5 直插模式）→ 201 不误伤（Pitfall 3 兼容）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_legacy")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)

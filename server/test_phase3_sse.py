@@ -76,7 +76,7 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """岗位题 + 通用题：hard 7 / soft 3 / experience 2 / qualification 1（m5 同款）。"""
     conn = get_conn()
     now = now_iso()
@@ -84,10 +84,10 @@ def _seed_question_bank(pid: str) -> None:
     def _add(scope, position_id, std_name, category, difficulty, qtype, stem, answer_key, rubric,
              chain_key=None, chain_seq=None):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, chain_key, chain_seq, "human", "active", now),
         )
 
@@ -192,8 +192,8 @@ def _first_question(sid: str, headers: dict) -> dict:
 
 def test_answer_is_sse():
     """POST /answer 响应 Content-Type == text/event-stream（sse.js 形态 A 分支接管）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_ctype")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -206,8 +206,8 @@ def test_answer_is_sse():
 
 def test_event_sequence():
     """事件序 decision → reply×N → done（reply ≥ 2 块——mock 4 分块），首 decision 末 done。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_seq")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -221,8 +221,8 @@ def test_event_sequence():
 
 def test_reply_reassembled():
     """reply 块拼接 == 决策 reply 全文 == assistant 消息 content（sse.js onReply 语义对齐）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_reply")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -238,8 +238,8 @@ def test_reply_reassembled():
 
 def test_done_next_question_consistency():
     """done next_question_id 非 None 时 assessment_question 该行存在（answered_at 仍 NULL）；done action=='next'。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_done")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -254,8 +254,8 @@ def test_done_next_question_consistency():
 
 def test_decision_extension_keys():
     """decision 帧含 answer_state/evidence_sufficient 扩展键（D-34——VALID_EVIDENCE 路径）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_ext")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -269,8 +269,8 @@ def test_decision_extension_keys():
 def test_decision_before_stream_persisted():
     """abort 语义：流建立后仅读 2 行即退出 → 用户消息/assistant 消息/OBSERVATION_CLASSIFIED 已落库
     （先落库再推流——决策在首个 yield 前全部 commit）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_abort")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -306,8 +306,8 @@ def test_generator_no_db_access():
 
 def test_pydantic_422():
     """AnswerRequest 三态：缺 question_id / answer 纯空格 / answer 缺失 → 422（FastAPI 自动 + WR-02 validator）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_422")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -324,8 +324,8 @@ def test_pydantic_422():
 
 def test_http_errors_json():
     """已答题再答 → 409 JSON body（非 SSE——HTTPException 在流开始前抛，普通 JSON 错误）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_409")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -340,8 +340,8 @@ def test_http_errors_json():
 
 def test_followup_and_finish_stream():
     """短答 followup 流；完卷最后一题 done next_question_id None + action=='finish'。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_finish")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)
@@ -367,8 +367,8 @@ def test_followup_and_finish_stream():
 
 def test_m5_answer_flow_parity():
     """_stream_answer 组回 dict 含 action/reply/question_id/next_question_id/score_live 五键（旧返回体同构）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("sse_parity")
     sid = _create_session(pid, headers)
     cur = _first_question(sid, headers)

@@ -79,7 +79,7 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """题库（按 02-05 配额可满足的池子）：hard（difficulty 字段用于选题分层——按需覆盖）。
 
     Python 主观链 subjective：候选数量足够 02-01 难度快照 / 02-02 选题分层使用。
@@ -94,11 +94,11 @@ def _seed_question_bank(pid: str) -> None:
 
     def _add(std_name, category, difficulty, qtype, stem, answer_key, rubric):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source,"
             " status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), "position", pid, std_name, category, difficulty, qtype,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), "position", pid, mid, 1, std_name, category, difficulty, qtype,
              stem, answer_key, rubric, None, None, "human", "active", now),
         )
 
@@ -168,7 +168,7 @@ _LONG_EMPTY_ANSWER = (
 _DECLINE_ANSWER = "这道题我不方便回答，涉及隐私"
 
 
-def _seed_invalid_objective(pid: str, std_name: str = "Python") -> str:
+def _seed_invalid_objective(pid: str, mid: str, std_name: str = "Python") -> str:
     """直插 1 道 answer_key=NULL 的客观题（绕过 CR-01 生成侧——题库生成层会拦空 key）。
 
     返回 question_id。INVALIDATED 路径的题库侧种子。
@@ -176,10 +176,10 @@ def _seed_invalid_objective(pid: str, std_name: str = "Python") -> str:
     conn = get_conn()
     qid = new_id("qb")
     conn.execute(
-        "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+        "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
         " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (qid, "position", pid, std_name, "hard_skill", "easy", "objective",
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (qid, "position", pid, mid, 1, std_name, "hard_skill", "easy", "objective",
          "Python 的 GIL 是什么？", None, None, "human", "active", now_iso()),
     )
     conn.commit()
@@ -304,8 +304,8 @@ def test_score_final_independent():
     final_score 合成列已废（Task 3 DROP 前中期态：断言 score_state 与 score_final
     独立值即证明无合成路径——若 50/50 存在且 score_live=2，final 会是 round(2.5)=2）。
     """
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_sco_indep")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid},
                       headers=headers).json()["session_id"]
@@ -331,8 +331,8 @@ def test_refused_excluded_from_denominator():
     - 分母排除证明：拒答题不贡献所属 item 的 actual 平均（对比同构会话）
     """
     from server.services.aggregation import aggregate_session_scores
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
 
     # 会话 A：含 1 拒答（其余题照常长答案）
     headers_a = _auth_headers("p2_sco_refused")
@@ -372,9 +372,9 @@ def test_invalidated_objective():
     - 该题不进任何 item 的 actual 平均
     """
     from server.services.aggregation import aggregate_session_scores
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
-    invalid_qid = _seed_invalid_objective(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
+    invalid_qid = _seed_invalid_objective(pid, mid)
     headers = _auth_headers("p2_sco_invalid")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid},
                       headers=headers).json()["session_id"]
@@ -414,8 +414,8 @@ def test_aggregation_reads_score_final():
     （round(2*0.5+3*0.5)=round(2.5)=2）或混入 live，actual 将不等于 score_final 均值 3。
     """
     from server.services.aggregation import aggregate_session_scores
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_sco_final_col")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid},
                       headers=headers).json()["session_id"]
@@ -446,9 +446,9 @@ def test_report_chain_end_to_end():
 
     INVALIDATED/REFUSED 题不炸报告：radar_data.indicators 非空。
     """
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
-    invalid_qid = _seed_invalid_objective(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
+    invalid_qid = _seed_invalid_objective(pid, mid)
     headers = _auth_headers("p2_sco_report")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid},
                       headers=headers).json()["session_id"]
