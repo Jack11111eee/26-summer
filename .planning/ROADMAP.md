@@ -170,7 +170,7 @@ Plans:
   4. 报告生成失败显式可见（FAILED 状态 + 前端可区分"生成中/失败"，不再静默 pass）
   5. 候选人异议带完整字段（user_id/note/reviewer/时间戳），submit_feedback 校验 item 属于该报告对应模型，admin review note 不再被丢弃
 
-**Plans**: TBD
+**Plans**: 4 plans
 **UI hint**: yes
 
 Plans:
