@@ -118,8 +118,16 @@ def _build_old_db(db_path: str, with_duplicate_seq: bool = False) -> None:
 
 _build_old_db(_tmp_db)
 
-from server.db import init_db, get_conn  # noqa: E402
-import server.db as db_module  # noqa: E402
+from server.db import init_db, get_conn, set_db_path  # noqa: E402
+
+# 06-01 conftest 先 import server.db 冻结 DB_PATH，模块级 os.environ["DB_PATH"] 赋值已失效；
+# 用 function 级 autouse fixture 将 init_db()/get_conn() 指向自建旧库 _tmp_db（老库迁移路径），
+# 测试结束复位 None，避免 module 级全局 set_db_path 泄漏到其他测试文件（如 test_phase3_forms）。
+@pytest.fixture(autouse=True)
+def _point_old_db():
+    set_db_path(_tmp_db)
+    yield
+    set_db_path(None)
 
 
 def _q(sql: str, params: tuple = ()) -> list[dict]:
@@ -218,12 +226,11 @@ def test_unique_index_is_unique():
         raise AssertionError("uq_aq_session_seq 不存在于老库路径")
 
     fresh_db = os.path.join(tempfile.mkdtemp(), "new_unique.db")
-    original = db_module.DB_PATH
-    db_module.DB_PATH = fresh_db
+    set_db_path(fresh_db)
     try:
         init_db()
     finally:
-        db_module.DB_PATH = original
+        set_db_path(_tmp_db)
     conn = sqlite3.connect(fresh_db)
     try:
         indexes = conn.execute("PRAGMA index_list(assessment_question)").fetchall()
@@ -237,13 +244,12 @@ def test_unique_index_is_unique():
 def test_new_db_direct_path():
     """新库路径：_DDL 直建含全部新列（Pitfall 2 双轨）；二次 init_db 幂等。"""
     fresh_db = os.path.join(tempfile.mkdtemp(), "new_direct.db")
-    original = db_module.DB_PATH
-    db_module.DB_PATH = fresh_db
+    set_db_path(fresh_db)
     try:
         init_db()
         init_db()  # 幂等：嗅探早退，二次运行不抛
     finally:
-        db_module.DB_PATH = original
+        set_db_path(_tmp_db)
     conn = sqlite3.connect(fresh_db)  # 直查新库（不复用 _q——它指向模块主库）
     try:
         for table, new_cols in (
@@ -276,10 +282,9 @@ def test_duplicate_seq_blocks_migration():
     """老库路径：(session_id, seq) 重复时迁移 raise RuntimeError（不静默去重，T-02-01）。"""
     dup_db = os.path.join(tempfile.mkdtemp(), "old_dup.db")
     _build_old_db(dup_db, with_duplicate_seq=True)
-    original = db_module.DB_PATH
-    db_module.DB_PATH = dup_db
+    set_db_path(dup_db)
     try:
         with pytest.raises(RuntimeError, match="sess_old_1"):  # 异常附行明细
             init_db()
     finally:
-        db_module.DB_PATH = original
+        set_db_path(_tmp_db)
