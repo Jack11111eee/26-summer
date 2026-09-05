@@ -2,8 +2,34 @@
 
 import os
 import sqlite3
+from datetime import datetime, timezone
+from typing import Callable
 
 from .config import DB_PATH
+
+# DB 路径进程内覆盖（D-74：eval 隔离 + 迁移测试临时库；仅进程内，不落盘不改 env——T-06-03）
+_DB_PATH_OVERRIDE: str | None = None
+
+
+def set_db_path(path: str | None) -> None:
+    """进程内覆盖 get_conn/init_db 的 DB 路径；传 None 复位为 config.DB_PATH。"""
+    global _DB_PATH_OVERRIDE
+    _DB_PATH_OVERRIDE = path
+
+
+def _resolve_db_path() -> str:
+    """取 _DB_PATH_OVERRIDE（若设置）否则 import 时冻结的 config.DB_PATH。"""
+    return _DB_PATH_OVERRIDE or DB_PATH
+
+
+# 迁移登记簿表（D-68/REF-2.11）：本身不走 MIGRATIONS，init_db 第一步引导
+_SCHEMA_VERSION_DDL = """
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+"""
 
 # 05 文档 §5 DDL，字段名与 CHECK 约束不增删
 _DDL = """
@@ -411,7 +437,7 @@ CREATE TABLE IF NOT EXISTS trace_link (
 
 def get_conn() -> sqlite3.Connection:
     """返回开启外键、Row 工厂的数据库连接。"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_resolve_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -850,26 +876,62 @@ def _migrate_feedback_phase5(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE feedback ADD COLUMN {name} {decl}")
 
 
+MIGRATIONS: list[tuple[int, str, Callable]] = [
+    (1, "llm_trace", _migrate_llm_trace),
+    (2, "feedback_status", _migrate_feedback_status),
+    (3, "question_bank_v2", _migrate_question_bank_v2),
+    (4, "assessment_question_v2", _migrate_assessment_question_v2),
+    (5, "question_score_v2", _migrate_question_score_v2),
+    (6, "question_score_phase3", _migrate_question_score_phase3),
+    (7, "form_instance", _migrate_form_instance),
+    (8, "idempotency_record", _migrate_idempotency_record),
+    (9, "session_phase3", _migrate_session_phase3),
+    (10, "trace_link", _migrate_trace_link),
+    (11, "question_score_phase5", _migrate_question_score_phase5),
+    (12, "report_phase5", _migrate_report_phase5),
+    (13, "feedback_phase5", _migrate_feedback_phase5),
+]
+
+
+def _backup_before_migration(conn: sqlite3.Connection, version: int) -> None:
+    """未登记迁移执行前，用 stdlib conn.backup() 备份当前库到 backups/（回滚路径，§28-6）。"""
+    if conn.execute("SELECT 1 FROM schema_version WHERE version=?", (version,)).fetchone():
+        return
+    bdir = os.path.join(os.path.dirname(os.path.abspath(_resolve_db_path())), "backups")
+    os.makedirs(bdir, exist_ok=True)
+    target = sqlite3.connect(
+        os.path.join(bdir, f"app-{datetime.now(timezone.utc).isoformat()}-pre-{version}.db")
+    )
+    try:
+        conn.backup(target)
+    finally:
+        target.close()
+
+
 def init_db() -> None:
-    """建表（幂等）+ 老库迁移，启动时调用一次。"""
-    db_dir = os.path.dirname(DB_PATH)
+    """建表（幂等）+ 老库迁移，启动时调用一次。
+
+    schema_version 登记簿（D-68/REF-2.11）取代旧硬编码 13 次调用：引导登记簿 →
+    读 applied → 循环 MIGRATIONS（未登记先备份再迁移再登记、逐迁移 commit）→ 尾部 _DDL。
+    """
+    path = _resolve_db_path()
+    db_dir = os.path.dirname(path)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(path)
     try:
-        _migrate_llm_trace(conn)
-        _migrate_feedback_status(conn)
-        _migrate_question_bank_v2(conn)
-        _migrate_assessment_question_v2(conn)
-        _migrate_question_score_v2(conn)
-        _migrate_question_score_phase3(conn)
-        _migrate_form_instance(conn)
-        _migrate_idempotency_record(conn)
-        _migrate_session_phase3(conn)
-        _migrate_trace_link(conn)
-        _migrate_question_score_phase5(conn)
-        _migrate_report_phase5(conn)
-        _migrate_feedback_phase5(conn)
+        conn.executescript(_SCHEMA_VERSION_DDL)
+        applied = {r[0] for r in conn.execute("SELECT version FROM schema_version").fetchall()}
+        for version, name, fn in MIGRATIONS:
+            if version in applied:
+                continue
+            _backup_before_migration(conn, version)
+            fn(conn)
+            conn.execute(
+                "INSERT INTO schema_version(version, name, applied_at) VALUES(?,?,?)",
+                (version, name, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
         conn.executescript(_DDL)
         conn.commit()
     finally:
