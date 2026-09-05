@@ -202,8 +202,15 @@ def _stream_answer(sid, headers, question_id, answer) -> dict:
             "score_live": decision.get("score_live")}
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _answer_one(sid, headers, answer=_LONG_ANSWER) -> dict:
     """取当前题并提交一次回答，返回组回 dict。"""
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start（循环内幂等）
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     cur = r.json()["current_question"]
@@ -222,6 +229,7 @@ def test_dynamic_dispatch_per_next():
     sid = r.json()["session_id"]
 
     # 第一次 GET 派发首题（1 个未答实例）
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     cur = r.json()["current_question"]

@@ -213,9 +213,16 @@ def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> di
             "score_live": decision.get("score_live")}
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _answer_until_form(sid: str, headers: dict) -> str:
     """答完普通题直到 action=='form'，返回 form_instance_id（reply 正则提取）。"""
     form_id = None
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     while True:
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
         assert r.status_code == 200, r.text
@@ -479,6 +486,7 @@ def test_submit_next_when_pool_left():
     sid = _create_session(pid, headers)
 
     # 答 1 题（池未耗尽）
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     cur = r.json()["current_question"]
     resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)

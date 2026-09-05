@@ -116,6 +116,12 @@ def _auth_headers(username: str = "p2_itv_candidate") -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _new_session(username: str) -> tuple[str, dict]:
     """建会话并派发首题，返回 (sid, headers)。"""
     pid, _mid = _seed_position_with_confirmed_model()
@@ -124,6 +130,7 @@ def _new_session(username: str) -> tuple[str, dict]:
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     assert r.json()["current_question"] is not None, "首次 GET 应派发首题"

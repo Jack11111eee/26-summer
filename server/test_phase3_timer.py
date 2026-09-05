@@ -155,7 +155,14 @@ def _create_session(pid: str, headers: dict) -> str:
     return r.json()["session_id"]
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _first_question(sid: str, headers: dict) -> dict:
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start（重复调用幂等）
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     cur = r.json()["current_question"]
@@ -485,6 +492,9 @@ def test_session_paused_guard():
 
     conn = get_conn()
     try:
+        # 03-05：_start（经 _first_question）已开 active 区间，直插 open paused 前须先闭合
+        # （uq_sti_open 拦双 open——partial unique index）
+        close_open_interval(conn, sid)
         conn.execute(
             "INSERT INTO session_time_intervals(interval_id, session_id, interval_type, started_at)"
             " VALUES(?,?,?,?)", ("sti_paused", sid, "paused", now_iso()))

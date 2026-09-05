@@ -177,6 +177,12 @@ def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> di
             "score_live": decision.get("score_live")}
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
     """把一场会话全部题答完（长回答触发 next/finish），返回题目列表。
 
@@ -186,6 +192,7 @@ def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
     完成语义恢复 finish 后继续下一轮 GET。
     """
     questions: list[dict] = []
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     while True:
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
         assert r.status_code == 200, r.text
@@ -432,6 +439,7 @@ def test_in_progress_report_rejected():
     sid = r.json()["session_id"]
 
     # 只答 1 题，不 finish（02-02：GET current_question 取题——零预选后预读必空）
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     q_id = r.json()["current_question"]["question_id"]

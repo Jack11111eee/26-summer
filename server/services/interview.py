@@ -25,6 +25,8 @@ MIN_ANSWER_CHARS = 20  # mock 规则：低于此长度视为需澄清
 # mock 分类器词表（D-23——模块级元组惯例照 _VALID_ACTOR_TYPES）
 _DECLINE_WORDS = ("不方便回答", "不想说", "隐私", "无可奉告", "拒绝回答")
 _EVIDENCE_WORDS = ("项目", "举例", "具体", "结果", "数据", "负责")
+# 注入词表（03-05，D-45/REF-6.4——mock 双轨可离线触发 PROMPT_INJECTION 全链）
+_INJECTION_WORDS = ("忽略上面的指令", "无视之前的指令", "无视以上", "你现在是", "jailbreak", "忽略以上指令")
 
 # 拒答确认话术（§11.4 拒答处理原则——SUPPORT 控制类一次性确认，D-24）
 _CONFIRM_REPLY = "可以不回答这道题吗？跳过后将不再回到该题。"
@@ -128,6 +130,13 @@ def _mock_interview(system_prompt: str, user_prompt: str) -> dict:
         dims = {"relevance": False, "specificity": 0, "attribution": False}
         return {"answer_state": state, "observation": dims,
                 "reply_suggestion": "", "reason": "mock: 拒答关键词",
+                "score_live": None, "score_live_reason": None}
+    # 注入词（03-05，D-45——与 DECLINED 同路径形态；长度判断前拦截，短注入串也命中）
+    if any(w in last_user for w in _INJECTION_WORDS):
+        state = "PROMPT_INJECTION"
+        dims = {"relevance": False, "specificity": 0, "attribution": False}
+        return {"answer_state": state, "observation": dims,
+                "reply_suggestion": "", "reason": "mock: 注入词命中",
                 "score_live": None, "score_live_reason": None}
     if len(last_user) < MIN_ANSWER_CHARS:
         state = "NEED_CLARIFICATION"

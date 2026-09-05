@@ -135,6 +135,12 @@ def _auth_headers(username: str = "m5_candidate") -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
     """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
     with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
@@ -182,6 +188,7 @@ def test_session_state():
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
 
     # 首次 GET 触发首题派发（动态选题）
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -226,6 +233,7 @@ def test_answer_flow_and_scoring():
     _seed_question_bank(pid)
     headers = _auth_headers("m5_flow_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
 
     def _current_q() -> dict | None:
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)

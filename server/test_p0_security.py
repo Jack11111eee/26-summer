@@ -180,8 +180,15 @@ def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> di
             "score_live": decision.get("score_live")}
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _answer_whole_session(sid: str, headers: dict) -> None:
     """把一场会话全部题答完（长回答触发 next/finish），不出现任何 score 直调。"""
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     while True:
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
         assert r.status_code == 200, r.text
@@ -222,6 +229,7 @@ def _seed_in_progress_session(headers: dict) -> str:
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     cur = r.json()["current_question"]
     resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
@@ -325,6 +333,7 @@ def test_owner_main_chain_unaffected():
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
 
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
