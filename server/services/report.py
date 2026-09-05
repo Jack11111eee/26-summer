@@ -191,7 +191,10 @@ def generate_report(session_id: str) -> dict:
         "gate_passed": gate_passed,
         "gate_details": agg["gate_items"],
         "radar_data": radar_data,
-        "item_details": agg["item_scores"],
+        "item_details": [
+            {**it, "score": round(it.get("score") or 0.0, 2)}
+            for it in agg["item_scores"]
+        ],
         "strengths": agg["strengths"],
         "weaknesses": agg["weaknesses"],
         "strengths_text": llm_out.get("strengths_text", ""),

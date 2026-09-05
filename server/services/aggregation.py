@@ -280,7 +280,7 @@ def aggregate_session_scores(session_id: str) -> dict:
                 "required_level": required,
                 "actual_level": round(item_final_level, 2),
                 "gap": round(gap, 2) if gap is not None else None,
-                "weight": weight, "score": round(contribution, 2),
+                "weight": weight, "score": contribution,
                 "gate": False,
                 "no_data": False, "imputed": False, "human_review": human_review,
             })
@@ -333,7 +333,7 @@ def aggregate_session_scores(session_id: str) -> dict:
                 "required_level": required,
                 "actual_level": actual_level,
                 "gap": round(gap, 2) if gap is not None else None,
-                "weight": weight, "score": round(contribution, 2),
+                "weight": weight, "score": contribution,
                 "gate": False,
                 "no_data": False, "imputed": True,
                 "human_review": imputed_ratio > IMPUTE_RATIO_THRESHOLD,
