@@ -92,3 +92,11 @@
 1. 前端人工目验项（05-HUMAN-UAT.md 2 条，视觉/交互）
 2. 缺失原因 `reason` score_state 码未做中文映射（05-05-SUMMARY 遗留）
 
+## secure-phase 记录（§1：无 Critical/高危 → 自动确认归档）
+
+| ID | 日期 | 步骤 | 决定 | 依据 |
+|----|------|------|------|------|
+| [05-019] | 2026-09-05 | secure（gsd-security-auditor） | **SECURED，15/15 威胁闭合**（14 mitigate 已验证 + 1 accept T-05-SC 供应链零新包）。无 Critical/高危 → 自动确认归档 | 05-SECURITY.md |
+
+审计注（非缺口，仅路径指代差异）：plan 接口写 `server/security.py`，实际 `require_admin`/`load_owned_report` 在 `server/core/security.py`；T-05-13 register 写 `state_events.py`，实际 `REVIEW_FEEDBACK_RECEIVED` 由调用方 `assessment.py` 经 `append_event` 同事务写入——均为正确落点，无缓解缺口。
+
