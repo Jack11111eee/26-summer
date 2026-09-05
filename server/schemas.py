@@ -2,7 +2,7 @@
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---- 鉴权（§7.1）----
@@ -94,6 +94,24 @@ class InterviewObservation(BaseModel):
     # score_live 属观察层输出（REF-1.3——LLM 直产 1-5 分仅导航用途）
     score_live: Optional[int] = Field(None, ge=1, le=5)
     score_live_reason: Optional[str] = None
+
+
+# ---- Phase 3 答题请求（SSOT §11.5/D-46——WR-02 strip 语义迁移）----
+class AnswerRequest(BaseModel):
+    question_id: str = Field(min_length=1)
+    answer: str = Field(min_length=1)             # 分钟级；strip 语义见 validator
+    idempotency_key: Optional[str] = None          # D-36 可选——本计划占位（03-03 接幂等链）
+    expected_revision: Optional[int] = None        # D-37 可选——本计划占位（03-03 接乐观锁）
+    client_attempt_id: Optional[str] = None        # 答题付三键——03-03 消费
+
+    @field_validator("answer")
+    @classmethod
+    def _strip_answer_not_blank(cls, v: str) -> str:
+        # WR-02：纯空格串 strip 后判空 422（平移 assessment.py 现行 strip 后判空语义，不落精炼）
+        v = v.strip()
+        if not v:
+            raise ValueError("answer 不能为空")
+        return v
 
 
 # ---- Phase 3 表单提交（SSOT §16.1/D-46）----

@@ -1,12 +1,15 @@
 """测评端 API（P5）：可测评岗位列表 + 测评会话/答题/表单/打分/报告（模块二 M5 + 模块三 M6）。"""
 import json
+import math
+from typing import Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from .. import config as _config
 from ..core.security import load_owned_report, load_owned_session, require_login
 from ..db import get_conn
-from ..schemas import FormSubmitRequest
+from ..schemas import AnswerRequest, FormSubmitRequest
 from ..services.difficulty import update_path_state
 from ..services.forms import (
     _all_gate_items_collected,
@@ -184,7 +187,44 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
     }
 
 
-def _render_form_branch(conn, session_id: str, question_id: str, decision: dict) -> dict:
+def _sse_event(payload: dict) -> str:
+    """单条 SSE 帧：`data: {json}\n\n`（sse.js:69-71 逐字段对齐——
+    只解析 'data: ' 前缀行 + JSON.parse；ensure_ascii=False 保中文原样）。"""
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _event_stream(decision: dict, action: str, question_id: str,
+                  next_question_id: str | None) -> Iterator[str]:
+    """SSE 事件序列（SSOT §11.5/D-33/D-34）：decision → reply×N → done。
+
+    generator 内零 DB 连接（Pitfall 1——threadpool worker 持连接至流结束会
+    database is locked）；「先落库再推流」：本函数只消费局部变量，全部持久化
+    动作在调用方返回 StreamingResponse 前完成。decision dict 一律 .get 防
+    MODEL_UNCERTAIN 降级 dict 缺键面。question_id 仅为调用方快照完整性的
+    形参（帧内不出题号——前端按会话流上下文定位）。
+    """
+    # ① decision（sse.js onDecision 消费 action/reason/score_live + 扩展键透传 D-34）
+    yield _sse_event({"type": "decision",
+                      "action": action, "reason": decision.get("reason"),
+                      "score_live": decision.get("score_live"),
+                      "answer_state": decision.get("answer_state"),
+                      "evidence_sufficient": decision.get("evidence_sufficient"),
+                      "reply": decision.get("reply")})
+    # ② reply 逐块（sse.js onReply 消费 data.content 逐块拼接；mock 4 块假流）
+    reply = decision.get("reply") or ""
+    if _config.LLM_PROVIDER == "mock":
+        size = max(1, math.ceil(len(reply) / 4))
+        chunks = [reply[i:i + size] for i in range(0, len(reply), size)]
+    else:
+        chunks = [reply]  # 真实模式：决策已含完整话术（02-04 reply_suggestion）——单块推送
+    for chunk in chunks:
+        yield _sse_event({"type": "reply", "content": chunk})
+    # ③ done（sse.js onDone 消费 next_question_id + action——finish/form 时 None）
+    yield _sse_event({"type": "done", "action": action,
+                      "next_question_id": next_question_id})
+
+
+def _render_form_branch(conn, session_id: str, question_id: str, decision: dict) -> StreamingResponse:
     """池耗尽且 gate 未采集（D-30）→ 渲染表单 + assistant 消息（📎[form:id] 标记）+ commit。
 
     Chat.vue:159-160 extractFormId 正则 `/📎\[form:([^\]]+)\]/` 逐字对齐；表单无决策推进，
@@ -200,20 +240,23 @@ def _render_form_branch(conn, session_id: str, question_id: str, decision: dict)
         (new_id("msg"), session_id, question_id, "assistant", reply, "form", now_iso()),
     )
     conn.commit()
-    return {"action": "form", "reply": reply,
-            "question_id": question_id, "next_question_id": None,
-            "score_live": decision["score_live"]}
+    # decision 帧 action='form'（sse.js 对 action 无白名单直通）；reply 含 📎[form:id] 标记
+    stream_decision = {**decision, "reply": reply}
+    return StreamingResponse(
+        _event_stream(stream_decision, "form", question_id, None),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/sessions/{session_id}/answer")
-def submit_answer(session_id: str, body: dict, user: dict = Depends(require_login)) -> dict:
-    """提交回答：精炼落库 → interview 决策 → 落 assistant 消息 → 推进题目/会话状态。"""
-    question_id = body.get("question_id")
-    # WR-02：与 submit_feedback 的 .strip() 语义对齐——纯空格串 422，不落入精炼/评分
-    raw_answer = body.get("answer")
-    answer = raw_answer.strip() if isinstance(raw_answer, str) else ""
-    if not question_id or not answer:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 question_id 或 answer")
+def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(require_login)) -> StreamingResponse:
+    """提交回答：精炼落库 → interview 决策 → 落 assistant 消息 → 推进题目/会话状态。
+
+    响应为 SSE 流（decision → reply×N → done——先落库再推流，SSOT §11.5/D-33）。
+    """
+    question_id = body.question_id
+    answer = body.answer  # 已 strip（AnswerRequest validator——WR-02 strip 后判空语义）
     # WR-07：输入长度上限对齐评分侧 MAX_ANSWER_LEN=64*1024（同口径单源）——
     # 超大 payload 直达精炼/LLM 会撑爆上下文且撞 CR-01 降级面，输入侧统一 422
     if len(answer) > MAX_ANSWER_LEN:
@@ -370,9 +413,11 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
             append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                          from_state="in_progress", to_state="completed", actor_type="system")
             conn.commit()
-            return {"action": "finish", "reply": decision["reply"],
-                    "question_id": question_id, "next_question_id": None,
-                    "score_live": decision["score_live"]}
+            return StreamingResponse(
+                _event_stream(decision, "finish", question_id, None),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
         if picked.get("legacy"):
             # legacy 会话（Q5）：旧预选行按 seq 继续派发——走旧查询，不进四层；
             # 旧行为语义保持：决策 next/finish 按原样透出（旧行耗尽时如上提前 return）
@@ -392,9 +437,11 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
                 append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                              from_state="in_progress", to_state="completed", actor_type="system")
                 conn.commit()
-                return {"action": "finish", "reply": decision["reply"],
-                        "question_id": question_id, "next_question_id": None,
-                        "score_live": decision["score_live"]}
+                return StreamingResponse(
+                    _event_stream(decision, "finish", question_id, None),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
             next_question_id = nxt["question_id"]
         else:
             next_question_id = picked["question_id"]
@@ -406,9 +453,11 @@ def submit_answer(session_id: str, body: dict, user: dict = Depends(require_logi
     action = _out_action
     if action == "finish" and next_question_id is not None and not _is_legacy_session:
         action = "next"
-    return {"action": action, "reply": decision["reply"],
-            "question_id": question_id, "next_question_id": next_question_id,
-            "score_live": decision["score_live"]}
+    return StreamingResponse(
+        _event_stream(decision, action, question_id, next_question_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def _stable_evidence_light(conn, session_id: str, question_id: str,
