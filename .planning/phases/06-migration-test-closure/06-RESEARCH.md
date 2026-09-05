@@ -411,19 +411,21 @@ return {**existing, "position_name": row["position_name"], "messages": msgs}
 | A5 | `pytest` should be added to requirements.txt (not a separate CI-only install) | Standard Stack | CI/local drift |
 | A6 | E2E via pytest+TestClient (not standalone script) satisfies "完整 E2E" acceptance | Plan 4 | user may insist on browser automation — D-73 leaves carrier to planner |
 
-## Open Questions
+## Open Questions (ROUTED TO GATE-PACKAGE)
+
+> All three below are routed (not unresolved). Routing: Q1 → 06-05 Task 0 checkpoint (D-76 JWT cookie); Q2 → config.py gate-package placeholders (§31-4/5/6, REF-5.11 threshold, REF-6.3 limits); Q3 → 06-05 Task 0 checkpoint (REF-6.2 secret strictness).
 
 1. **JWT cookie direction (D-76, 关口包)** — migrate to HttpOnly cookie vs keep Bearer?
    - What we know: current = Bearer (security.py:13, auth.py:48, api/index.js:11-18 localStorage). Cookie migration touches `_current_user`, login response, ALL test `_auth_headers`/`_auth` helpers, and the frontend axios interceptor + `sse.js` fetch. SameSite=Lax mitigates CSRF for local demo.
-   - Recommendation: adopt HttpOnly cookie (SSOT direction), but this is a user-confirmed gate; the plan should branch.
+   - Recommendation: adopt HttpOnly cookie (SSOT direction), but this is a user-confirmed gate; the plan should branch. **ROUTED: 06-05 Task 0 checkpoint (D-76).**
 
 2. **Open-param numeric values (§31-4/5/6, REF-5.11 threshold, REF-6.3 limits)** — do not fabricate.
    - What we know: §31-4 dict top-10 match threshold + cleaning wordlist; §31-5 trace retention/desensitization; §31-6 idempotency cleanup threshold; REF-5.11 bad-case |live−final| threshold; REF-6.3 input-limit values.
-   - Recommendation: emit config constants as placeholders with "实施期校准" comments; gate-package for user decision.
+   - Recommendation: emit config constants as placeholders with "实施期校准" comments; gate-package for user decision. **ROUTED: config.py gate-package placeholders (§31-4/5/6, REF-5.11, REF-6.3).**
 
 3. **REF-6.2 secret validation is already stricter than D-77** — `main.py:59-67` fail-closes on ANY default secret (mock or real); D-77 proposes warn-in-mock / fail-in-real.
    - What we know: current code blocks `LLM_PROVIDER=mock` demo without a real secret; tests bypass it (TestClient skips startup, tests call `init_db()` directly).
-   - Recommendation: flag at the gate — either keep fail-closed-always (simplest, safest) or implement D-77's warn-in-mock (requires a real secret for demo). Clarify which.
+   - Recommendation: flag at the gate — either keep fail-closed-always (simplest, safest) or implement D-77's warn-in-mock (requires a real secret for demo). Clarify which. **ROUTED: 06-05 Task 0 checkpoint (REF-6.2 secret strictness).**
 
 ## Environment Availability
 

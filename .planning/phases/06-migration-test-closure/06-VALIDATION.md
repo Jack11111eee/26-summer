@@ -1,8 +1,8 @@
 ---
 phase: 6
 slug: migration-test-closure
-status: draft
-nyquist_compliant: false
+status: ready
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-09-05
 ---
@@ -39,11 +39,11 @@ created: 2026-09-05
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 06-01 | 01 | 1 | REF-2.11 | T-06-01 / — | registry replay parity + idempotency + legacy-DB migration | unit/integration | `python -m pytest server/test_migration.py -q` | ❌ W0 | ⬜ pending |
-| 06-02 | 02 | 1 | REF-7.4 | T-06-02 / — | full collection green (no fixture errors) | collection | `python -m pytest server/ -q` | ❌ (3 errors today) | ⬜ pending |
-| 06-03 | 03 | 2 | REF-7.5 / REF-8.6 | T-06-03 / — | M1 eight-item regression locks + mock-fixed-3 documented | unit | `python -m pytest server/test_m1_regression.py -q` | ❌ W0 | ⬜ pending |
+| 06-02 | 02 | 2 | REF-7.4 | T-06-02 / — | full collection green (no fixture errors) | collection | `python -m pytest server/ -q` | ❌ (3 errors today) | ⬜ pending |
+| 06-03 | 03 | 3 | REF-7.5 / REF-8.6 | T-06-03 / — | M1 eight-item regression locks + mock-fixed-3 documented | unit | `python -m pytest server/test_m1_regression.py -q` | ❌ W0 | ⬜ pending |
 | 06-04 | 04 | 2 | REF-7.6 | T-06-04 / — | candidate full-chain E2E + refresh/retry/timeout/authz | integration | `python -m pytest server/test_e2e_full_chain.py -q` | ❌ W0 | ⬜ pending |
-| 06-05 | 05 | 3 | REF-5.11 / REF-8.8 | T-06-05 / — | bad-case candidate never auto-scores; eval uses temp DB | unit/integration | `python -m pytest server/test_bad_case.py server/test_eval_isolation.py -q` | ❌ W0 | ⬜ pending |
-| 06-05 | 05 | 3 | REF-6.2 / REF-6.3 | T-06-05 / — | startup secret validation; per-type input limits | unit | `python -m pytest server/test_secret_gate.py server/test_input_limits.py -q` | ❌ W0 | ⬜ pending |
+| 06-05 | 05 | 2 | REF-5.11 / REF-8.8 | T-06-05 / — | bad-case candidate never auto-scores; eval uses temp DB | unit/integration | `python -m pytest server/test_bad_case.py server/test_eval_isolation.py -q` | ❌ W0 | ⬜ pending |
+| 06-05 | 05 | 2 | REF-6.2 / REF-6.3 | T-06-05 / — | startup secret validation; per-type input limits | unit | `python -m pytest server/test_secret_gate.py server/test_input_limits.py -q` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

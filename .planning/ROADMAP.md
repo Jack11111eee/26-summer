@@ -218,7 +218,7 @@ Plans:
 - [ ] 06-04-PLAN.md — 候选人端完整 E2E（主链 + 刷新/断线/越权/超时）+ 前端契约修复（submit-v2/missing_reasons 映射/报告重试）
 - [ ] 06-05-PLAN.md — eval 隔离 + b/c 评测契约 + bad case 双分背离候选 + 输入限额/secret 校验/JWT 方向等安全收尾
 
-**Wave 3** *(blocked on 06-01 + 06-02)*
+**Wave 3** *(blocked on 06-01 + 06-02 + 06-05)*
 
 - [ ] 06-03-PLAN.md — M1 回归清单（模块一八项）+ mock interviewer 评分恒 3 分记档 + 13 文件 model_id/model_version 补齐
 
