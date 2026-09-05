@@ -511,6 +511,12 @@ def test_phase_column_defaults():
     # 旧行回填：直插 status 合法值 + phase NULL → 重跑 init_db → 回填 PENDING_START（migration 幂等）
     conn = get_conn()
     try:
+        # FK ON 语境：先插合法 user 父行，再插 assessment_session（无父行必 FK 违反假红——W4）
+        conn.execute(
+            "INSERT INTO user(user_id, username, password_hash, role, is_active, created_at)"
+            " VALUES('u_x', 'timer_phase_old', 'x', 'candidate', 1, ?)",
+            (now_iso(),),
+        )
         conn.execute(
             "INSERT INTO assessment_session(session_id, user_id, position_id, model_id, model_version,"
             " status, started_at, created_at) VALUES('sess_old', 'u_x', ?, ?, 1, 'completed', ?, ?)",

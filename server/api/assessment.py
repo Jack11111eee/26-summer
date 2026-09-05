@@ -26,6 +26,13 @@ from ..services.refine import refine_user_input
 from ..services.report import generate_report
 from ..services.scoring import MAX_ANSWER_LEN, score_session
 from ..services.state_events import append_event
+from ..services.timer import (
+    advance_interval,
+    maybe_abandon_session,
+    seal_if_question_timed_out,
+    session_active_seconds,
+    touch_last_activity,
+)
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
 
@@ -111,11 +118,12 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
 
     session_id = new_id("sess")
     now = now_iso()
+    # phase 显式初始化 PENDING_START（03-04 状态机双轨——status 存量语义不动，Anti-pattern 4）
     conn.execute(
         "INSERT INTO assessment_session(session_id, user_id, position_id, model_id,"
-        " model_version, status, started_at, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        " model_version, status, started_at, created_at, phase) VALUES(?,?,?,?,?,?,?,?,?)",
         (session_id, user["user_id"], position_id, model["model_id"], model["version"],
-         "in_progress", now, now),
+         "in_progress", now, now, "PENDING_START"),
     )
     # 动态选题（02-02，SC-1）：创建时不预选——每次 action=next 由
     # select_next_question 即时选题实例化；此处只落会话 + SESSION_CREATED 事件
@@ -124,8 +132,9 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
                  from_state=None, to_state="in_progress",
                  actor_type="candidate", actor_id=user["user_id"])
     conn.commit()
+    # estimated_duration_minutes 由 SESSION_TOTAL_MINUTES 派生（IN-06 魔数 20 退役——A5 前端无消费）
     return {"session_id": session_id,
-            "estimated_duration_minutes": 20}
+            "estimated_duration_minutes": _config.SESSION_TOTAL_MINUTES}
 
 
 @router.get("/sessions/{session_id}")
@@ -281,6 +290,8 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
 
     conn = get_conn()
     s = load_owned_session(conn, session_id, user)
+    # (1) 6h 惰性 ABANDONED 判定（03-04 A4 时序——load 后、判 status 前；D-42 无后台线程）
+    maybe_abandon_session(conn, s)
     # 幂等前置（D-36 可选——无 key 零路径；A4 时序：幂等最先，先于单题超时点检 03-04 后插）：
     # 命中 COMMITTED 且 hash 一致 → 200 JSON 快照直返（不进 SSE 链）；异 hash/PENDING 由
     # check_idempotency 内 409 抛出（endpoint 层不重复判）
@@ -294,10 +305,21 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
         if snap is not None:
             return JSONResponse(content=snap, status_code=200)
     if s["status"] != "in_progress":
+        # write-then-raise（maybe_abandon 的 UPDATE 未 commit——先落再抛持久化 abandoned）
+        conn.commit()
         # WR-01：409 detail 统一为 {error_code, message} 结构（与 readiness 三态一致）
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": "SESSION_NOT_IN_PROGRESS",
                                     "message": f"会话已结束（{s['status']}）"})
+    # (2) 暂停护栏（03-04 A4 时序——暂停窗口内所有写操作被拒）：open paused 区间存在 → 409
+    if conn.execute(
+        "SELECT 1 FROM session_time_intervals"
+        " WHERE session_id=? AND interval_type='paused' AND ended_at IS NULL",
+        (session_id,),
+    ).fetchone() is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_PAUSED",
+                                    "message": "会话已暂停，请先恢复"})
     q = conn.execute(
         "SELECT question_id, answered_at FROM assessment_question WHERE question_id=? AND session_id=?",
         (question_id, session_id),
@@ -309,6 +331,85 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": "QUESTION_ALREADY_ANSWERED",
                                     "message": "该题已作答"})
+
+    # (3)/(5) 单题超时点检 → 全场超时点检（03-04 A4 时序——消息 INSERT 前）
+    if seal_if_question_timed_out(conn, session_id, question_id, user["user_id"]):
+        # 本请求不决策不写消息，转「选下一题」路径（timer 内已落 QUESTION_SEALED + QUESTION_TIMEOUT）
+        conn.commit()  # 持久化 timeout 封存（closed_at+seal_reason，answered_at 保持 NULL）
+        timeout_decision = {
+            "action": "next",
+            "reason": "本题超时封存",
+            "reply": "本题已超时，进入下一题",
+            "score_live": None,
+            "answer_state": "QUESTION_TIMEOUT",
+            "evidence_sufficient": False,
+        }
+        picked = select_next_question(session_id)
+        if picked is None:
+            # 池耗尽 → 先判 gate（03-01 gate 分支不动）→ form 或 finish
+            if not _all_gate_items_collected(conn, session_id):
+                return _render_form_branch(conn, session_id, question_id, timeout_decision)
+            conn.execute(
+                "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+                (now_iso(), session_id),
+            )
+            append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                         from_state="in_progress", to_state="completed", actor_type="system")
+            conn.commit()
+            if body.idempotency_key:
+                finalize_idempotency(session_id=session_id, endpoint="answer",
+                                     key=body.idempotency_key,
+                                     snapshot=_answer_snapshot("finish", timeout_decision, question_id, None))
+            return StreamingResponse(
+                _event_stream(timeout_decision, "finish", question_id, None),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        next_qid = picked["question_id"]
+        if body.idempotency_key:
+            finalize_idempotency(session_id=session_id, endpoint="answer",
+                                 key=body.idempotency_key,
+                                 snapshot=_answer_snapshot("next", timeout_decision, question_id, next_qid))
+        return StreamingResponse(
+            _event_stream(timeout_decision, "next", question_id, next_qid),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    # (5) 全场超时点检（Σactive > SESSION_TOTAL_MINUTES → 收尾；Pitfall 11 先因后果）
+    if session_active_seconds(conn, session_id) > _config.SESSION_TOTAL_MINUTES * 60:
+        # GLOBAL_TIMEOUT 独立小事务先落（Pitfall 11——sequence_no 顺序断言 GLOBAL_TIMEOUT 最先）
+        append_event(conn, session_id=session_id, event_type="SESSION_GLOBAL_TIMEOUT",
+                     from_state="ACTIVE", to_state="SCORING", actor_type="system")
+        conn.execute("UPDATE assessment_session SET phase='SCORING' WHERE session_id=?", (session_id,))
+        conn.commit()
+        # 串行链（同步——D-005 单进程演示；_generate_report_task 纯函数入口，其内部
+        # ENTERED_SCORING 事件自然靠后）
+        _generate_report_task(session_id)
+        # 正常收尾口径（phase 承载 SCORING 态，status 枚举无 SCORING——Anti-pattern 4）
+        conn.execute(
+            "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+            (now_iso(), session_id),
+        )
+        append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                     from_state="in_progress", to_state="completed", actor_type="system")
+        conn.commit()
+        finish_decision = {
+            "action": "finish",
+            "reason": "全场超时收尾",
+            "reply": "全场时间已到，测评收尾",
+            "score_live": None,
+            "answer_state": "QUESTION_TIMEOUT",
+            "evidence_sufficient": False,
+        }
+        if body.idempotency_key:
+            finalize_idempotency(session_id=session_id, endpoint="answer",
+                                 key=body.idempotency_key,
+                                 snapshot=_answer_snapshot("finish", finish_decision, question_id, None))
+        return StreamingResponse(
+            _event_stream(finish_decision, "finish", question_id, None),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     now = now_iso()
     # 乐观锁（D-37 可选——带 expected_revision 才走，无 key 零行为变化 A/B 兼容）：
@@ -327,12 +428,19 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
             raise HTTPException(status.HTTP_409_CONFLICT,
                                 detail={"error_code": "QUESTION_REVISION_CONFLICT",
                                         "message": f"题目版本冲突（expected={body.expected_revision}）"})
-    # 1. 用户消息（长输入走精炼，原文哈希归档）
+    # 1. 用户消息（长输入走精炼，原文哈希归档；分列三列 D-43：refined=content 同值、
+    # client_request_id=body 键、sequence_no=本会话消息序）
     refined, raw_hash = refine_user_input(answer)
+    user_seq = conn.execute(
+        "SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM assessment_message WHERE session_id=?",
+        (session_id,),
+    ).fetchone()[0]
     conn.execute(
-        "INSERT INTO assessment_message(message_id, session_id, question_id, role, content, raw_hash, created_at)"
-        " VALUES(?,?,?,?,?,?,?)",
-        (new_id("msg"), session_id, question_id, "user", refined, raw_hash, now),
+        "INSERT INTO assessment_message(message_id, session_id, question_id, role, content, raw_hash,"
+        " refined_content, client_request_id, sequence_no, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (new_id("msg"), session_id, question_id, "user", refined, raw_hash,
+         refined, body.client_attempt_id, user_seq, now),
     )
     # 首条用户消息视为开问标记
     conn.execute(
@@ -350,14 +458,18 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
     _refused = bool(decision.get("refused"))
     _out_action = "next" if _refused else decision["action"]
 
-    # 3. assistant 消息落库（action/reason/score_live 先于展示，可审计）
+    # 3. assistant 消息落库（action/reason/score_live 先于展示，可审计；sequence_no 同步补——D-43）
+    assistant_seq = conn.execute(
+        "SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM assessment_message WHERE session_id=?",
+        (session_id,),
+    ).fetchone()[0]
     conn.execute(
         "INSERT INTO assessment_message(message_id, session_id, question_id, role, content,"
-        " action, reason, score_live, score_live_reason, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        " action, reason, score_live, score_live_reason, sequence_no, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         (new_id("msg"), session_id, question_id, "assistant", decision["reply"],
          _out_action, decision["reason"], decision["score_live"],
-         decision["score_live_reason"], now_iso()),
+         decision["score_live_reason"], assistant_seq, now_iso()),
     )
 
     # 观察留痕（§13.2 最小集——T-02-18）：每次决策后落 OBSERVATION_CLASSIFIED
@@ -433,8 +545,14 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
     if _out_action == "followup" or decision["action"] == "confirm":
         # followup：实例内子轮次，不推进实例状态（followup_count 已自增）
         # confirm：拒答首次确认（D-24 控制类一次性确认话术），同样不推进实例状态
+        # (4) 计时采样（D-39/D-42）：闭旧开新 + 刷新 last_activity（主事务内）
+        advance_interval(conn, session_id, "active")
+        touch_last_activity(conn, session_id)
         conn.commit()
     else:
+        # (4) 计时采样（D-39/D-42）：闭旧开新 + 刷新 last_activity（主事务内）
+        advance_interval(conn, session_id, "active")
+        touch_last_activity(conn, session_id)
         # 先提交本事务再选题（Anti-pattern 1 / 单写者纪律：select_next_question
         # 自取连接自持事务，llm_trace 已在 :192 commit 后写库，此处 commit 保证
         # 决策与选出实例分属两个事务，无锁冲突）
@@ -698,6 +816,9 @@ def submit_form_v2(session_id: str, body: FormSubmitRequest,
         # ④⑤⑥ 422 三态 error_code
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail={"error_code": code, "field": result["field"]})
+    # (8) 计时采样：表单提交也是写操作（D-39/D-42——闭旧开新 + 刷新 last_activity）
+    advance_interval(conn, session_id, "active")
+    touch_last_activity(conn, session_id)
     conn.commit()
 
     base = {"form_instance_id": body.form_instance_id, "status": result["status"],
