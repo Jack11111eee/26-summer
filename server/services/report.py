@@ -138,6 +138,11 @@ def generate_report(session_id: str) -> dict:
         "weaknesses_text": llm_out.get("weaknesses_text", ""),
         "suggestions_text": llm_out.get("suggestions_text", ""),
         "question_reviews": question_reviews,
+        # Phase 5 聚合契约字段透传（状态机落库属 05-03，本计划只透传不写 report_status 列）
+        "review_status": agg.get("review_status"),
+        "observation_status": agg.get("observation_status"),
+        "provisional": agg.get("provisional", False),
+        "coverage": agg.get("coverage", {}),
         "created_at": now_iso(),
     }
 

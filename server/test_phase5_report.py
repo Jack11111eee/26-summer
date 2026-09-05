@@ -71,7 +71,7 @@ def _seed_session(items: list[dict]) -> tuple[str, list[str]]:
     conn.execute(
         "INSERT INTO user(user_id, username, password_hash, role, is_active, created_at)"
         " VALUES(?,?,?,?,1,?)",
-        (uid, "cand_report", "hash", "candidate", now),
+        (uid, uid, "hash", "candidate", now),
     )
     session_id = new_id("as")
     conn.execute(

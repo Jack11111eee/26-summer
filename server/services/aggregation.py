@@ -1,14 +1,18 @@
-"""会话级分数聚合（07 文档 §10.2 阶段② + SSOT §12.4 分母规则，代码执行可审计）。
+"""会话级分数聚合（07 文档 §10.2 阶段② + SSOT §12.4/§19/§20 分母规则，代码执行可审计）。
 
-item 得分 = 该项各题 score_final 均分（仅 SCORED 行进能力分母）；gap = required − actual；
-总分 = Σ(item.weight × actual/5) × 100（U3 复用 item.weight，不二次乘）；
+item 最终等级由 item_measurement 统一裁决（adjudicate，§19）：普通题先转统一测量
+记录，adjudicate 产出 item_final_level（不按来源加权、不按题数重复乘 item.weight，
+重大冲突取低留人工标记），替换按题数均分。缺失普通 item 走 r 比例补算 IMPUTED
+（§20.1）；required 缺失 → PROVISIONAL + HUMAN_REVIEW_REQUIRED（§20.2）；
+O=∅ → NO_VALID_OBSERVATION。总分 = Σ(item.weight × normalized_item_score) × 100，
+normalized_item_score = (actual_level−1)/4（§20.3，统一 observed/imputed 同尺度）；
 gate 项代码二值判定（达标拿满 / 不达标 0），不进 1~5 级评分。
 
 score_state 分母规则（02-05，Pitfall 7）：
 - SCORED → 进正常观察（能力等级分母）；
 - REFUSED → 不进能力分母，只进行为/完整度聚合（refusals 单列列表）；
 - INVALIDATED/INCOMPLETE/INSUFFICIENT_EVIDENCE/NOT_ADMINISTERED → 排除 +
-  missing_warnings 警告列表（不隐式转 0，不静默——前向兼容 Phase 5 生产态）。
+  missing_warnings 警告列表（不隐式转 0，不静默）。
 """
 import json
 
@@ -48,12 +52,48 @@ def adjudicate(measurements: list[dict]) -> tuple[float | None, bool]:
     return round(sum(levels) / len(levels), 2), False
 
 
+def _impute_r(observed: list[dict]) -> float | None:
+    """观察集合 O 的加权归一化均值 r（§20.1）。
+
+    observed: [{weight, score}]；r = Σ w_i·s_i / Σ w_i（s_i=_normalize_score）。
+    O=∅ 或 den=0 → None（不能补算，调用方标 NO_VALID_OBSERVATION）。
+    """
+    if not observed:
+        return None
+    num = sum(o["weight"] * _normalize_score(o["score"], NORMALIZE_IMPUTED) for o in observed)
+    den = sum(o["weight"] for o in observed)
+    if den == 0:
+        return None
+    return num / den
+
+
+def _observed_items(measurements: list[dict], model_items: dict) -> list[dict]:
+    """question-level item_measurement 归约为 per-item {item_id, weight, score}。
+
+    weight 来源 = model_items[item_id].weight（D-59 r 公式 w_i）；score = adjudicate 后
+    item_final_level；仅含已裁决（level 非 None）item。
+    """
+    grouped: dict[str, list[dict]] = {}
+    for m in measurements:
+        grouped.setdefault(m["item_id"], []).append(m)
+    out: list[dict] = []
+    for item_id, ms in grouped.items():
+        level, _ = adjudicate(ms)
+        if level is not None:
+            out.append({
+                "item_id": item_id,
+                "weight": (model_items.get(item_id) or {}).get("weight") or 0.0,
+                "score": level,
+            })
+    return out
+
+
 def _load_model_items(session_id: str) -> dict[str, dict]:
-    """item_id → {std_name, category, required_level, weight, gate, years}"""
+    """item_id → {std_name, category, required_level, importance, weight, gate, years}"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT ci.item_id, ci.std_name, ci.category, ci.required_level, ci.weight,"
-        " ci.gate, ci.years"
+        "SELECT ci.item_id, ci.std_name, ci.category, ci.required_level, ci.importance,"
+        " ci.weight, ci.gate, ci.years"
         " FROM competency_item ci"
         " JOIN assessment_session s ON s.model_id=ci.model_id"
         " WHERE s.session_id=?",
@@ -123,28 +163,39 @@ def _gate_check(item: dict, form_payload: dict) -> tuple[bool, str]:
 def aggregate_session_scores(session_id: str) -> dict:
     """聚合 question_score → item_scores + total_score + gate_items + strengths/weaknesses。
 
-    score_state 三路分流（§12.4）：SCORED 进分母；REFUSED 进 refusals 列表；
+    score_state 三路分流（§12.4）：SCORED 收成 item_measurement 统一测量记录后由
+    adjudicate 裁决 item_final_level（§19，废弃按题数均分）；REFUSED 进 refusals 列表；
     排除态（INVALIDATED/INCOMPLETE/INSUFFICIENT_EVIDENCE/NOT_ADMINISTERED）进
     missing_warnings 警告列表。
+
+    缺失项（§20）：required 缺失 → PROVISIONAL + HUMAN_REVIEW_REQUIRED；qualification
+    缺失不补算仅记警告；普通（preferred/plus）缺失 → IMPUTED r 比例补算；O=∅ →
+    NO_VALID_OBSERVATION + HUMAN_REVIEW_REQUIRED。总分 = Σ(item.weight × (actual_level−1)/4) × 100。
     """
     conn = get_conn()
     model_items = _load_model_items(session_id)
     form_payload = _load_form_payload(session_id)
 
-    # 按 item 分组收 score_final（score_state 过滤在循环内分流——三路）
+    # 三路分流收成 item_measurement 内存记录（SCORED → ordinary 测量）
     rows = conn.execute(
         "SELECT qs.item_id, qs.score_final, qs.score_state, qs.question_id"
         " FROM question_score qs WHERE qs.session_id=?",
         (session_id,),
     ).fetchall()
-    item_scores_map: dict[str, list[int]] = {}
+    measurements: list[dict] = []
     refusals: list[dict] = []
     missing_warnings: list[dict] = []
     _EXCLUDED_STATES = ("INVALIDATED", "INCOMPLETE", "INSUFFICIENT_EVIDENCE", "NOT_ADMINISTERED")
     for r in rows:
         std_name = (model_items.get(r["item_id"]) or {}).get("std_name")
         if r["score_state"] == "SCORED":
-            item_scores_map.setdefault(r["item_id"], []).append(r["score_final"])
+            measurements.append({
+                "question_id": r["question_id"],
+                "item_id": r["item_id"],
+                "observed_level": r["score_final"],
+                "evidence_refs": [],
+                "measurement_source": "ordinary",
+            })
         elif r["score_state"] == "REFUSED":
             # 不进能力分母，只进行为/完整度聚合（refusals 单列——§18/§12.4）
             refusals.append({
@@ -157,12 +208,32 @@ def aggregate_session_scores(session_id: str) -> dict:
                 "item_id": r["item_id"], "std_name": std_name,
                 "reason": r["score_state"],
             })
-        # 其余枚举值（Phase 5 生产态 IMPUTED 等）不在 Phase 2 过滤名单——
-        # 过度过滤会与 Phase 5 冲突（plan <interfaces> 注记）
+
+    # question-level → per-item 已裁决 observed 列表（r 公式输入，D-59）
+    observed_items = _observed_items(measurements, model_items)
+
+    # 覆盖率（§20.1 展示）：可测量普通 item = 非 gate、非 required、非 qualification
+    measurable_item_ids = [
+        iid for iid, it in model_items.items()
+        if not it.get("gate")
+        and it.get("importance") != "required"
+        and it.get("category") != "qualification"
+    ]
+    total_measureable = len(measurable_item_ids)
+    observed_count = len(observed_items)
+    coverage_ratio = observed_count / total_measureable if total_measureable else 0.0
+
+    measurements_by_item: dict[str, list[dict]] = {}
+    for m in measurements:
+        measurements_by_item.setdefault(m["item_id"], []).append(m)
 
     item_scores: list[dict] = []
     gate_items: list[dict] = []
     total_score = 0.0
+    imputed_count = 0
+    provisional = False
+    review_status = None
+    observation_status = None
 
     for item_id, item in model_items.items():
         weight = item.get("weight") or 0.0
@@ -190,33 +261,92 @@ def aggregate_session_scores(session_id: str) -> dict:
             total_score += contribution
             continue
 
-        finals = item_scores_map.get(item_id, [])
-        if not finals:
-            # 未出题/未作答项：不计分，不贡献总分
+        item_measurements = measurements_by_item.get(item_id, [])
+        required = item.get("required_level")
+
+        if item_measurements:
+            # 有测量 → adjudicate 裁决（冲突取低留人工标记）
+            item_final_level, human_review = adjudicate(item_measurements)
+            gap = (required - item_final_level) if required is not None else None
+            contribution = weight * _normalize_score(item_final_level, NORMALIZE_OBSERVED) * 100.0
             item_scores.append({
                 "item_id": item_id, "std_name": item["std_name"],
                 "category": item["category"],
-                "required_level": item.get("required_level"),
+                "required_level": required,
+                "actual_level": round(item_final_level, 2),
+                "gap": round(gap, 2) if gap is not None else None,
+                "weight": weight, "score": round(contribution, 2),
+                "gate": False,
+                "no_data": False, "imputed": False, "human_review": human_review,
+            })
+            total_score += contribution
+            continue
+
+        # 无 SCORED 测量：按 importance/category 分流
+        if item.get("importance") == "required":
+            # required 缺失 → PROVISIONAL + HUMAN_REVIEW_REQUIRED（不触发补测）
+            provisional = True
+            review_status = "HUMAN_REVIEW_REQUIRED"
+            item_scores.append({
+                "item_id": item_id, "std_name": item["std_name"],
+                "category": item["category"],
+                "required_level": required,
                 "actual_level": None, "gap": None,
                 "weight": weight, "score": 0.0,
-                "gate": False, "no_data": True,
+                "gate": False, "no_data": True, "imputed": False,
+                "provisional": True,
             })
             continue
 
-        actual = sum(finals) / len(finals)
-        required = item.get("required_level")
-        gap = (required - actual) if required is not None else None
-        contribution = weight * (actual / 5.0) * 100.0
+        if item.get("category") == "qualification":
+            # qualification 不补算、不标 PROVISIONAL，仅记缺失警告（§20.1）
+            missing_warnings.append({
+                "item_id": item_id, "std_name": item["std_name"],
+                "reason": "qualification 缺失（不补算）",
+            })
+            item_scores.append({
+                "item_id": item_id, "std_name": item["std_name"],
+                "category": item["category"],
+                "required_level": required,
+                "actual_level": None, "gap": None,
+                "weight": weight, "score": 0.0,
+                "gate": False, "no_data": True, "imputed": False,
+            })
+            continue
+
+        # 普通（preferred/plus）缺失 → IMPUTED r 比例补算
+        r = _impute_r(observed_items)
+        if r is not None:
+            actual_level = round(r * 4 + 1, 2)
+            gap = (required - actual_level) if required is not None else None
+            contribution = weight * _normalize_score(actual_level, NORMALIZE_OBSERVED) * 100.0
+            imputed_count += 1
+            item_scores.append({
+                "item_id": item_id, "std_name": item["std_name"],
+                "category": item["category"],
+                "required_level": required,
+                "actual_level": actual_level,
+                "gap": round(gap, 2) if gap is not None else None,
+                "weight": weight, "score": round(contribution, 2),
+                "gate": False,
+                "no_data": False, "imputed": True,
+                "human_review": coverage_ratio > IMPUTE_RATIO_THRESHOLD,
+            })
+            total_score += contribution
+            continue
+
+        # O=∅ → 不能补算 → NO_VALID_OBSERVATION + HUMAN_REVIEW_REQUIRED
+        observation_status = "NO_VALID_OBSERVATION"
+        review_status = "HUMAN_REVIEW_REQUIRED"
         item_scores.append({
             "item_id": item_id, "std_name": item["std_name"],
             "category": item["category"],
             "required_level": required,
-            "actual_level": round(actual, 2),
-            "gap": round(gap, 2) if gap is not None else None,
-            "weight": weight, "score": round(contribution, 2),
-            "gate": False,
+            "actual_level": None, "gap": None,
+            "weight": weight, "score": 0.0,
+            "gate": False, "no_data": True, "imputed": False,
+            "observation_status": "NO_VALID_OBSERVATION",
         })
-        total_score += contribution
 
     # 优势 = gap≥0 中权重最大前 3；短板 = gap<0 中 |gap|×weight 最大前 3
     non_gate = [it for it in item_scores if not it.get("gate") and it.get("gap") is not None]
@@ -229,6 +359,14 @@ def aggregate_session_scores(session_id: str) -> dict:
         key=lambda x: (-abs(x["gap"] * x["weight"]), x["item_id"]),
     )[:3]
 
+    coverage = {
+        "observed_count": observed_count,
+        "imputed_count": imputed_count,
+        "total_measureable": total_measureable,
+        "coverage_ratio": round(coverage_ratio, 4),
+        "missing_reasons": missing_warnings,
+    }
+
     return {
         "session_id": session_id,
         "total_score": round(total_score, 2),
@@ -236,6 +374,10 @@ def aggregate_session_scores(session_id: str) -> dict:
         "gate_items": gate_items,
         "refusals": refusals,
         "missing_warnings": missing_warnings,
+        "coverage": coverage,
+        "review_status": review_status,
+        "observation_status": observation_status,
+        "provisional": provisional,
         "strengths": [
             {"item_id": s["item_id"], "std_name": s["std_name"],
              "weight": s["weight"], "gap": s["gap"]}
