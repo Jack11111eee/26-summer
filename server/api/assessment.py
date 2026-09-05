@@ -263,6 +263,12 @@ def pause_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": "SESSION_ALREADY_PAUSED",
                                     "message": "会话已暂停"})
+    # phase 门（WR-06）：PENDING_START 会话未经 start 不得暂停——绕过入场确认会
+    # 跳过 SESSION_STARTED 事件与 PENDING_START→ACTIVE 迁移
+    if s.get("phase") != "ACTIVE":
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_ACTIVE",
+                                    "message": "会话尚未开始，不可暂停"})
     # 闭合当前 active → 开 paused 区间 + phase='PAUSED' + 双事件同事务
     close_open_interval(conn, session_id)
     open_interval(conn, session_id, "paused", reason="candidate_request")
@@ -290,6 +296,12 @@ def resume_session(session_id: str, user: dict = Depends(require_login)) -> dict
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": "SESSION_NOT_IN_PROGRESS",
                                     "message": f"会话已结束（{s['status']}）"})
+    # phase 门（WR-06）：仅在 PAUSED 态允许 resume——防止 PENDING_START 会话被
+    # pause-resume 直接升到 ACTIVE 而绕过 SESSION_STARTED 事件
+    if s.get("phase") != "PAUSED":
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "SESSION_NOT_PAUSED",
+                                    "message": "会话未暂停"})
     # 无 open paused 区间 → 409 SESSION_NOT_PAUSED
     if conn.execute(
         "SELECT 1 FROM session_time_intervals"

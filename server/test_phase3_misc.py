@@ -336,6 +336,30 @@ def test_resume_guard():
     assert r.json()["detail"]["error_code"] == "SESSION_ALREADY_PAUSED", r.text
 
 
+def test_pending_start_cannot_pause_resume():
+    """PENDING_START 会话（未 start）pause/resume 均 409（WR-06 phase 门）——
+    不得绕过 SESSION_STARTED 事件与 PENDING_START→ACTIVE 迁移。"""
+    pid, _mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid)
+    headers = _auth_headers("misc_pending_pause")
+    sid = client.post("/api/assessment/sessions", json={"position_id": pid},
+                      headers=headers).json()["session_id"]
+    assert _q("SELECT phase FROM assessment_session WHERE session_id=?", (sid,))[0]["phase"] == "PENDING_START"
+
+    r = client.post(f"/api/assessment/sessions/{sid}/pause", headers=headers)
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["error_code"] == "SESSION_NOT_ACTIVE", r.text
+
+    r = client.post(f"/api/assessment/sessions/{sid}/resume", headers=headers)
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["error_code"] == "SESSION_NOT_PAUSED", r.text
+
+    # 未被误迁移：phase 仍 PENDING_START，无 SESSION_STARTED 事件，无 paused 区间
+    assert _q("SELECT phase FROM assessment_session WHERE session_id=?", (sid,))[0]["phase"] == "PENDING_START"
+    assert not _q("SELECT 1 FROM assessment_state_event WHERE session_id=? AND event_type='SESSION_STARTED'", (sid,))
+    assert not _q("SELECT 1 FROM session_time_intervals WHERE session_id=? AND interval_type='paused'", (sid,))
+
+
 # ---------- INJECTION_DETECTED ----------
 
 def test_injection_event_whitelist():
