@@ -394,9 +394,10 @@ def test_publish_flow():
     r = client.post(f"/api/admin/reports/{report_id}/publish", headers=_admin_headers(),
                     json={"review_outcome": "CONFIRMED"})
     assert r.status_code == 200, r.text
-    row = _q("SELECT report_status, publish_confirmed_by, published_at FROM report WHERE report_id=?",
-             (report_id,))[0]
+    row = _q("SELECT report_status, review_status, publish_confirmed_by, published_at"
+             " FROM report WHERE report_id=?", (report_id,))[0]
     assert row["report_status"] == "PUBLISHED"
+    assert row["review_status"] == "CONFIRMED"
     assert row["publish_confirmed_by"] and row["published_at"]
     events = _q("SELECT event_type, to_state, actor_type FROM assessment_state_event"
                 " WHERE event_type='REVIEW_REPORT_PUBLISH_CONFIRMED'")

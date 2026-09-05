@@ -42,10 +42,12 @@ def publish_report(report_id: str, body: _PublishBody, admin: dict = Depends(req
         raise HTTPException(status.HTTP_409_CONFLICT, "需先完成人工复核")
 
     now = now_iso()
+    review_status = "CONFIRMED" if body.review_outcome == "CONFIRMED" else row["review_status"]
     conn.execute(
-        "UPDATE report SET report_status='PUBLISHED', publish_confirmed_by=?, published_at=?,"
-        " review_outcome=?, review_note=?, reviewer_id=?, reviewed_at=? WHERE report_id=?",
-        (admin["user_id"], now, body.review_outcome, body.review_note,
+        "UPDATE report SET report_status='PUBLISHED', review_status=?, publish_confirmed_by=?,"
+        " published_at=?, review_outcome=?, review_note=?, reviewer_id=?, reviewed_at=?"
+        " WHERE report_id=?",
+        (review_status, admin["user_id"], now, body.review_outcome, body.review_note,
          admin["user_id"], now, report_id),
     )
     append_event(conn, session_id=row["session_id"], event_type="REVIEW_REPORT_PUBLISH_CONFIRMED",
