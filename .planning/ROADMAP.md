@@ -145,12 +145,17 @@ Plans:
   3. 管理员访问 /jds/orphan 返回孤儿 JD 列表（当前被 /jds/{jd_id} 参数路由捕获恒 404 的缺陷修复）
   4. 管理员编辑模型提交 NaN 权重/越界类别/重复 std_name 被服务端拒绝并返回明确错误（保留 Σ=100% 校验）
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 
-- [ ] 04-01: question_bank 绑定 model/version + 升版重建/阻止开考联动 + 生成失败可见（状态+管理员待办）
-- [ ] 04-02: /jds/orphan 路由顺序修复 + 模型编辑字段级校验（NaN/范围/类别/重复）
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — question_bank 绑定 model/version（落库填充 model_id/model_version/item_id/rubric_version="v1" + 4 处判重键升级）+ 消费侧收紧（readiness 三处 + selection 一处 WHERE 加 model_id+model_version）+ 生成失败可见（FAILED 分支 + get_todos 的 question_bank_failed 明细）—— REF-2.5/3.4/8.4
+
+**Wave 2** *(blocked on 04-01——positions.py 共享文件冲突)*
+
+- [ ] 04-02-PLAN.md — /jds/orphan 路由迁移至 jds.py（置于 /jds/{jd_id} 前）+ 移除 positions.py 重复路由 + ModelItem 字段级校验（NaN/范围/枚举/重复 std_name，保留 Σ=100%）—— REF-7.1/7.2
 
 ### Phase 5: 证据链与报告契约
 
