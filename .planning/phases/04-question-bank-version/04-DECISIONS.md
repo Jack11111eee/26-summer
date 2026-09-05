@@ -32,3 +32,26 @@
 | [04-011] | 硬关口 A | 13 文件回归面 = **选项 A**（并入 Phase 6 06-03 M1 回归 / 06-02 测试收口统一修种子，不追加 04-03） | ③ A |
 
 **执行段锁定**：04-02 T2 的 orphan 查询按 [04-009] 选项 B 落地；04-01 的 todos 明细按 [04-010] 仅后端（`question_bank_not_ready` int + `question_bank_failed` list）；13 文件种子绑定不在本 phase 动，Phase 6 收口。
+
+## 执行段代确认（2026-09-05，auto）
+
+| ID | 步骤 | 决定 | 依据 |
+|----|------|------|------|
+| [04-012] | execute wave 1→2 | 04-01 全绿（binding 4 / fail_visible 2 / phase2_selection 9 / question_bank 25）自动续 04-02 | charter §1 line 19「测试全绿即自动续」 |
+| [04-013] | execute→verify | 04-02 全绿（orphan 1 / model_edit 10 + 回归）→ 自动进入 verify | 同上 |
+| [04-014] | verify | 4/4 must-haves 源码实锤 + 5 REF 全追踪 → passed，自动续 secure | charter §1 line 22「verify 非阻断发现记档不停」 |
+| [04-015] | secure | 6/6 threat closed（4 mitigate 实证 + 2 accept 记档）threats_open 0 → 自动归档 | charter §1 line 23「无 Critical/高危即自动确认」 |
+| [04-016] | code-review | 0 critical / 6 warning / 6 info——**不跑 --fix**：6 warning 均为「既有代码缺陷（WR-01/04/05/06，非本 phase 引入）」或「计划锁定的设计张力（WR-02 todos 全行口径 / WR-03 error_msg 进候选端 detail，后者 threat model T-04-01 已按『截断 mitigate』锁定）」；自动修复会越 §2.2（设计变更须用户授权）或 CLAUDE.md「Surgical Changes」红线 → 记档遗留，随 Phase 6 收口 | charter §2.2 设计歧义停车 + §3 不碰无关 + CLAUDE.md §3 |
+
+## 遗留项（code-review 6 warning，非阻断，随 Phase 6 收口）
+
+详见 `04-REVIEW.md` 与 `04-SECURITY.md`「Code-Review Cross-Validation」。要点：
+
+- **WR-01** readiness 配额可行守卫 `have < min(...)` 恒 False——Phase 2 遗留逻辑，非本 phase 引入。
+- **WR-02** todos `question_bank_not_ready`/`question_bank_failed` 统计所有历史 task 行（retry 成功旧 FAILED 审计行仍在）——`_update_task_status` 已按 D-12「最新行」更新，但 get_todos 计数查询未同步「最新行」口径。
+- **WR-03** readiness FAILED detail 把截断 `error_msg` 拼给考生端（非仅管理员）——threat model T-04-01 已按「截断 mitigate」处置并 secure 判定 6/6 关闭；建议后续收口：考生侧固定文案、内部细节留管理员 `todos.question_bank_failed`。
+- **WR-04** `ModelUpdateBody` extra='ignore' → `model_dump()` 只产出 items，编辑后 model_json 丢 position_id/version（与 docstring「原样透传」不符）。
+- **WR-05** `generate_question_bank` 从不 `conn.close()`（对比 readiness/selection 有 try/finally）。
+- **WR-06** objective→subjective 降级 rubric 兜底可为 None（mock 路径不覆盖该分支）。
+
+以上均不属 Phase 4 目标（题库版本绑定 + 模块一收口）的阻断项，verification 4/4 + secure 6/6 已闭环；列为 Phase 6 测试收口/M1 回归的候选清单（按需处置，不默认改）。

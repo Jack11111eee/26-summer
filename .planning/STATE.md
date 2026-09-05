@@ -96,6 +96,7 @@ None yet.
 | 契约 | REF-3.9 综合题槽位（生成 Prompt 待讨论，D-030） | 登记不排期 | 2026-09-02 (Init) |
 | 契约 | REF-4.11 Tools 白名单（本期无工具调用，接口登记随 Prompt 模块） | 登记不排期 | 2026-09-02 (Init) |
 | 回归 | 13 个会话类测试文件（test_m5/m6/m7、test_p0_chain/security、phase2 difficulty/interview/scoring、phase3 forms/sse/timer/idempotency/misc）直插 question_bank 不写 model_id/model_version，Phase 4 消费侧收紧后失败 | 并入 Phase 6 M1 回归收口（[04-011]） | 2026-09-05 (Phase 4) |
+| 代码质量 | code-review 6 warning（WR-01 配额守卫恒 False / WR-02 todos 全行口径 / WR-03 error_msg 进候选端 / WR-04 model_json 丢字段 / WR-05 conn 不 close / WR-06 rubric 兜底） | 候选清单随 Phase 6 收口按需处置（[04-016]，见 04-REVIEW.md） | 2026-09-05 (Phase 4) |
 
 ## Session Continuity
 
