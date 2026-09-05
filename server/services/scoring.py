@@ -11,6 +11,7 @@ score_live 仅导航参考值（D-26——不参与任何 final 计算，无 50/
 枚举位预留不生产（D-28 口径集）：INSUFFICIENT_EVIDENCE / NOT_ADMINISTERED /
 INCOMPLETE（完整 imputation 属 Phase 5；常量在位供校验与 Phase 5 生产）。
 """
+import hashlib
 import json
 import re
 
@@ -18,6 +19,7 @@ from ..db import get_conn
 from .llm import call_llm_json
 from .pipeline import new_id, now_iso
 from .prompts.score import SCORE_SYSTEM, score_prompt
+from .trace_link import link_entity
 
 # score_state 六态（D-28；N11 代码校验惯例——Phase 2 生产前三态，枚举位供 Phase 5）
 SCORE_STATES = (
@@ -99,11 +101,63 @@ def _fetch_answer_text(session_id: str, question_id: str) -> str:
     return "\n".join(parts)
 
 
+def _latest_user_message_id(session_id: str, question_id: str) -> str | None:
+    """该题最新一条 user 消息的 message_id（evidence_span 的 source_message_id）。"""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT message_id FROM assessment_message"
+        " WHERE session_id=? AND question_id=? AND role='user'"
+        " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (session_id, question_id),
+    ).fetchone()
+    return row["message_id"] if row else None
+
+
+def _locate_span(answer_text: str, quote: str, source_message_id: str | None) -> dict | None:
+    """在原文中定位 quote，返回结构化 span。定位失败返回 None（调用方降级）。
+
+    offset 按 Python str.find/len（code point 语义，§12.5）；多命中取最早（Claude's Discretion）；
+    quote_hash = sha256(quote.encode('utf-8'))（D-003「LLM 不碰数字」——offset/hash 全代码计算）。
+    """
+    if not quote:
+        return None
+    idx = answer_text.find(quote)
+    if idx == -1:
+        return None  # mock "mock quote" / LLM 改写非原文 → 降级
+    return {
+        "source_message_id": source_message_id,
+        "source_content_type": "raw",
+        "start_offset": idx,
+        "end_offset": idx + len(quote),
+        "quote_hash": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+    }
+
+
+def _build_evidence_spans(answer_text: str, evidence_quote: str | None,
+                          source_message_id: str | None) -> str | None:
+    """定位 evidence_quote → evidence_spans_json；定位失败降级 quote_hash only。"""
+    if not evidence_quote:
+        return None
+    span = _locate_span(answer_text, evidence_quote, source_message_id)
+    if span is not None:
+        return json.dumps([span])
+    return json.dumps([{
+        "quote_hash": hashlib.sha256(evidence_quote.encode("utf-8")).hexdigest(),
+        "source_message_id": None,
+        "source_content_type": None,
+        "start_offset": None,
+        "end_offset": None,
+    }])
+
+
 def score_question(session_id: str, question_id: str) -> dict:
-    """对单题终局判分。返回 {score_final, evidence_quote, reason, score_state}。
+    """对单题终局判分。返回 {score_final, evidence_quote, reason, score_state,
+    evidence_spans_json, trace_id}。
 
     客观题 answer_key 空 → score_state=INVALIDATED + score_final=None（题库无效，
     不落 1/不落 5——脱离普通评分通道，REF-5.2/8.1）；其余正常判分 score_state=SCORED。
+    evidence_spans_json 结构化权威（source_message_id/offset/quote_hash）；主观题 trace_id
+    为成功 LLM trace 的 trace_id（供 trace_link 关联），客观/INVALIDATED 分支为 None。
     """
     conn = get_conn()
     q = conn.execute(
@@ -120,6 +174,7 @@ def score_question(session_id: str, question_id: str) -> dict:
         raise ValueError(f"题目不存在: {question_id}")
     q = dict(q)
     answer_text = _fetch_answer_text(session_id, question_id)
+    source_message_id = _latest_user_message_id(session_id, question_id)
 
     if q["qtype"] == "objective":
         if not (q["answer_key"] or "").strip():
@@ -130,21 +185,32 @@ def score_question(session_id: str, question_id: str) -> dict:
                 "evidence_quote": None,
                 "reason": "题库无效：客观题缺 answer_key（REF-5.2/8.1）",
                 "score_state": "INVALIDATED",
+                "evidence_spans_json": None,
+                "trace_id": None,
             }
         score, reason = _score_objective(q["answer_key"], answer_text)
-        return {"score_final": score, "evidence_quote": answer_text[:60],
-                "reason": reason, "score_state": "SCORED"}
+        evidence_quote = answer_text[:60]
+        return {"score_final": score, "evidence_quote": evidence_quote,
+                "reason": reason, "score_state": "SCORED",
+                "evidence_spans_json": _build_evidence_spans(
+                    answer_text, evidence_quote, source_message_id),
+                "trace_id": None}
 
+    trace_out: list[str] = []
     result = call_llm_json(
         "score", question_id, SCORE_SYSTEM,
         score_prompt(q, answer_text, q["position_name"]),
         mock_fn=_mock_score,
+        trace_out=trace_out,
     )
+    evidence_quote = result.get("evidence_quote", "")
     return {
         "score_final": int(result["score"]),
-        "evidence_quote": result.get("evidence_quote", ""),
+        "evidence_quote": evidence_quote,
         "reason": result.get("reason", ""),
         "score_state": "SCORED",
+        "evidence_spans_json": _build_evidence_spans(answer_text, evidence_quote, source_message_id),
+        "trace_id": trace_out[0] if trace_out else None,
     }
 
 
@@ -207,6 +273,7 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
 
     # 1) 内存计算（含 LLM 调用，此时本 conn 未持写事务）
     pending_rows: list[tuple] = []
+    trace_links: list[tuple[str, str, str]] = []  # (trace_id, score_id, question_id)
     for q in answered:
         # item_id 取值：优先实例列（02-02 v2.0 item 绑定），NULL 回退 competency_item 查询（过渡）
         item_id = q["item_id"] or _find_item_id(session["model_id"], q["std_name"], q["category"])
@@ -219,7 +286,8 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
             # 不调 score_question（拒答不产生能力证据，REFUSED 行不经 LLM 评分）
             pending_rows.append(
                 (new_id("qs"), session_id, q["question_id"], item_id,
-                 None, 0, "REFUSED", None, "拒答（§18 score_value=0 特殊状态值）", now_iso())
+                 None, 0, "REFUSED", None, "拒答（§18 score_value=0 特殊状态值）",
+                 None, "v1", None, None, now_iso())
             )
             continue
 
@@ -231,14 +299,20 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
             # 客观题缺 answer_key：score_final=None（不落 1/不落 5，脱离普通评分通道）
             pending_rows.append(
                 (new_id("qs"), session_id, q["question_id"], item_id,
-                 None, None, "INVALIDATED", r["evidence_quote"], r["reason"], now_iso())
+                 None, None, "INVALIDATED", r["evidence_quote"], r["reason"],
+                 None, "v1", None, None, now_iso())
             )
             continue
+        score_id = new_id("qs")
         pending_rows.append(
-            (new_id("qs"), session_id, q["question_id"], item_id,
+            (score_id, session_id, q["question_id"], item_id,
              score_live, r["score_final"], r["score_state"],
-             r["evidence_quote"], r["reason"], now_iso())
+             r["evidence_quote"], r["reason"], r["evidence_spans_json"],
+             "v1", "p-score-1", None, now_iso())
         )
+        # 运行时 score→trace 写点（D-020）：仅主观题产 LLM trace（客观/INVALIDATED trace_id=None）
+        if q["qtype"] == "subjective" and r.get("trace_id"):
+            trace_links.append((r["trace_id"], score_id, q["question_id"]))
 
     # 2) 单事务写库
     # gate 行非评分重算面（03-01）：DELETE 只清评分行（gate_result IS NULL），
@@ -247,9 +321,15 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
     conn.execute("DELETE FROM question_score WHERE session_id=? AND gate_result IS NULL", (session_id,))
     conn.executemany(
         "INSERT INTO question_score(score_id, session_id, question_id, item_id,"
-        " score_live, score_final, score_state, evidence_quote, reason, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        " score_live, score_final, score_state, evidence_quote, reason,"
+        " evidence_spans_json, rubric_version, scorer_version, measurement_target, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         pending_rows,
     )
+    for trace_id, score_id, question_id in trace_links:
+        link_entity(conn, trace_id=trace_id, entity_type="question_score",
+                    entity_id=score_id, link_role="scored")
+        link_entity(conn, trace_id=trace_id, entity_type="assessment_question",
+                    entity_id=question_id, link_role="source")
     conn.commit()
     return {"session_id": session_id, "scored_count": len(answered)}

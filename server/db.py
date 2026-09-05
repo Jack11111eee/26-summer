@@ -248,7 +248,12 @@ CREATE TABLE IF NOT EXISTS question_score (
   automated_gate_result    TEXT,
   human_override           TEXT,
   override_reason          TEXT,
-  reviewer_id              TEXT
+  reviewer_id              TEXT,
+  -- ============ Phase 5 审计快照列（SSOT §12.4——05-01 evidence_spans + scorer/rubric 版本）============
+  evidence_spans_json      TEXT,
+  measurement_target       TEXT,
+  rubric_version           TEXT,
+  scorer_version           TEXT
 );
 
 -- ============ 表单实例表（SSOT §16.1——03-01 form_instance 不可变 schema 快照）============
@@ -754,6 +759,26 @@ def _migrate_trace_link(conn: sqlite3.Connection) -> None:
                 break
 
 
+def _migrate_question_score_phase5(conn: sqlite3.Connection) -> None:
+    """Phase 5（SSOT §12.4/D-55）：question_score 加 4 审计快照列（全部可空、无 DB CHECK）。
+
+    - PRAGMA 嗅探逐列 ALTER（幂等）；新库表已含新列自然跳过。
+    - 全可空（evidence_spans_json/measurement_target/scorer_version 历史行 NULL 接受；
+      rubric_version 由评分运行时写 'v1'——迁移不回填存量，避免臆造）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL，已含新列）
+    for name, decl in (
+        ("evidence_spans_json", "TEXT"),
+        ("measurement_target", "TEXT"),
+        ("rubric_version", "TEXT"),
+        ("scorer_version", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE question_score ADD COLUMN {name} {decl}")
+
+
 def init_db() -> None:
     """建表（幂等）+ 老库迁移，启动时调用一次。"""
     db_dir = os.path.dirname(DB_PATH)
@@ -771,6 +796,7 @@ def init_db() -> None:
         _migrate_idempotency_record(conn)
         _migrate_session_phase3(conn)
         _migrate_trace_link(conn)
+        _migrate_question_score_phase5(conn)
         conn.executescript(_DDL)
         conn.commit()
     finally:
