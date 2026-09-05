@@ -464,6 +464,10 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
         if picked is None:
             # 池耗尽 → 先判 gate（03-01 gate 分支不动）→ form 或 finish
             if not _all_gate_items_collected(conn, session_id):
+                if body.idempotency_key:
+                    finalize_idempotency(session_id=session_id, endpoint="answer",
+                                         key=body.idempotency_key,
+                                         snapshot=_answer_snapshot("form", timeout_decision, question_id, None))
                 return _render_form_branch(conn, session_id, question_id, timeout_decision)
             conn.execute(
                 "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
