@@ -31,6 +31,30 @@
 - **Evidence of correctness of 06-03's own changes:** the 3 acceptance files `test_m5_backend.py` / `test_m6_backend.py` / `test_m7_backend.py` are green (16 passed). The grep acceptance check (each `INSERT INTO question_bank` column list contains both `model_id` and `model_version`) is clean for all 13 files.
 - **Action:** defer to a design decision. #1 needs SSOT confirmation of whether `POST /report` on a terminal-status report should 409 (test's expectation) or re-generate (current D-08 endpoint). #2 needs a decision on whether the phase backfill should be idempotently re-applied (e.g. a `WHERE phase IS NULL` idempotent backfill outside the registry) or the test's re-run expectation is stale.
 
+## From post-merge test gate（执行期全量回归 — 5 failed / 218 passed）
+
+执行期全量回归（`cd server && python -m pytest -q`）最终 **5 failed / 218 passed**。全部 5 个均以基线（commit 13f6743，无 conftest）核实为**既有失败**：基线全量 **98 failed**（无 conftest 的 DB_PATH 首导入冻结污染 + 13 文件缺 model_id/model_version），06-01 conftest + 06-03 补列把 98 降到 5。5 个中 2 个（test_p0_chain / test_phase3_timer）已在上文 06-03 节记档；本节补记其余 3 个。
+
+### test_phase2_weights.py::test_aggregation_no_double_scaling — 过期源码字符串断言
+
+- **Symptom:** `assert 'actual / 5.0' in src`（`inspect.getsource(aggregation_module)` 取整模块源码后做字面量断言）失败 —— 聚合模块源码已不含字面量 `actual / 5.0`（公式锚点写法漂移）。
+- **Root cause:** 测试用 `inspect.getsource` 抓整模块源码再断言字符串字面量，脆弱且与实现细节强耦合；重构后字面量漂移即挂。与 DB/conftest 无关（纯源码字符串断言）。
+- **Why out of scope:** Phase 6 未触及 `services/aggregation.py` 或 `test_phase2_weights.py`；该断言是 Phase 2 遗留的脆弱断言，非本 phase 回归（单独跑同样失败）。改为行为断言（调函数断言结果）而非源码字面量断言属测试重构，超出 5 计划 files_modified 范围。
+
+### test_phase4_binding.py::test_generate_writes_binding_columns — 旧式 DB_PATH 隔离假设被 conftest 打破
+
+- **Symptom:** `assert len(rows) == 6` 实得 **1046**（`SELECT * FROM question_bank`）。
+- **Root cause:** 该文件沿用旧式 `os.environ["DB_PATH"] = _tmp_db`（第 18 行，`from server.db import` 之前）的隔离手法。06-01 conftest 先 import server.config 冻结 DB_PATH 到 session 级 `gsd-test-` 共享库，测试文件的 `os.environ["DB_PATH"]` 赋值失效 → `init_db()`/`get_conn()` 落在共享库，`SELECT *` 读到其他测试文件播种的 1046 行。
+- **Pre-existing 证据:** 基线（无 conftest，首导入冻结污染）同测**同样失败**（基线 98 failed 之列）。非 06-01 新引入 —— 06-01 之前它就因「首导入 wins」污染挂；06-01 只是把污染机制从「首导入 wins」换成「共享 session 库」，未修复该文件的隔离。
+- **Why out of scope:** 修复即把该文件迁移到 `set_db_path()` 模式（与 test_phase2_migration 同款），属测试文件隔离模式迁移，超出 5 计划 files_modified。**可低成本跟进**：改 `os.environ["DB_PATH"]` → autouse fixture `set_db_path(_tmp_db)`，或直接改用 `db_module.DB_PATH = _tmp_db` 直接改 config 属性（test_phase3_forms 同款）。
+
+### test_phase5_evidence.py::test_ref_id_import_migration — 裸连接指向从未建表的 _tmp_db
+
+- **Symptom:** `sqlite3.OperationalError: no such table: assessment_session`（`sqlite3.connect(_tmp_db)` 后直插 assessment_session）。
+- **Root cause:** 该测试用**裸 sqlite3** 直连自建 `_tmp_db`，期望 `_tmp_db` 已有 `assessment_session` 表。但 `_tmp_db` 的建表依赖旧式 `os.environ["DB_PATH"] = _tmp_db`（被 conftest 冻结失效），`init_db()` 实际建表落在共享 `gsd-test-` 库，`_tmp_db` 始终为空。
+- **Pre-existing 证据:** 基线同测**同样失败**（98 failed 之列）。非 06-01 新引入。
+- **Why out of scope:** 修复即让 `_tmp_db` 真正被 init（迁移到 `set_db_path()` 模式或裸连后手动 `executescript` 建 assessment_session），超出 5 计划 files_modified。**可低成本跟进**：同 test_phase4_binding，改 `set_db_path()` 隔离模式。
+
 ## Other notes
 
 - **06-01 did not run `init_db()` against the business `data/app.db`** (red line: business DB never used for tests). The first real server startup by the user will backfill `schema_version` 1..13 on `data/app.db` (idempotent migrations make this safe), with a pre-migration `backups/app-*.db` backup. This is a deployment-time smoke test, not an executor-run test.
