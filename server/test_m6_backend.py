@@ -7,6 +7,8 @@ import os
 import sys
 import tempfile
 
+import pytest
+
 # 隔离测试库：必须在 import server 模块前设置
 _tmpdir = tempfile.mkdtemp(prefix="m6_test_")
 os.environ["DB_PATH"] = os.path.join(_tmpdir, "test.db")
@@ -145,7 +147,13 @@ def _seed_full_chain() -> dict:
     }
 
 
-def _test_dual_scoring(ctx: dict) -> None:
+@pytest.fixture(scope="session")
+def ctx(_session_db):
+    """session 级：整个收集进程只 seed 一次全链，供 4 个 test_* 顺序复用（脚本语义保持）。"""
+    return _seed_full_chain()
+
+
+def test_dual_scoring(ctx: dict) -> None:
     print("[1] 双分独立落库（02-05：无 50/50 合成）")
     sid = ctx["session_id"]
     # 客观题
@@ -187,7 +195,7 @@ def _test_dual_scoring(ctx: dict) -> None:
           all(r["score_state"] == "SCORED" for r in by_qid.values()))
 
 
-def _test_aggregation(ctx: dict) -> None:
+def test_aggregation(ctx: dict) -> None:
     print("[2] 聚合（item 均分 + gap + 权重 + 门槛）")
     agg = aggregate_session_scores(ctx["session_id"])
 
@@ -225,7 +233,7 @@ def _test_aggregation(ctx: dict) -> None:
     check("gate_items 全通过", all(g["passed"] for g in agg["gate_items"]))
 
 
-def _test_report(ctx: dict) -> None:
+def test_report(ctx: dict) -> None:
     print("[3] 报告生成（五段式）")
     rpt = generate_report(ctx["session_id"])
 
@@ -266,7 +274,7 @@ def _test_report(ctx: dict) -> None:
     check("P-report 调用落 llm_trace (call_type='report')", tr["c"] >= 1, f"实际 {tr['c']}")
 
 
-def _test_feedback_api(ctx: dict) -> None:
+def test_feedback_api(ctx: dict) -> None:
     print("[4] feedback 表写入")
     from server.api.assessment import submit_feedback
     conn = get_conn()
@@ -292,9 +300,9 @@ def _test_feedback_api(ctx: dict) -> None:
 if __name__ == "__main__":
     init_db()
     ctx = _seed_full_chain()
-    _test_dual_scoring(ctx)
-    _test_aggregation(ctx)
-    _test_report(ctx)
-    _test_feedback_api(ctx)
+    test_dual_scoring(ctx)
+    test_aggregation(ctx)
+    test_report(ctx)
+    test_feedback_api(ctx)
     print(f"\n结果: {PASS} 通过, {FAIL} 失败")
     sys.exit(1 if FAIL else 0)

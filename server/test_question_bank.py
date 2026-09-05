@@ -68,7 +68,7 @@ def _seed_model() -> tuple[str, str, dict]:
     return pid, mid, model
 
 
-def test_generation(pid: str, mid: str) -> None:
+def check_generation(pid: str, mid: str) -> None:
     print("[1] 题库生成（mock）")
     generate_question_bank(pid, mid)
     conn = get_conn()
@@ -114,7 +114,7 @@ def test_generation(pid: str, mid: str) -> None:
     check("question_gen 调用落 llm_trace", traces["c"] == 9, f"实际 {traces['c']}")
 
 
-def test_idempotent(pid: str, mid: str) -> None:
+def check_idempotent(pid: str, mid: str) -> None:
     print("[2] 幂等：重复触发不重复生成")
     generate_question_bank(pid, mid)
     conn = get_conn()
@@ -122,7 +122,7 @@ def test_idempotent(pid: str, mid: str) -> None:
     check("题量不变仍为 9", n == 9, f"实际 {n}")
 
 
-def test_selection(pid: str, mid: str, model: dict) -> None:
+def check_selection(pid: str, mid: str, model: dict) -> None:
     """[3] 动态选题（02-02：select_next_question 服务级断言，脚本式保持）。"""
     print("[3] 选题算法（动态四层）")
     from server.services.question_selection import (
@@ -229,9 +229,9 @@ def test_prompts() -> None:
 if __name__ == "__main__":
     init_db()
     pid, mid, model = _seed_model()
-    test_generation(pid, mid)
-    test_idempotent(pid, mid)
-    test_selection(pid, mid, model)
+    check_generation(pid, mid)
+    check_idempotent(pid, mid)
+    check_selection(pid, mid, model)
     test_prompts()
     print(f"\n结果: {PASS} 通过, {FAIL} 失败")
     sys.exit(1 if FAIL else 0)
