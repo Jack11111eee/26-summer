@@ -53,7 +53,7 @@ created: 2026-09-05
 | 03-04-02 | 04 | 4 | REF-4.8/4.12 | T-03-20/22 | uq_sti_open 双轨（sqlite_master 存在性 + WHERE 子句双证——FK/UNIQUE 歧义消除）；6 列 3 列 ALTER + phase 回填；timer.py 纯函数/接 conn 分区；config 四常量 + MAX_CONTEXT_TOKENS 占位注释；_truncate_history 不看 provider | unit | `python -c` DDL/svc 烟测（Task 2 verify——sqlite_master 断言）+ `pytest test_phase3_timer.py -v` | ❌ W0 | ⬜ pending |
 | 03-04-03 | 04 | 4 | REF-4.8 | T-03-18/21/23 | 五挂载点依序（6h/暂停 409/单题超时/闭旧开新/touch）；全场超时 GLOBAL_TIMEOUT 先行独立事务 + 同步串行链（六键 finish dict）；estimated=SESSION_TOTAL_MINUTES 派生；分列 INSERT 扩列 | integration | `pytest test_phase3_timer.py test_phase3_sse.py test_phase3_idempotency.py test_phase3_forms.py`（逐文件） | ❌ W0 | ⬜ pending |
 | 03-04-04 | 04 | 4 | REF-2.6 | T-03-18 | m5 estimated==config 派生（20→40）；IN-06 处置登记 [03-IN06]（T-03-DECISIONS）；p0_chain/p0_security 护栏面最小适配；phase2 四文件回归 | regression | `pytest test_m5_backend.py test_p0_chain.py test_p0_security.py` + phase2 四件（逐文件）+ `grep IN-06 03-DECISIONS.md` | ⚠️ 既有改造 | ⬜ pending |
-| 03-04-05 | 04 | 4 | SSOT §31-2 | — | MAX_CONTEXT_TOKENS 数值经用户裁决（checkpoint:human-verify——占位 8000 不代决；同 ORDINARY_PLAN_N 02-02 Task 5 先例） | checkpoint | —（呈报流程见 03-04 Task 5） | — | ⬜ pending |
+| 03-04-05 | 04 | 4 | SSOT §31-2 | — | MAX_CONTEXT_TOKENS 数值已裁决 = 8000（[03-007]——03-04 Task 5 由 checkpoint 转 auto grep 校验，不再停车） | unit | `grep MAX_CONTEXT_TOKENS server/config.py` == 8000 | — | ✅ 已裁决 |
 | 03-05-01 | 05 | 5 | REF-2.6/6.4/4.7 | T-03-25/27 | start 状态机（phase 转换 + 首区间 + SESSION_STARTED）+ 幂等 409；PENDING_START 不派发不计时（Pitfall 12）；pause/resume 全环（区间 reason='candidate_request'/双事件/409 三态——候选人端点本期交付，W6 口径）；注入事件白名单恰两键 + 不卡死 + 数据身份静态断言 | integration | `cd server && python -m pytest test_phase3_misc.py -v` | ❌ W0 | ⬜ pending |
 | 03-05-02 | 05 | 5 | REF-2.6 | T-03-27/28/29 | 三端点护栏（load_owned_session + 409 三态）；get_session phase 条件（None/ACTIVE 放行兼容——data/app.db 存量面 I3 呈报）；INJECTION 挂载段相邻位 | integration | `pytest test_phase3_misc.py -v` + grep 检查 | ❌ W0 | ⬜ pending |
 | 03-05-03 | 05 | 5 | REF-6.4 | T-03-25/26 | _INJECTION_WORDS 词表 + mock 分类分支；11 回归文件 start 步骤插入（断言零改动——files_modified 14 文件全列，W2）；Phase 3 全回归闭合 | regression | `pytest test_phase3_misc.py` + 11 文件循环（Task 3 verify） | ⚠️ 既有改造 | ⬜ pending |
@@ -106,7 +106,7 @@ created: 2026-09-05
 | WR-04 §10.5/§11.2 张力（SSOT 裁决项） | 02-VERIFICATION 移交（[02-013a]） | 例外补选（§10.5 刚性「仅 medium 优先/hard 兜底」）与难度状态机（§11.2 降级后避免高难度）设计张力——行为级裁决属 SSOT 语义取舍，Phase 2 经 [02-013a] 决议零行为变更移交本关口包，agent 不代决 | 关口包呈现：02-DECISIONS [02-013a] 决议原文（张力描述 + exception_tension_note 可观测性注记 commit 26af147 现状）+ 行为变更与否两选项——用户裁决（维持张力注记 / 授权改选题行为走 SSOT 修订流程） |
 | data/app.db 存量 in_progress 会话处置 | 03-05 get_session phase 条件（I3） | 存量会话（3 completed/1 in_progress）经 03-04 迁移回填 phase='PENDING_START' 后被派发分支拦截——继续处置是演示数据操作裁量，agent 不代决 | 关口包呈现：两条路径（重跑演示脚本重建会话[推荐——data/app.db 是演示数据]或临时 API start 激活存量会话）+ 当前会话清单（session_id/status/phase）——用户选定 |
 
-*全部运行时行为（表单/SSE/幂等/计时/注入）均有 API 级自动化验证；上表六项为决策类 checkpoint（三个已有 ASSUMED/呈报标记，一个 SSOT §31 开放参数，一个 Phase 2 移交 SSOT 裁决项 [02-013a]，一个演示数据处置裁量——全部不代决）。*
+*全部运行时行为（表单/SSE/幂等/计时/注入）均有 API 级自动化验证；上表六项为决策类 checkpoint——已于 2026-09-05 硬关口 A 全部裁决（[03-007]~[03-012]），执行段不再停车。*
 
 ---
 
@@ -119,4 +119,4 @@ created: 2026-09-05
 - [ ] Feedback latency < 30s（全 mock 离线）
 - [ ] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** APPROVED 2026-09-05 — 硬关口 A 裁决 [03-007]~[03-012]（MAX_CONTEXT_TOKENS=8000 / A2 四步放宽采纳 / D-46 延后 Phase 6 / A6 延后 Phase 6 / WR-04 维持注记 / data.app.db 重跑演示脚本重建）

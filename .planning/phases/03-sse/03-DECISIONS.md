@@ -38,3 +38,33 @@
 **[03-006] 关口包呈报项新增 6 项（M0 目标 8 项）**
 - 决定：①MAX_CONTEXT_TOKENS 数值（SSOT §31-2 开放参数——03-04 Task 5 checkpoint 占位 8000）②A2 gate 行四步放宽法采纳（ASSUMED 标记迁移 docstring）③D-46 存量端点 Pydantic 化范围（11 处 body: dict 端点清单——推荐 Phase 6 收口）④A6 前端 start 接线延后（后端契约测试完备，web 零改动约束）⑤WR-04 §10.5/§11.2 张力（[02-013a] 移交）⑥data/app.db 存量 in_progress 会话处置——全部不代决，随关口包打包呈现
 - 依据：章程 §2.2 硬关口（SSOT 开放参数 / SSOT 语义裁决 / 用户演示数据操作）；VALIDATION.md Manual-Only 表全量登记
+
+---
+
+## 2026-09-05 · 硬关口 A 裁决（用户批准）
+
+**[03-007] ① MAX_CONTEXT_TOKENS = 8000（维持占位）**
+- 决定：生产值定为 8000；03-04 Task 5 由 blocking checkpoint 转为已裁决（executor 落地 config 常量 8000 + 记录本裁决，不再停车）
+- 依据：SSOT §14「以 Token 数控制（参数待定，留接口）」+ §31-2 开放参数；用户明示「批准为 8000」
+
+**[03-008] ② A2 gate 行四步放宽法采纳**
+- 决定：question_id/score_state 四步放宽（ADD copy 列 → UPDATE 拷 → DROP 原列 → RENAME），迁移 docstring 标「A2 四步放宽法——02-RESEARCH 实验 9/10 验证 + 关口包裁决 [03-008]」；旧库按 _gate_check payload 摸底回填（双源兜底，老库保数据）
+- 依据：RESEARCH 实验实测；用户批准推荐方案（独立 gate_result 表备选③不采用）
+
+**[03-009] ③ D-46 存量端点 Pydantic 化 = 延后 Phase 6 测试收口**
+- 决定：本 phase 只覆盖新端点（answer/submit-v2/admin gate-override）；存量 body:dict 端点（grep 实测 11 处）延后 Phase 6，不新增 wave 6
+- 依据：用户批准；REQUIREMENTS「接口层 schema 校验」存量面属技术债非行为缺失
+
+**[03-010] ④ A6 前端 /start 接线 = 延后 Phase 6 E2E 收口**
+- 决定：后端 start 端点契约测试全绿即达本 phase 边界；web 前端按钮接线延后 Phase 6
+- 依据：用户批准；web 零改动约束与回归面（14 文件）保护
+
+**[03-011] ⑤ WR-04 §10.5/§11.2 张力 = 维持注记现状**
+- 决定：维持 Phase 2 已落的 exception_tension_note 可观测性注记（26af147），零行为变更；不启动 SSOT 修订流程
+- 依据：用户批准选项 (a)；SSOT 修改权 exclusively 属用户，未授权不触碰
+
+**[03-012] ⑥ data/app.db 存量 in_progress 会话 = 重跑演示脚本重建**
+- 决定：sess_4cddf561f763（4 题激活 0 答）处置 = 重跑演示脚本重建会话（不 API 激活）；另 3 条 completed 会话回填 PENDING_START 后可继续派发查询、已归档不受 start 拦截面影响
+- 依据：用户批准选项 (a)；data/app.db 属演示数据，非红线索引内（红线 2 仅禁无授权触碰——重跑脚本是用户授权的处置路径）
+- 执行时机：Phase 3 execute 完成、verify 阶段或 closeout 时由 orchestrator 重跑演示脚本重建（不属 5 计划 files_modified 范围）
+
