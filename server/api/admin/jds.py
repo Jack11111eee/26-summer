@@ -76,6 +76,17 @@ def list_jds(position_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+@router.get("/jds/orphan")
+def list_orphan_jds() -> list[dict]:
+    """待归属 JD 队列（岗位被拒绝后回退的）。置于 /jds/{jd_id} 之前，避免参数路由吞掉 orphan。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT jd_id, job_title, company, source_type, status, created_at"
+        " FROM jd_record WHERE position_id IS NULL AND status != 'failed' ORDER BY created_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @router.get("/jds/{jd_id}")
 def jd_detail(jd_id: str) -> dict:
     """单 JD 工序留档：原文/清洗/raw_items/std_items/错误信息。"""

@@ -92,17 +92,6 @@ def review_position(position_id: str, body: dict) -> dict:
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "action 仅支持 approve/reject")
 
 
-@router.get("/jds/orphan")
-def list_orphan_jds() -> list[dict]:
-    """待归属 JD 队列（岗位被拒绝后回退的）。"""
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT jd_id, job_title, company, source_type, status, created_at"
-        " FROM jd_record WHERE position_id IS NULL AND status != 'failed' ORDER BY created_at DESC"
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-
 @router.post("/jds/{jd_id}/reassign")
 def reassign_jd(jd_id: str, body: dict) -> dict:
     """待归属 JD 手动改归到指定岗位。"""
