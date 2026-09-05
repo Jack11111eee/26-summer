@@ -23,6 +23,12 @@
 
 无。Phase 4 五 REF 均为结构性/缺陷修复项，不涉「参数待定」——不存在 §31 六项开放参数中的新增项。
 
-## 硬关口 A 预留
+## 硬关口 A 用户裁决（2026-09-05，已批准）
 
-本 phase 硬关口 A = plan 审查。五 REF 的 plan 产出后打包呈现（目标/任务分解/wave 结构 + 灰区默认 + Phase 3 遗留项 + 成功标准映射）等用户批准。
+| ID | 步骤 | 决定 | 用户答复 |
+|----|------|------|----------|
+| [04-009] | 硬关口 A | orphan 列表字段口径 = **选项 B**（现有实现为准：字段子集 `jd_id/job_title/company/source_type/status/created_at` + `AND status != 'failed'`，与 get_todos 计数一致；非 D-52 字面全字段） | ① B |
+| [04-010] | 硬关口 A | 前端「题库失败」展示卡 = **选项 A**（前端零破坏，本 phase 只做后端 `question_bank_failed` 明细，Positions.vue 零改动） | ② A |
+| [04-011] | 硬关口 A | 13 文件回归面 = **选项 A**（并入 Phase 6 06-03 M1 回归 / 06-02 测试收口统一修种子，不追加 04-03） | ③ A |
+
+**执行段锁定**：04-02 T2 的 orphan 查询按 [04-009] 选项 B 落地；04-01 的 todos 明细按 [04-010] 仅后端（`question_bank_not_ready` int + `question_bank_failed` list）；13 文件种子绑定不在本 phase 动，Phase 6 收口。

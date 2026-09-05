@@ -302,17 +302,17 @@ for it in items:
 
 **注：** 除上表外，其余技术断言（列已落、路由顺序、Pydantic v2 `allow_inf_nan`、NaN 绕过 Σ 校验）均已逐行源码/实测核验，非假设。
 
-## Open Questions（已由 04-02 计划呈报硬关口 A 待裁定）
+## Open Questions（已裁定 2026-09-05 [04-009]/[04-010]）
 
 1. **orphan 列表字段口径与 status 过滤**
    - What we know: 现有 `positions.py:87` 的 `list_orphan_jds` 字段为 `jd_id/job_title/company/source_type/status/created_at`，查询含 `AND status != 'failed'`；D-52 说「字段同 list_jds」（即含 low_confidence/error_msg）且「WHERE position_id IS NULL」（无 status 过滤）。`get_todos` 的 orphan 计数含 `status != 'failed'`。
    - What's unclear: 迁入 jds.py 时字段集与 status 过滤取哪套。
-   - Recommendation（待硬关口 A 裁定）: 选项 A（D-52 字面：字段同 list_jds、无 status 过滤）vs 选项 B（现有 `positions.py` 实现：字段子集 + `status != 'failed'`，与 `get_todos` 计数口径一致、前端已只消费 job_title/company/source_type/created_at/jd_id）。默认选项 B，待用户裁决后锁定（已由 04-02 计划呈报硬关口 A）。
+   - Recommendation（已裁定 [04-009]）: 选项 B（现有 `positions.py` 实现：字段子集 + `status != 'failed'`，与 `get_todos` 计数口径一致、前端已只消费 job_title/company/source_type/created_at/jd_id）。
 
 2. **admin todos 失败明细的字段结构**
    - What we know: D-51 说 `question_bank_not_ready` 从计数扩展为「计数 + 明细」，Claude's Discretion 允许 `question_bank_failed` 新键 vs `question_bank_not_ready` 内嵌。前端 `Positions.vue` 当前**未展示** `question_bank_not_ready`（只展示 pending/stalled/orphan 三卡）。
    - What's unclear: 是否要在前端新增「题库失败」展示卡（D-13 预留「admin 页展示留 Phase 4」）。
-   - Recommendation: 后端做「计数 + 失败明细」（`question_bank_not_ready` 保持 int，新增 `question_bank_failed` 明细列表）——已在 04-01 计划落定。前端展示卡是否纳入本 phase：【待硬关口 A 裁定】——D-51 字面「前端零破坏」倾向不强制前端改动，但需与「生成失败对管理员可见」的验收口径对齐。
+   - Recommendation: 后端做「计数 + 失败明细」（`question_bank_not_ready` 保持 int，新增 `question_bank_failed` 明细列表）——已在 04-01 计划落定。前端展示卡：【已裁定 [04-010] 选项 A 前端零破坏】——本 phase 不做前端改动。
 
 ## Environment Availability
 
