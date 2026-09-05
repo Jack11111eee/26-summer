@@ -30,6 +30,7 @@
 - [x] M1 鉴权 + 单 JD 解析链、M2 聚合 + 人审、M3 外围页面（2026-08-30 完成主体）
 - [x] M5 题库/session/对话核心、M6 评分报告五段式、M7 测试闭环骨架（主体代码已落地，contract_complete=false）
 - [x] mock 模式离线可跑通全流程（LLM_PROVIDER=mock）
+- [x] 题库 version 绑定与失败可见 / orphan 路由 / 模型编辑校验（Validated in Phase 4，2026-09-05）
 
 ### Active
 
@@ -38,7 +39,6 @@
 - [ ] P0 四项：资源所有权校验 / score→report 串行 / 开考可测量性检查 / 状态事件表
 - [ ] 动态选题四层 + 难度路径状态机 + finish 护栏 + 回答状态分类
 - [ ] 表单链 / SSE 真实化 / 幂等并发 / 计时区间
-- [ ] 题库 version 绑定与失败可见 / orphan 路由 / 模型编辑校验
 - [ ] 证据 span + trace_link / 报告发布校验 / feedback 字段 / 报告版本化
 - [ ] 迁移体系 schema_version / 测试重构 + CI / M1 回归 / E2E / eval 隔离
 
@@ -116,4 +116,4 @@
 </decisions>
 
 ---
-*Last updated: 2026-09-02 after project initialization (ingest → PROJECT/REQUIREMENTS/ROADMAP/STATE)*
+*Last updated: 2026-09-05 — Phase 4 (题库版本绑定与模块一收口) 完成，verified + secure + review 全绿*
