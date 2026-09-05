@@ -282,7 +282,21 @@ CREATE TABLE IF NOT EXISTS report (
   total_score REAL NOT NULL,
   gate_passed INTEGER NOT NULL,
   report_json TEXT NOT NULL,
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  -- ============ Phase 5 报告状态机列（SSOT §21.1——05-03 状态机/发布/人工复核）============
+  -- report_status/review_status 枚举代码校验（N11 无 DB CHECK）；version 版本化行
+  -- （重复生成不再 DELETE 覆盖）；发布/复核字段 publish 端点填。全可空（存量回填见
+  -- _migrate_report_phase5）。
+  report_status          TEXT,
+  review_status          TEXT,
+  version                INTEGER,
+  review_request_reason  TEXT,
+  reviewer_id            TEXT,
+  review_note            TEXT,
+  review_outcome         TEXT,
+  reviewed_at            TEXT,
+  publish_confirmed_by   TEXT,
+  published_at           TEXT
 );
 
 CREATE TABLE IF NOT EXISTS feedback (
@@ -779,6 +793,36 @@ def _migrate_question_score_phase5(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE question_score ADD COLUMN {name} {decl}")
 
 
+def _migrate_report_phase5(conn: sqlite3.Connection) -> None:
+    """Phase 5（SSOT §21.1/D-025）：report 表加 10 列状态机/发布/复核字段（全可空无 DB CHECK）。
+
+    - PRAGMA 嗅探逐列 ALTER（幂等）；新库表已含新列自然跳过。
+    - 存量回填（关口 A 已裁决）：旧 report 行报告已候选端可见，语义最接近终态 →
+      report_status='PUBLISHED' + review_status='NONE' + version=1（仅回填 NULL 行）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(report)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL，已含新列）
+    for name, decl in (
+        ("report_status", "TEXT"),
+        ("review_status", "TEXT"),
+        ("version", "INTEGER"),
+        ("review_request_reason", "TEXT"),
+        ("reviewer_id", "TEXT"),
+        ("review_note", "TEXT"),
+        ("review_outcome", "TEXT"),
+        ("reviewed_at", "TEXT"),
+        ("publish_confirmed_by", "TEXT"),
+        ("published_at", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE report ADD COLUMN {name} {decl}")
+    conn.execute(
+        "UPDATE report SET report_status='PUBLISHED', review_status='NONE', version=1"
+        " WHERE report_status IS NULL"
+    )
+
+
 def init_db() -> None:
     """建表（幂等）+ 老库迁移，启动时调用一次。"""
     db_dir = os.path.dirname(DB_PATH)
@@ -797,6 +841,7 @@ def init_db() -> None:
         _migrate_session_phase3(conn)
         _migrate_trace_link(conn)
         _migrate_question_score_phase5(conn)
+        _migrate_report_phase5(conn)
         conn.executescript(_DDL)
         conn.commit()
     finally:
