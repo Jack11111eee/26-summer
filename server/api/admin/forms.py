@@ -32,6 +32,7 @@ def gate_override(body: GateOverrideBody, admin: dict = Depends(require_admin)) 
          body.session_id, body.item_id),
     )
     if cur.rowcount == 0:
+        conn.rollback()
         raise HTTPException(status.HTTP_404_NOT_FOUND, "gate 行不存在")
     append_event(conn, session_id=body.session_id, event_type="GATE_OVERRIDDEN",
                  actor_type="admin", actor_id=admin["user_id"],
