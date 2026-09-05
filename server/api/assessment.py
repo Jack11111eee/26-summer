@@ -929,6 +929,7 @@ def submit_form_v2(session_id: str, body: FormSubmitRequest,
         payload=body.payload, expected_revision=body.expected_revision, user=user,
     )
     if not result["ok"]:
+        conn.rollback()
         code = result["error_code"]
         if code == "FORM_NOT_FOUND":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "表单不存在")
