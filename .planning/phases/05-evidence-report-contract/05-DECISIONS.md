@@ -68,3 +68,14 @@
 | 关联需求 | REF-5.5（PARTIAL，仅前端展示缺）|
 
 后端测试全绿（evidence 6 / report 11 / feedback 3 / m6 44 / m7 5）；`test_p0_chain.py::test_completed_session_guardrail` 为既有 [04-011] 题库版本化涟漪（缺种子题），非本 phase 回归，记档待 Phase 6。
+
+## gap-closure 计划审查 + 执行记录（§2.1 计划审查硬关口：用户批准）
+
+| ID | 日期 | 步骤 | 决定 | 依据 |
+|----|------|------|------|------|
+| [05-016] | 2026-09-05 | plan 审查（硬关口） | 05-05 gap-closure 计划（IMPUTED 标记 + 覆盖率展示 + 雷达标记 + IN-02）经用户明确「批准」 | §2.1 计划审查 |
+| [05-017] | 2026-09-05 | execute（05-05） | 4 任务落地：report.py 雷达 indicators 补 imputed；Report.vue 明细表补算徽标 + coverage 摘要 + 雷达轴「（补算）」后缀 + itemReason 改 item_id 匹配 | 后端测试全绿 + `npm run build` 通过 |
+
+执行落地 commit `fb4d139`；`05-05-SUMMARY.md` status=complete。
+
+遗留（非阻断）：缺失原因 `reason` 为内部 score_state 码（INVALIDATED 等）或「qualification 缺失（不补算）」中文串，前端按原样展示未做码→中文映射，SSOT「展示缺失原因」契约已满足。
