@@ -1,8 +1,13 @@
 """LLM 客户端封装：JSON 模式 + 失败重试 + llm_trace 落库 + mock 兜底。
 
-LLM_PROVIDER=mock 时用规则模拟输出，离线可跑通全流程；切到 deepseek 需配 LLM_API_KEY。
+LLM_PROVIDER=mock 时用规则模拟输出，离线可跑通全流程；
+LLM_PROVIDER=deepseek 走 OpenAI 兼容 chat.completions（需 LLM_API_KEY）；
+LLM_PROVIDER=anthropic 走 Anthropic Messages 协议（urllib 零依赖实现——
+2026-09-06 中转上行 glm-5.3-flash 未开 chat 接口，仅 Responses/Messages，
+chat 路由长 prompt 100% 503 no_available_providers）。
 """
 import json
+import urllib.request
 from typing import Any
 
 from .. import config
@@ -25,7 +30,7 @@ def _record_trace(call_type: str, ref_id: str, attempt: int,
 
 
 def _chat(system_prompt: str, user_prompt: str) -> str:
-    """真实 LLM 调用，JSON 模式。DeepSeek 要求 prompt 中含 'json' 字样。"""
+    """真实 LLM 调用，OpenAI 兼容 chat.completions，JSON 模式。"""
     from openai import OpenAI
 
     client = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
@@ -39,6 +44,45 @@ def _chat(system_prompt: str, user_prompt: str) -> str:
         temperature=0,
     )
     return resp.choices[0].message.content
+
+
+def _strip_code_fence(text: str) -> str:
+    """剥掉 LLM 偶发包裹的 ```json ...``` 围栏（解析前归一）。"""
+    t = text.strip()
+    if t.startswith("```"):
+        first_newline = t.find("\n")
+        if first_newline != -1:
+            t = t[first_newline + 1:]
+        if t.rstrip().endswith("```"):
+            t = t.rstrip()[:-3]
+    return t.strip()
+
+
+def _messages(system_prompt: str, user_prompt: str) -> str:
+    """Anthropic Messages 协议调用（urllib 实现，无 SDK 依赖）。
+
+    中转类服务常仅暴露 Messages/Responses 接口（chat 不可用），此函数提供
+    协议适配：system 独立参数、content 块拼接、code fence 归一。
+    """
+    body = json.dumps({
+        "model": config.LLM_MODEL,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_prompt}],
+        "max_tokens": 8192,
+        "temperature": 0,
+    }).encode()
+    url = config.LLM_BASE_URL.rstrip("/") + "/messages"
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "x-api-key": config.LLM_API_KEY,
+        "Authorization": f"Bearer {config.LLM_API_KEY}",  # 中转普遍两者都认
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    })
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        data = json.loads(resp.read())
+    return _strip_code_fence(
+        "".join(c.get("text", "") for c in data.get("content", []) if c.get("type") == "text")
+    )
 
 
 def call_llm_json(call_type: str, ref_id: str, system_prompt: str, user_prompt: str,
@@ -56,6 +100,9 @@ def call_llm_json(call_type: str, ref_id: str, system_prompt: str, user_prompt: 
             if config.LLM_PROVIDER == "mock":
                 result = mock_fn(system_prompt, user_prompt) if mock_fn else {}
                 raw = json.dumps(result, ensure_ascii=False)
+            elif config.LLM_PROVIDER == "anthropic":
+                raw = _messages(system_prompt, user_prompt)
+                result = json.loads(raw)
             else:
                 raw = _chat(system_prompt, user_prompt)
                 result = json.loads(raw)

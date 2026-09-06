@@ -7,7 +7,10 @@
 import os
 
 # ---- LLM ----
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "mock")  # deepseek | mock
+# provider 三态（2026-09-06）：deepseek=OpenAI 兼容 chat.completions；
+# anthropic=Anthropic Messages 协议（中转上行 glm-5.3-flash 未开 chat，实测
+# Messages 全量 prompt 可用）；mock=离线规则模拟
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "mock")  # deepseek | anthropic | mock
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
