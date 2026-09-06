@@ -90,7 +90,20 @@
       </aside>
     </div>
 
-    <div class="chat-hybrid__composer-wrap">
+    <!-- 入场确认（PENDING_START → start 端点 → ACTIVE）：40 分钟计时自显式确认起算 -->
+    <div v-if="pendingStart" class="chat-hybrid__composer-wrap">
+      <div class="chat-hybrid__start">
+        <div class="chat-hybrid__start-title">准备就绪</div>
+        <p class="chat-hybrid__start-desc">
+          本场测评共 40 分钟，从你点击「开始测评」起算。开始后请结合真实经历依次作答。
+        </p>
+        <button class="chat-hybrid__start-button" type="button" :disabled="starting" @click="onStart">
+          {{ starting ? '正在开始…' : '开始测评' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-else class="chat-hybrid__composer-wrap">
       <form class="chat-hybrid__composer" novalidate @submit.prevent="onSend">
         <textarea
           ref="textarea"
@@ -146,6 +159,9 @@ const currentQuestion = computed(() => session.value?.current_question || null)
 const canAnswer = computed(
   () => !!currentQuestion.value && !streaming.value && session.value?.status === 'in_progress'
 )
+// 入场确认门（服务端 phase 门：PENDING_START 不派题不计时）——确认前只显示开始按钮
+const pendingStart = computed(() => session.value?.phase === 'PENDING_START' && session.value?.status === 'in_progress')
+const starting = ref(false)
 const progressPct = computed(() => {
   const total = session.value?.total_count
   if (!total) return 0
@@ -185,7 +201,9 @@ async function load() {
       router.replace(`/assessment/report/${sessionId}`)
       return
     }
-    statusText.value = canAnswer.value ? '可以继续了 · 等待你的回答' : '正在准备下一问'
+    statusText.value = pendingStart.value
+      ? '等待入场确认 · 点击「开始测评」起算 40 分钟'
+      : (canAnswer.value ? '可以继续了 · 等待你的回答' : '正在准备下一问')
   } catch (e) {
     statusText.value = '测评内容加载失败，请重试'
     ElMessage.error(e.response?.data?.detail || '会话加载失败')
@@ -200,6 +218,36 @@ async function refreshSession() {
     session.value = { ...session.value, ...data }
   } catch {
     /* 刷新失败不阻断对话，下轮仍会再试 */
+  }
+}
+
+// 入场确认（方案一 [03-010] 收口）：POST /start → 重新 load（phase 门放行 → 派首题 + 开计时区间）。
+// 409 SESSION_ALREADY_ACTIVE 按幂等处理直接 load；409 SESSION_NOT_IN_PROGRESS（会话已结束）提示后转报告页。
+async function onStart() {
+  if (starting.value) return
+  starting.value = true
+  try {
+    try {
+      await assessment.startSession(sessionId)
+    } catch (e) {
+      const code = e.response?.data?.detail?.error_code
+      if (e.response?.status === 409 && code === 'SESSION_ALREADY_ACTIVE') {
+        /* 幂等：已被 start 过（如双击/重复进入），直接进入 */
+      } else {
+        throw e
+      }
+    }
+    await load()
+  } catch (e) {
+    if (e.response?.status === 409 && e.response?.data?.detail?.error_code === 'SESSION_NOT_IN_PROGRESS') {
+      ElMessage.warning('会话已结束')
+      router.replace(`/assessment/report/${sessionId}`)
+      return
+    }
+    statusText.value = '开始失败，请重试'
+    ElMessage.error(e.response?.data?.detail?.message || '开始测评失败，请重试')
+  } finally {
+    starting.value = false
   }
 }
 
@@ -459,6 +507,22 @@ onBeforeUnmount(() => {
 .chat-hybrid__rail-tip { margin-top: 12px; background: var(--chat-user); }
 
 .chat-hybrid__composer-wrap { flex: none; padding: 8px 24px 16px; background: var(--chat-bg); }
+
+/* 入场确认面板（PENDING_START） */
+.chat-hybrid__start {
+  max-width: 720px; margin: 0 auto; padding: 24px 32px; text-align: center;
+  border: 1px solid var(--chat-line); border-radius: 20px; background: var(--chat-paper);
+  box-shadow: 0 1px 5px rgba(60, 50, 30, .05);
+}
+.chat-hybrid__start-title { font-size: 15px; font-weight: 700; letter-spacing: .06em; }
+.chat-hybrid__start-desc { margin: 10px 0 18px; color: var(--chat-ink-2); font-size: 13px; line-height: 1.7; }
+.chat-hybrid__start-button {
+  padding: 10px 44px; border: 0; border-radius: 14px; background: var(--chat-accent);
+  color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.chat-hybrid__start-button:hover { opacity: .88; }
+.chat-hybrid__start-button:disabled { cursor: not-allowed; opacity: .4; }
+
 .chat-hybrid__composer {
   max-width: 720px; margin: 0 auto; padding: 4px 8px 4px 16px;
   border: 1px solid var(--chat-line); border-radius: 20px; background: var(--chat-paper);

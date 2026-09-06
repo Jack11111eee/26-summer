@@ -41,6 +41,16 @@
         </el-table-column>
         <template #empty><el-empty description="暂无用户" /></template>
       </el-table>
+      <el-pagination
+        class="pager"
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="onSizeChange"
+        @current-change="onPageChange"
+      />
     </el-card>
 
     <!-- 新建账号 -->
@@ -86,6 +96,9 @@ import { useAuthStore } from '../../stores/auth'
 const auth = useAuthStore()
 const users = ref([])
 const loading = ref(false)
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 
 const createVisible = ref(false)
 const creating = ref(false)
@@ -96,15 +109,24 @@ const resetting = ref(false)
 const resetTarget = ref(null)
 const resetPassword = ref('')
 
-async function load() {
+async function fetchUsers() {
   loading.value = true
   try {
-    const { data } = await api.get('/admin/users')
-    users.value = data
+    const { data } = await api.get('/admin/users', { params: { page: page.value, page_size: pageSize.value } })
+    users.value = data.items
+    total.value = data.total
   } finally {
     loading.value = false
   }
 }
+
+function load() {
+  page.value = 1
+  fetchUsers()
+}
+
+function onPageChange(p) { page.value = p; fetchUsers() }
+function onSizeChange(s) { pageSize.value = s; page.value = 1; fetchUsers() }
 
 async function onCreate() {
   if (!createForm.username.trim() || createForm.password.length < 6) {
@@ -188,5 +210,9 @@ onMounted(load)
 .title {
   margin: 0;
   color: #303133;
+}
+.pager {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 </style>

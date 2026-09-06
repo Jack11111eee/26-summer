@@ -39,6 +39,8 @@ api.interceptors.response.use(
 export const assessment = {
   listPositions: () => api.get('/assessment/positions'),
   createSession: (positionId) => api.post('/assessment/sessions', { position_id: positionId }),
+  // 入场确认（SC-5 计时起算锚）：PENDING_START → ACTIVE；409 SESSION_ALREADY_ACTIVE 幂等
+  startSession: (sessionId) => api.post(`/assessment/sessions/${sessionId}/start`),
   getSession: (sessionId) => api.get(`/assessment/sessions/${sessionId}`),
   // callbacks: {onDecision, onReply, onDone, onError}；返回 abort() 用于组件卸载时中断
   submitAnswer: (sessionId, questionId, answer, callbacks) =>

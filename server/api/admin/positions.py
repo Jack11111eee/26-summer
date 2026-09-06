@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...core.security import require_admin
 from ...db import get_conn
+from ...services.input_limits import clamp_pagination_limit
 from ...services.pipeline import new_id, now_iso
 
 router = APIRouter(prefix="/api/admin", tags=["admin-positions"], dependencies=[Depends(require_admin)])
@@ -56,15 +57,22 @@ def get_todos() -> dict:
 
 
 @router.get("/positions/pending")
-def list_pending_positions() -> list[dict]:
+def list_pending_positions(page: int = 1, page_size: int = 20) -> dict:
     """待审核新岗位列表（含 JD 数与示例 job_title）。"""
+    page = max(1, page)
+    page_size = clamp_pagination_limit(page_size)
+    offset = (page - 1) * page_size
     conn = get_conn()
+    total = conn.execute(
+        "SELECT COUNT(*) c FROM position p WHERE p.status='pending_review'"
+    ).fetchone()["c"]
     rows = conn.execute(
         "SELECT p.position_id, p.name, p.created_at,"
         " (SELECT COUNT(*) FROM jd_record j WHERE j.position_id=p.position_id) AS jd_count"
-        " FROM position p WHERE p.status='pending_review' ORDER BY p.created_at DESC"
+        " FROM position p WHERE p.status='pending_review' ORDER BY p.created_at DESC LIMIT ? OFFSET ?",
+        (page_size, offset),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return {"items": [dict(r) for r in rows], "total": total}
 
 
 @router.post("/positions/{position_id}/review")

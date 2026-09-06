@@ -5,18 +5,25 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...core.security import hash_password, require_admin
 from ...db import get_conn
+from ...services.input_limits import clamp_pagination_limit
 from ...services.pipeline import now_iso
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"], dependencies=[Depends(require_admin)])
 
 
 @router.get("")
-def list_users() -> list[dict]:
+def list_users(page: int = 1, page_size: int = 20) -> dict:
+    page = max(1, page)
+    page_size = clamp_pagination_limit(page_size)
+    offset = (page - 1) * page_size
     conn = get_conn()
+    total = conn.execute("SELECT COUNT(*) c FROM user").fetchone()["c"]
     rows = conn.execute(
-        "SELECT user_id, username, role, is_active, created_at FROM user ORDER BY created_at DESC"
+        "SELECT user_id, username, role, is_active, created_at FROM user"
+        " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        (page_size, offset),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return {"items": [dict(r) for r in rows], "total": total}
 
 
 @router.post("")

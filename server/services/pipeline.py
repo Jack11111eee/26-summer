@@ -1,4 +1,5 @@
 """单 JD 解析链：②清洗 → ③LLM#1抽取 → 归岗 → ④LLM#2消歧，产物落库。"""
+import difflib
 import json
 import re
 from datetime import datetime, timezone
@@ -116,16 +117,42 @@ def assign_position(job_title: str) -> tuple[str | None, str]:
 
 # ---------- 工序④ LLM#2 消歧 ----------
 
-def _dict_candidates(categories: set[str]) -> list[str]:
+def _similarity(a: str, b: str) -> float:
+    """归一化后编辑距离 + 子串包含 的相似度（0~1）。子串包含给高分，否则 SequenceMatcher.ratio。"""
+    a = a.strip().lower()
+    b = b.strip().lower()
+    if not a or not b:
+        return 0.0
+    if a in b or b in a:
+        return 0.7 + 0.3 * (min(len(a), len(b)) / max(len(a), len(b)))
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _dict_candidates(items: list[dict]) -> list[str]:
+    """每个能力项取同 category 词典中相似度 ≥ 阈值的 top10 候选，去重合并（SSOT §8.1）。"""
     conn = get_conn()
-    if not categories:
-        return []
-    placeholders = ",".join("?" * len(categories))
-    rows = conn.execute(
-        f"SELECT std_name FROM competency_dict WHERE status='active' AND category IN ({placeholders})",
-        tuple(categories),
-    ).fetchall()
-    return [r["std_name"] for r in rows]
+    by_cat: dict[str, list[str]] = {}
+    for cat in {it["category"] for it in items}:
+        rows = conn.execute(
+            "SELECT std_name FROM competency_dict WHERE status='active' AND category=?",
+            (cat,),
+        ).fetchall()
+        by_cat[cat] = [r["std_name"] for r in rows]
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for it in items:
+        scored = []
+        for c in by_cat.get(it["category"], []):
+            s = _similarity(it["name"], c)
+            if s >= config.DICT_MATCH_THRESHOLD:
+                scored.append((s, c))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        for _, c in scored[:10]:
+            if c not in seen:
+                seen.add(c)
+                out.append(c)
+    return out
 
 
 def _mock_disambiguate(system_prompt: str, user_prompt: str) -> dict:
@@ -141,7 +168,7 @@ def disambiguate_items(jd_id: str, items: list[dict]) -> list[dict]:
     if not items:
         return items
     names = [it["name"] for it in items]
-    candidates = _dict_candidates({it["category"] for it in items})
+    candidates = _dict_candidates(items)
 
     merge_map: dict[str, str] = {}
     if candidates:  # 词典为空时跳过 LLM#2，仅代码级处理
@@ -150,7 +177,7 @@ def disambiguate_items(jd_id: str, items: list[dict]) -> list[dict]:
             build_disambiguate_user(names, candidates), mock_fn=_mock_disambiguate,
         )
         merges = DisambiguateResult(**result).merges
-        merge_map = {m["from"]: m["to"] for m in merges}
+        merge_map = {m.from_: m.to for m in merges}
 
     conn = get_conn()
     out: list[dict] = []

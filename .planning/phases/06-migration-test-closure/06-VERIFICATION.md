@@ -1,29 +1,20 @@
 ---
 phase: 06-migration-test-closure
 verified: 2026-09-06T02:10:00Z
-status: gaps_found
-score: 7/8 must-haves verified
+reverified: 2026-09-06T10:30:00Z
+status: verified
+score: 8/8 must-haves verified
 overrides_applied: 0
-gaps:
-  - truth: "评测契约 c 虚拟考生完整兑现：强>中>弱 + 短板定位 + required 覆盖 + 拒答/缺失状态 + 证据引用 + 报告状态"
-    status: partial
-    reason: "eval/virtual_candidates.py 仅断言强>中>弱总分排序（assert_tier_ordering），未断言短板定位（assert_weakness_identified 已定义但全仓无任何调用点）、required 覆盖、拒答/缺失状态、证据引用、报告状态。SSOT §23（总设计文档 589 行）与 ROADMAP SC 5 明确要求 c 虚拟考生六子项；06-05 PLAN 的 must_have 将其收窄为「strong > medium > weak 客观题区分度」，而计划 must_have 不能缩减 roadmap Success Criteria 范围。"
-    artifacts:
-      - path: "eval/virtual_candidates.py"
-        issue: "test_virtual_candidates 只跑到 aggregate_session_scores 并返回三档排序，不生成报告、不断言短板/required/拒答缺失/证据引用/报告状态"
-      - path: "eval/assertions.py"
-        issue: "assert_weakness_identified 已定义但全仓无调用——短板定位子项未接线"
-    missing:
-      - "c 虚拟考生补断言：短板定位符合预设（复用 assert_weakness_identified）"
-      - "c 虚拟考生补断言：required 覆盖 / 拒答缺失状态 / 证据引用 / 报告状态（复用 test_phase5_report.py、test_phase5_evidence.py、test_phase2_scoring.py 既有断言，把报告生成纳入 c 评测链路）"
+gaps: []
+reverification_note: "初验 SC5-c gaps 已闭合：commit d5f377f 将报告生成纳入 test_virtual_candidates（六子项 checks：ordering/weakness/report_status/evidence/required_coverage/missing_state），2026-09-06 复验于隔离临时库全 PASS（strong 120 > medium 80 > weak 0、短板命中技能0、报告 READY、证据引用非空）。"
 ---
 
 # Phase 6: 迁移体系与测试闭环收口 — Verification Report
 
 **Phase Goal:** schema_version 迁移登记簿收口全部演进；测试统一 pytest 收集 + CI 为验收入口；M1 回归、候选人 E2E、评测契约（b/c + bad case + eval 隔离）全部兑现——项目达到「端到端可演示 + 全链可审计」验收态
 **Verified:** 2026-09-06T02:10:00Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Status:** verified（复验后；初验 7/8，SC5-c partial 已闭合）
+**Re-verification:** Yes — 2026-09-06（SC5-c 六子项全 PASS，见 frontmatter reverification_note）
 
 ## Goal Achievement
 
@@ -36,11 +27,11 @@ gaps:
 | 3   | SC3: M1 回归清单八项通过 | ✓ VERIFIED | `test_m1_regression.py` 8 条 `test_*` 全绿；mock=3 局限以模块 docstring 记档（`_mock_score` 未改） |
 | 4   | SC4: 候选人端完整 E2E + 四场景（刷新/断线/越权/超时） | ✓ VERIFIED | `test_e2e_full_chain.py` 5 条绿（主链 + 刷新恢复 + 断线重试幂等 + 越权 404/403 + 超时封存）；`get_session` 补 `position_name`+`messages`；`FormCard` submit-v2 + `Report.vue` missing_reasons 中文映射 |
 | 5a  | SC5-b: b 一致性（固定 transcript 复跑 score_final 分差 ≤1） | ✓ VERIFIED | `eval/consistency_test.py` + `assert_score_consistency(max_variance=1)`，隔离临时库 `_run_isolated` 运行 |
-| 5b  | SC5-c: c 虚拟考生（强>中>弱 + 短板定位 + required 覆盖 + 拒答/缺失 + 证据引用 + 报告状态） | ✗ FAILED (partial) | `eval/virtual_candidates.py` 仅断言 `strong>medium>weak`（`assert_tier_ordering`）；`assert_weakness_identified` 无调用；required/拒答/证据/报告状态未在 c 评测断言 |
+| 5b  | SC5-c: c 虚拟考生（强>中>弱 + 短板定位 + required 覆盖 + 拒答/缺失 + 证据引用 + 报告状态） | ✓ VERIFIED（复验） | `eval/virtual_candidates.py` `test_virtual_candidates` 六子项 checks 全绿：ordering（120>80>0）/ weakness（assert_weakness_identified 命中被测客观题）/ report_status（READY）/ evidence（question_reviews evidence_quote 非空）/ required_coverage / missing_state——2026-09-06 隔离库复验 PASS |
 | 5c  | SC5-bad case: 双分背离自动候选（管理员审核不自动改分） | ✓ VERIFIED | `bad_case_candidate` 表 + `_detect_bad_case_divergence`（只 INSERT、永不 UPDATE score）+ `test_bad_case.py` 2 条绿 |
 | 5d  | SC5-eval 隔离: eval 独立/临时库不污染业务库 | ✓ VERIFIED | `set_db_path` + `_run_isolated`（业务库快照→临时库→复位）+ admin `_run` 隔离 + `test_eval_isolation.py` 绿（session 行数不变 + eval_results 增 + status='completed'） |
 
-**Score:** 7/8 truths verified（1 个 partial：SC5-c 虚拟考生）
+**Score:** 8/8 truths verified（SC5-c 初验 partial，commit d5f377f 闭合后复验全绿）
 
 ## Requirements Coverage
 
@@ -58,7 +49,7 @@ gaps:
 | REF-8.6 | 06-03 | mock interviewer 固定 3 分处置 | ✓ SATISFIED | docstring 记档，`_mock_score` 未改 |
 | REF-8.8 | 06-05 | eval 脚本独立/临时库改造 | ✓ SATISFIED | `set_db_path` + `_run_isolated` + `test_eval_isolation.py` |
 
-REQ 映射：REQ-data-compliance（REF-6.1/6.2/6.3）✓ · REQ-e2e-demo-deliverables（REF-7.4/7.6）✓ · REQ-jd-parse-model（M1 回归）✓ · REQ-iterative-loop（b/bad case/eval 隔离）✓，**REQ-iterative-loop 的 c 虚拟考生部分随 SC5-c 一并 partial**。
+REQ 映射：REQ-data-compliance（REF-6.1/6.2/6.3）✓ · REQ-e2e-demo-deliverables（REF-7.4/7.6）✓ · REQ-jd-parse-model（M1 回归）✓ · REQ-iterative-loop（b/bad case/eval 隔离/c 虚拟考生）✓（c 部分初验 partial、复验闭合）。
 
 Orphaned requirements：无（11 个 REF 全部被 5 个 PLAN frontmatter 声明覆盖，与 REQUIREMENTS.md Phase 6 分组一致）。
 

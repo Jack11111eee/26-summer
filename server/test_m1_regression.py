@@ -3,7 +3,8 @@
 八项锁：
   1) 清洗边界 clean_jd（空 JD / 纯标点 / 超长 JD 不抛异常，返回可处理结构）
   2) 抽取异常 normalize_title（无标题 / 纯数字标题不抛异常）
-  3) 消歧 disambiguate_items（词典为空跳过 LLM#2 → 降级代码去重，mock 下确定性）
+  3) 消歧 disambiguate_items（词典为空跳过 LLM#2 → 降级代码去重，mock 下确定性；
+     非空 merges 属性访问 from_/to —— 回归锁 f8accb4 下标 TypeError）
   4) 权重尾差 Σ=1 _compute_weights（生成器路径精确 ==1.0，尾差由权重最大项吸收；
      编辑器路径 ±0.005 容差——语义见 CONCERNS，勿混用两口径）
   5) 等级冲突 adjudicate（极差 ≥ ADJUDICATE_CONFLICT_THRESHOLD=2 → 取低 + human_review）
@@ -63,6 +64,41 @@ def test_disambiguate_no_llm_degradation():
     ]
     out = disambiguate_items("jd_m1_reg_0001", items)
     assert [it["name"] for it in out] == ["Python", "MySQL"]
+
+
+def test_disambiguate_nonempty_merges():
+    """3b) 消歧非空 merges：MergePair 属性访问 from_/to，不再下标（f8accb4）。
+
+    mock _mock_disambiguate 恒返回空 merges，非空路径从未覆盖，故此处
+    monkeypatch mock 返回非空 merges（LLM_PROVIDER=mock 下 call_llm_json
+    直接消费其返回值），回归锁 {m.from_: m.to} 属性访问。
+    """
+    from server.services import pipeline
+    from server.services.pipeline import disambiguate_items
+
+    # 词典候选非空才进 LLM#2：先插一条 active 词条
+    conn = pipeline.get_conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO competency_dict(std_name, category, definition,"
+        " aliases_json, exclusions_json, created_by, status, created_at, updated_at)"
+        " VALUES('Python 开发','hard_skill',NULL,'[]','[]','human','active',?,?)",
+        (pipeline.now_iso(), pipeline.now_iso()),
+    )
+    conn.commit()
+
+    def _mock_nonempty(system_prompt, user_prompt):
+        return {"merges": [{"from": "Python", "to": "Python 开发"}]}
+
+    original = pipeline._mock_disambiguate
+    pipeline._mock_disambiguate = _mock_nonempty
+    try:
+        out = disambiguate_items(
+            "jd_m1_reg_0002",
+            [{"name": "Python", "category": "hard_skill"}],
+        )
+    finally:
+        pipeline._mock_disambiguate = original
+    assert out[0]["name"] == "Python 开发"
 
 
 def test_compute_weights_sum_one():

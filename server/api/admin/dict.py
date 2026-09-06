@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...core.security import require_admin
 from ...db import get_conn
+from ...services.input_limits import clamp_pagination_limit
 from ...services.pipeline import now_iso
 
 router = APIRouter(prefix="/api/admin/dict", tags=["admin-dict"], dependencies=[Depends(require_admin)])
@@ -21,25 +22,34 @@ def _row_to_dict(r) -> dict:
 
 @router.get("")
 def list_dict(category: str | None = None, created_by: str | None = None,
-              status: str | None = None, q: str | None = None) -> list[dict]:
-    """词典列表，支持类目/来源/状态/关键字筛选。"""
-    sql = "SELECT * FROM competency_dict WHERE 1=1"
+              status: str | None = None, q: str | None = None,
+              page: int = 1, page_size: int = 20) -> dict:
+    """词典列表，支持类目/来源/状态/关键字筛选 + 分页。"""
+    where = " WHERE 1=1"
     params: list = []
     if category:
-        sql += " AND category=?"
+        where += " AND category=?"
         params.append(category)
     if created_by:
-        sql += " AND created_by=?"
+        where += " AND created_by=?"
         params.append(created_by)
     if status:
-        sql += " AND status=?"
+        where += " AND status=?"
         params.append(status)
     if q:
-        sql += " AND (std_name LIKE ? OR aliases_json LIKE ?)"
+        where += " AND (std_name LIKE ? OR aliases_json LIKE ?)"
         params += [f"%{q}%", f"%{q}%"]
-    sql += " ORDER BY created_by='llm_pending' DESC, updated_at DESC"
+    page = max(1, page)
+    page_size = clamp_pagination_limit(page_size)
+    offset = (page - 1) * page_size
     conn = get_conn()
-    return [_row_to_dict(r) for r in conn.execute(sql, params).fetchall()]
+    total = conn.execute(f"SELECT COUNT(*) c FROM competency_dict{where}", params).fetchone()["c"]
+    rows = conn.execute(
+        f"SELECT * FROM competency_dict{where}"
+        f" ORDER BY created_by='llm_pending' DESC, updated_at DESC LIMIT ? OFFSET ?",
+        (*params, page_size, offset),
+    ).fetchall()
+    return {"items": [_row_to_dict(r) for r in rows], "total": total}
 
 
 def _alias_conflict(conn, aliases: list[str], self_key: tuple[str, str]) -> str | None:

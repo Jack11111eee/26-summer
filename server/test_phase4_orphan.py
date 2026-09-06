@@ -80,20 +80,22 @@ def _seed_orphan_jds() -> None:
     conn.close()
 
 
-def test_orphan_returns_list_not_404() -> None:
+def test_orphan_returns_paginated_not_404() -> None:
     _seed_orphan_jds()
     # 种子就位：2 行孤儿（imported + failed）
     assert len(_q("SELECT jd_id FROM jd_record WHERE position_id IS NULL")) == 2
     r = client.get("/api/admin/jds/orphan", headers=_admin_headers())
-    # 核心断言：/jds/orphan 先于 /jds/{jd_id} 匹配 → 200 列表而非 404「JD 不存在」
+    # 核心断言：/jds/orphan 先于 /jds/{jd_id} 匹配 → 200 而非 404「JD 不存在」
     assert r.status_code == 200, r.text
     data = r.json()
-    assert isinstance(data, list), data
+    assert set(data.keys()) == {"items", "total"}, data
     # 排除 failed 孤儿，只含非 failed 孤儿
-    assert len(data) == 1, data
-    assert data[0]["status"] == "imported"
-    assert all(row["status"] != "failed" for row in data)
+    assert data["total"] == 1, data
+    items = data["items"]
+    assert len(items) == 1, data
+    assert items[0]["status"] == "imported"
+    assert all(row["status"] != "failed" for row in items)
     # 字段口径锁定【[04-009] 选项 B】：字段子集恰为 6 列
-    assert set(data[0].keys()) == {
+    assert set(items[0].keys()) == {
         "jd_id", "job_title", "company", "source_type", "status", "created_at"
     }
