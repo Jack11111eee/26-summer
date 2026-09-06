@@ -172,6 +172,10 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                     if q_qtype == "objective" and not (q_answer_key or "").strip():
                         q_qtype = "subjective"
                         q_answer_key = None
+                        # WR-06：降级后的主观题需 rubric 判据——LLM 可能 answer_key/rubric
+                        # 均为空，此时补默认 rubric，避免主观评分缺判据
+                        if not (q.get("rubric") or "").strip():
+                            q["rubric"] = f"能结合实例说明{item['std_name']}的应用；思路清晰；有结果数据"
                     _insert_question(
                         conn, scope=scope,
                         position_id=position_id if scope == "position" else None,
@@ -190,3 +194,5 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
             conn.commit()
         except Exception:  # noqa: BLE001
             pass  # 落表本身失败时维持旧静默语义（无更好降级路径）
+    finally:
+        conn.close()  # WR-05：后台任务反复触发（含 retry），不 close 会逐步耗尽连接

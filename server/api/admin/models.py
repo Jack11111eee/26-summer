@@ -100,11 +100,16 @@ def update_model(model_id: str, body: ModelUpdateBody) -> dict:
             )
         seen.add(key)
 
-    # 存库 model_json：前端原 body 的额外字段（position_id 等）经 model_dump 保序保留，
-    # items 部分以校验后的结构化字段覆盖（stall_reason 清除）
+    # WR-04：ModelUpdateBody 仅声明 items（Pydantic extra='ignore' 丢弃 position_id/version
+    # 等元数据），故存库须从既有 model_json 读取并保留非 items 元数据，仅以校验后的
+    # items 覆盖（stall_reason 清除）——否则编辑后 GET /model 丢失 position_id/version。
     from ...services.pipeline import new_id
-    stored = body.model_dump()
-    stored.pop("stall_reason", None)  # 编辑后清除 stalled 标记
+    existing = json.loads(conn.execute(
+        "SELECT model_json FROM competency_model WHERE model_id=?", (model_id,)
+    ).fetchone()["model_json"])
+    existing["items"] = body.model_dump()["items"]
+    existing.pop("stall_reason", None)  # 编辑后清除 stalled 标记
+    stored = existing
     conn.execute("UPDATE competency_model SET model_json=?, status='draft' WHERE model_id=?",
                  (json.dumps(stored, ensure_ascii=False), model_id))
     # 明细表同步重建（人审后的权威内容）
