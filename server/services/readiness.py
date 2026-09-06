@@ -48,15 +48,17 @@ def check_session_readiness(position_id: str, model=None) -> dict | None:
     confirmed 版」取用，create_session 复用同一行避免两次独立查询的口径漂移）；
     缺省时内部自取（readiness 独立调用口径不变）。
 
-    §10.4 全链骨架（Phase 1 实现 1-5 项，6-7 为 no-op 占位）：
+    §10.4 全链骨架（Phase 1 实现 1-5 项）：
     1) position active（status != 'active' → MODEL_NOT_MEASURABLE，W-2 写死，
        复用为"岗位不可开测"语义载体，不新增第 4 个状态名）
     2) 模型 confirmed + items 非空（items 空 → MODEL_NOT_MEASURABLE，REF-8.5）
     3) 题库 readiness（question_bank_task 驱动 → GENERATING / INCOMPLETE）
     4) required item 至少一题覆盖（缺 → INCOMPLETE）
     5) 配额可行（§10.1-10.3 N + 7:3 + tier 目标比对题库实际量；不足 → INCOMPLETE）
-    6) 综合题槽位（no-op：Phase 2-4 填充）
-    7) qualification 表单 schema（no-op：Phase 3 填充）
+    6) 综合题槽位：本期综合题不排期（I=0）→ 恒过（by-design，SSOT §10.4 2026-09-06 注记）
+    7) qualification 表单 schema：由会话模型 gate=1 items 动态展开生成
+       （form_instance.schema_snapshot），存在性已被第 2 项 items 检查隐式覆盖
+       → 恒过（by-design，SSOT §10.4 2026-09-06 注记）
     """
     conn = get_conn()
     try:
@@ -175,6 +177,7 @@ def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict 
             detail += f"（配额不足：{'、'.join(gaps)}）"
         return {"error_code": "QUESTION_BANK_INCOMPLETE", "detail": detail}
 
-    # 6) 综合题槽位：Phase 2-4 填充
-    # 7) qualification 表单 schema：Phase 3 填充
+    # 6) 综合题槽位：本期不排期（I=0）→ 恒过 by-design（SSOT §10.4 注记，2026-09-06）
+    # 7) qualification 表单 schema：由 items 动态展开生成，已被第 2 项隐式覆盖 → 恒过
+    #    by-design（SSOT §10.4 注记，2026-09-06；无独立"schema 缺失"失败模式）
     return None
