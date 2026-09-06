@@ -2,8 +2,34 @@
 
 import os
 import sqlite3
+from datetime import datetime, timezone
+from typing import Callable
 
 from .config import DB_PATH
+
+# DB 路径进程内覆盖（D-74：eval 隔离 + 迁移测试临时库；仅进程内，不落盘不改 env——T-06-03）
+_DB_PATH_OVERRIDE: str | None = None
+
+
+def set_db_path(path: str | None) -> None:
+    """进程内覆盖 get_conn/init_db 的 DB 路径；传 None 复位为 config.DB_PATH。"""
+    global _DB_PATH_OVERRIDE
+    _DB_PATH_OVERRIDE = path
+
+
+def _resolve_db_path() -> str:
+    """取 _DB_PATH_OVERRIDE（若设置）否则 import 时冻结的 config.DB_PATH。"""
+    return _DB_PATH_OVERRIDE or DB_PATH
+
+
+# 迁移登记簿表（D-68/REF-2.11）：本身不走 MIGRATIONS，init_db 第一步引导
+_SCHEMA_VERSION_DDL = """
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+"""
 
 # 05 文档 §5 DDL，字段名与 CHECK 约束不增删
 _DDL = """
@@ -110,7 +136,16 @@ CREATE TABLE IF NOT EXISTS assessment_session (
   status        TEXT NOT NULL CHECK(status IN ('in_progress','completed','abandoned')),
   started_at    TEXT NOT NULL,
   ended_at      TEXT,
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  -- ============ Phase 3 计时新列（SSOT §12.1/D-39~D-42；无 DB CHECK——N11）============
+  -- phase 状态机 PENDING_START→ACTIVE→SCORING→COMPLETED/ABANDONED 与 status 双轨并存
+  -- （status CHECK 不动——Anti-pattern 4：PENDING_START/SCORING 落 phase 列）
+  phase                     TEXT,
+  active_elapsed_seconds    INTEGER,
+  last_activity_at          TEXT,
+  abandoned_at              TEXT,
+  policy_version            TEXT,
+  session_time_intervals_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS question_bank (
@@ -162,7 +197,9 @@ CREATE TABLE IF NOT EXISTS assessment_question (
   seal_reason             TEXT,   -- answered/refused/timeout 枚举位，代码校验
   selection_reason        TEXT,   -- D-18 结构化 JSON
   selection_policy_version TEXT,
-  path_state_snapshot     TEXT
+  path_state_snapshot     TEXT,
+  -- ============ Phase 3 幂等/并发新列（D-37，SSOT §13.4——03-03 乐观锁版本号）============
+  revision                INTEGER NOT NULL DEFAULT 1  -- 乐观锁版本号（expected_revision 校验）
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_aq_session_seq ON assessment_question(session_id, seq);
 
@@ -177,8 +214,26 @@ CREATE TABLE IF NOT EXISTS assessment_message (
   reason            TEXT,
   score_live        INTEGER,
   score_live_reason TEXT,
-  created_at        TEXT NOT NULL
+  created_at        TEXT NOT NULL,
+  -- ============ Phase 3 消息分列三列（D-43，SSOT §12.1；全可空）============
+  refined_content   TEXT,
+  client_request_id TEXT,
+  sequence_no       INTEGER
 );
+
+-- ============ 计时区间表（SSOT §15/D-39~D-42——03-04 服务端权威区间）============
+-- interval_type ∈ {active, paused} 代码校验（N11 无 DB CHECK）；reason 敏感不进评分 prompt（D-40）；
+-- 部分唯一索引 uq_sti_open（session_id WHERE ended_at IS NULL）保证同 session 至多一个 open 区间（实验 6）。
+CREATE TABLE IF NOT EXISTS session_time_intervals (
+  interval_id   TEXT PRIMARY KEY,
+  session_id    TEXT NOT NULL REFERENCES assessment_session,
+  interval_type TEXT NOT NULL,
+  reason        TEXT,
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sti_open ON session_time_intervals(session_id) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sti_session ON session_time_intervals(session_id);
 
 CREATE TABLE IF NOT EXISTS context_raw (
   raw_id     TEXT PRIMARY KEY,
@@ -199,7 +254,7 @@ CREATE TABLE IF NOT EXISTS form_submission (
 CREATE TABLE IF NOT EXISTS question_score (
   score_id       TEXT PRIMARY KEY,
   session_id     TEXT NOT NULL REFERENCES assessment_session,
-  question_id    TEXT NOT NULL REFERENCES assessment_question,
+  question_id    TEXT REFERENCES assessment_question,
   item_id        TEXT NOT NULL REFERENCES competency_item,
   score_live     INTEGER,
   score_final    INTEGER,
@@ -207,7 +262,42 @@ CREATE TABLE IF NOT EXISTS question_score (
   reason         TEXT,
   created_at     TEXT NOT NULL,
   -- ============ Phase 2 v2 新列（SSOT §12.4——02-05 消费点切换后 final_score 旧列已 DROP）============
-  score_state    TEXT NOT NULL DEFAULT 'SCORED'
+  score_state    TEXT,
+  -- ============ Phase 3 表单链新列（SSOT §16.1——03-01 gate 结构化结果 + 人工覆盖）============
+  -- question_id/score_state 去 NOT NULL（gate 行这两列 NULL——A2 四步放宽法 [03-008]）；
+  -- gate 五列 + 覆盖四列：gate 行才填，普通评分行 NULL（N11 无 DB CHECK）
+  gate_result              TEXT,
+  gate_status              TEXT,
+  gate_reason              TEXT,
+  evaluated_schema_version TEXT,
+  evaluated_at             TEXT,
+  automated_gate_result    TEXT,
+  human_override           TEXT,
+  override_reason          TEXT,
+  reviewer_id              TEXT,
+  -- ============ Phase 5 审计快照列（SSOT §12.4——05-01 evidence_spans + scorer/rubric 版本）============
+  evidence_spans_json      TEXT,
+  measurement_target       TEXT,
+  rubric_version           TEXT,
+  scorer_version           TEXT
+);
+
+-- ============ 表单实例表（SSOT §16.1——03-01 form_instance 不可变 schema 快照）============
+-- status 三态 rendered/submitted/superseded 代码校验（N11 无 DB CHECK）；
+-- revision 不可变：修订 = INSERT 新行 revision+1（同 form_instance_id），旧行 UPDATE status='superseded'；
+-- render 触发（assessment 池耗尽未采集 gate）→ GET /forms/{id} 白名单 → submit-v2 六维校验消费。
+CREATE TABLE IF NOT EXISTS form_instance (
+  form_instance_id TEXT NOT NULL,
+  session_id       TEXT NOT NULL REFERENCES assessment_session,
+  form_type        TEXT NOT NULL,
+  schema_version   TEXT NOT NULL,
+  schema_snapshot  TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'rendered',
+  revision         INTEGER NOT NULL DEFAULT 1,
+  payload_json     TEXT,
+  created_at       TEXT NOT NULL,
+  submitted_at     TEXT,
+  PRIMARY KEY (form_instance_id, revision)
 );
 
 -- ============ 模块三新增（07 文档 §10.5，2 张表）============
@@ -218,7 +308,21 @@ CREATE TABLE IF NOT EXISTS report (
   total_score REAL NOT NULL,
   gate_passed INTEGER NOT NULL,
   report_json TEXT NOT NULL,
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  -- ============ Phase 5 报告状态机列（SSOT §21.1——05-03 状态机/发布/人工复核）============
+  -- report_status/review_status 枚举代码校验（N11 无 DB CHECK）；version 版本化行
+  -- （重复生成不再 DELETE 覆盖）；发布/复核字段 publish 端点填。全可空（存量回填见
+  -- _migrate_report_phase5）。
+  report_status          TEXT,
+  review_status          TEXT,
+  version                INTEGER,
+  review_request_reason  TEXT,
+  reviewer_id            TEXT,
+  review_note            TEXT,
+  review_outcome         TEXT,
+  reviewed_at            TEXT,
+  publish_confirmed_by   TEXT,
+  published_at           TEXT
 );
 
 CREATE TABLE IF NOT EXISTS feedback (
@@ -227,7 +331,14 @@ CREATE TABLE IF NOT EXISTS feedback (
   item_id       TEXT NOT NULL REFERENCES competency_item,
   feedback_text TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','bad_case')),
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  -- ============ Phase 5 审计列（SSOT §13.2/D-66/D-67——05-04 feedback 留痕）============
+  -- user_id（提交人）/review_note（admin 处理备注）/reviewer_id（处理人）/reviewed_at（处理时间）
+  -- 全可空、无 DB CHECK（N11）；存量行 NULL（历史异议无审计字段，接受——D-66 只保证新行全字段）。
+  user_id       TEXT,
+  review_note   TEXT,
+  reviewer_id   TEXT,
+  reviewed_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS eval_results (
@@ -289,12 +400,63 @@ CREATE TABLE IF NOT EXISTS question_bank_task (
   finished_at  TEXT,
   error_msg    TEXT
 );
+
+-- ============ 幂等记录表（SSOT §13.4/D-36~D-38——03-03 三键作用域 + 两阶段）============
+-- 三键 UNIQUE(session_id, endpoint, idempotency_key) 拦并发双发（IntegrityError）；
+-- status PENDING/COMMITTED 代码校验（N11 无 DB CHECK）；response_snapshot = 决策结果 dict JSON
+-- （COMMITTED 后填——白名单键，不含候选人输入原文——A1）；created_at 索引为
+-- D-38 Phase 6 数据治理预留（清理策略不实现——演示期数据量级接受）。
+
+CREATE TABLE IF NOT EXISTS idempotency_record (
+  id               TEXT PRIMARY KEY,
+  session_id       TEXT NOT NULL,
+  endpoint         TEXT NOT NULL,           -- 'answer' | 'form_submit'
+  idempotency_key  TEXT NOT NULL,
+  request_hash     TEXT,                    -- sha256 规范化 JSON（Claude 裁量）
+  status           TEXT NOT NULL,           -- PENDING/COMMITTED 代码校验（N11）
+  response_snapshot TEXT,                   -- COMMITTED 后填——决策结果 dict JSON
+  created_at       TEXT NOT NULL,
+  UNIQUE(session_id, endpoint, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_idem_created ON idempotency_record(created_at);
+
+-- ============ trace_link 统一审计链（SSOT §13.3/D-56——05-01）============
+-- link_role 枚举（input/output/caused_by/scored/reported/source）代码校验、无 DB CHECK（N11）；
+-- entity_type/entity_id 弱关联（业务表不加 FK——D-020）；UNIQUE 兜底幂等。
+CREATE TABLE IF NOT EXISTS trace_link (
+  id          TEXT PRIMARY KEY,
+  trace_id    TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id   TEXT NOT NULL,
+  link_role   TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  UNIQUE(trace_id, entity_type, entity_id, link_role)
+);
+
+-- ============ bad case 候选表（SSOT §2.3/REF-5.11——06-05 双分背离检测）============
+-- score_live/score_final 双分背离 ≥ 阈值 → INSERT 候选（status='pending'），
+-- 管理员审核确认，永不自动改分（D-031）。status 三态 pending/reviewed/dismissed
+-- 由 CHECK 兜底（本表新表，非存量迁移，直接落 _DDL 最新口径——无需 ALTER）。
+CREATE TABLE IF NOT EXISTS bad_case_candidate (
+  candidate_id TEXT PRIMARY KEY,
+  session_id   TEXT NOT NULL REFERENCES assessment_session,
+  item_id      TEXT NOT NULL REFERENCES competency_item,
+  question_id  TEXT,
+  score_live   REAL,
+  score_final  REAL,
+  divergence   REAL,
+  status       TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','dismissed')),
+  detected_at  TEXT NOT NULL,
+  review_note  TEXT,
+  reviewed_by  TEXT,
+  reviewed_at  TEXT
+);
 """
 
 
 def get_conn() -> sqlite3.Connection:
     """返回开启外键、Row 工厂的数据库连接。"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_resolve_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -414,6 +576,7 @@ def _migrate_assessment_question_v2(conn: sqlite3.Connection) -> None:
         ("selection_reason", "TEXT"),
         ("selection_policy_version", "TEXT"),
         ("path_state_snapshot", "TEXT"),
+        ("revision", "INTEGER NOT NULL DEFAULT 1"),
     ]
     for name, decl in new_cols:
         if name not in cols:
@@ -459,18 +622,349 @@ def _migrate_question_score_v2(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE question_score DROP COLUMN final_score")
 
 
+def _migrate_question_score_phase3(conn: sqlite3.Connection) -> None:
+    """Phase 3（SSOT §16.1）：question_score 加 gate 五列 + 覆盖四列，并放宽 question_id/
+    score_state 的 NOT NULL（gate 行这两列 NULL——结构化 gate 结果复用评分表）。
+
+    - gate 五列（gate_result/gate_status/gate_reason/evaluated_schema_version/evaluated_at）
+      与覆盖四列（automated_gate_result/human_override/override_reason/reviewer_id）
+      全部可空、无 DB CHECK（N11）——gate 行才填，普通评分行 NULL。
+    - NOT NULL 放宽采用 A2 四步放宽法（ADD *_v2 → UPDATE 拷值 → DROP 原列 → RENAME COLUMN）：
+      A2 四步放宽法——02-RESEARCH 实验 9/10 验证 + 关口包裁决 [03-008]（2026-09-05）；
+      gate 行 question_id NULL 与 D-31 字面 'question_score gate 项行' 的兼容取舍已裁决。
+      旧行值保留（放宽不丢数据）：question_id_v2 拷原值、score_state_v2 回填 COALESCE 原值。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL，已含新列）
+    for name, decl in (
+        ("gate_result", "TEXT"),
+        ("gate_status", "TEXT"),
+        ("gate_reason", "TEXT"),
+        ("evaluated_schema_version", "TEXT"),
+        ("evaluated_at", "TEXT"),
+        ("automated_gate_result", "TEXT"),
+        ("human_override", "TEXT"),
+        ("override_reason", "TEXT"),
+        ("reviewer_id", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE question_score ADD COLUMN {name} {decl}")
+
+    def _relax(column: str, copy_expr: str) -> None:
+        """A2 四步放宽法：目标列若仍 NOT NULL 则 ADD v2 → UPDATE 拷 → DROP → RENAME。
+
+        init_db 的 conn 为裸 sqlite3.connect（无 row_factory），PRAGMA table_info 返回元组
+        (cid, name, type, notnull, dflt_value, pk)——notnull 取下标 3。
+        """
+        info = {r[1]: r for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
+        if info[column][3] == 0:
+            return  # 已放宽（幂等嗅探：二次 init_db 直接跳过）
+        conn.execute(f"ALTER TABLE question_score ADD COLUMN {column}_v2 TEXT")
+        conn.execute(f"UPDATE question_score SET {column}_v2 = {copy_expr}")
+        conn.execute(f"ALTER TABLE question_score DROP COLUMN {column}")
+        conn.execute(f"ALTER TABLE question_score RENAME COLUMN {column}_v2 TO {column}")
+
+    _relax("question_id", "question_id")
+    _relax("score_state", "COALESCE(score_state, 'SCORED')")
+
+
+def _migrate_form_instance(conn: sqlite3.Connection) -> None:
+    """Phase 3（SSOT §16.1）：补建 form_instance（老库无此表；CREATE IF NOT EXISTS 幂等）。
+
+    新表走 _DDL 直建；存量库走本函数（与 _migrate_question_bank_v2 双轨纪律同形态）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS form_instance (
+      form_instance_id TEXT NOT NULL,
+      session_id       TEXT NOT NULL REFERENCES assessment_session,
+      form_type        TEXT NOT NULL,
+      schema_version   TEXT NOT NULL,
+      schema_snapshot  TEXT NOT NULL,
+      status           TEXT NOT NULL DEFAULT 'rendered',
+      revision         INTEGER NOT NULL DEFAULT 1,
+      payload_json     TEXT,
+      created_at       TEXT NOT NULL,
+      submitted_at     TEXT,
+      PRIMARY KEY (form_instance_id, revision)
+    );
+    """)
+
+
+def _migrate_idempotency_record(conn: sqlite3.Connection) -> None:
+    """Phase 3（SSOT §13.4）：补建 idempotency_record（老库无此表；CREATE IF NOT EXISTS 幂等）。
+
+    新表走 _DDL 直建；存量库走本函数（三键 UNIQUE + created_at 索引与 _DDL 双轨同形态）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS idempotency_record (
+      id               TEXT PRIMARY KEY,
+      session_id       TEXT NOT NULL,
+      endpoint         TEXT NOT NULL,
+      idempotency_key  TEXT NOT NULL,
+      request_hash     TEXT,
+      status           TEXT NOT NULL,
+      response_snapshot TEXT,
+      created_at       TEXT NOT NULL,
+      UNIQUE(session_id, endpoint, idempotency_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_idem_created ON idempotency_record(created_at);
+    """)
+
+
+def _migrate_session_phase3(conn: sqlite3.Connection) -> None:
+    """Phase 3（SSOT §12.1/§15/D-39~D-43）：assessment_session 加 6 计时列 + assessment_message
+    加 3 分列 + 补建 session_time_intervals 与 uq_sti_open 部分唯一索引。
+
+    - 新列 PRAGMA 嗅探 if-not-in-ADD（幂等）；旧行 phase 回填 'PENDING_START'（WHERE phase IS NULL）。
+    - session_time_intervals 表与索引走 CREATE IF NOT EXISTS（与 _DDL 双轨同语句——
+      02-01 双轨纪律；部分索引 WHERE ended_at IS NULL 子句与 _DDL 同串——W4 sqlite_master 断言口径）。
+    - status CHECK 不动（Anti-pattern 4：PENDING_START/SCORING 落 phase 列，status 存量语义不动）。
+    """
+    sess_cols = {r[1] for r in conn.execute("PRAGMA table_info(assessment_session)").fetchall()}
+    if sess_cols:
+        for name, decl in (
+            ("phase", "TEXT"),
+            ("active_elapsed_seconds", "INTEGER"),
+            ("last_activity_at", "TEXT"),
+            ("abandoned_at", "TEXT"),
+            ("policy_version", "TEXT"),
+            ("session_time_intervals_json", "TEXT"),
+        ):
+            if name not in sess_cols:
+                conn.execute(f"ALTER TABLE assessment_session ADD COLUMN {name} {decl}")
+        conn.execute(
+            "UPDATE assessment_session SET phase='PENDING_START' WHERE phase IS NULL"
+        )
+
+    msg_cols = {r[1] for r in conn.execute("PRAGMA table_info(assessment_message)").fetchall()}
+    if msg_cols:
+        for name, decl in (
+            ("refined_content", "TEXT"),
+            ("client_request_id", "TEXT"),
+            ("sequence_no", "INTEGER"),
+        ):
+            if name not in msg_cols:
+                conn.execute(f"ALTER TABLE assessment_message ADD COLUMN {name} {decl}")
+
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS session_time_intervals (
+      interval_id   TEXT PRIMARY KEY,
+      session_id    TEXT NOT NULL REFERENCES assessment_session,
+      interval_type TEXT NOT NULL,
+      reason        TEXT,
+      started_at    TEXT NOT NULL,
+      ended_at      TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_sti_open ON session_time_intervals(session_id) WHERE ended_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_sti_session ON session_time_intervals(session_id);
+    """)
+
+
+def _migrate_trace_link(conn: sqlite3.Connection) -> None:
+    """Phase 5（SSOT §13.3/D-56/D-57）：补建 trace_link + 旧 ref_id 导入。
+
+    建表走 CREATE IF NOT EXISTS（与 _DDL 双轨同串）；旧 llm_trace.ref_id 按 call_type
+    逐候选实体表 SELECT 1 命中探测，命中即拆 entity_type/entity_id 导成 link_role='source'
+    行（INSERT OR IGNORE 幂等）；命不中保留 ref_id 原值不拆（弱关联不强造，T-05-02）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS trace_link (
+      id          TEXT PRIMARY KEY,
+      trace_id    TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id   TEXT NOT NULL,
+      link_role   TEXT NOT NULL,
+      created_at  TEXT NOT NULL,
+      UNIQUE(trace_id, entity_type, entity_id, link_role)
+    );
+    """)
+    # 新库此时 llm_trace 尚未建（走 _DDL 尾部），无旧行可导——跳过
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='llm_trace'"
+    ).fetchone() is None:
+        return
+
+    # call_type → 候选实体表（D-57 语义域映射；interviewer/refine/score 的 ref_id 可能指向
+    # question_id 或 session_id——以「能命中实体表」为准，逐表探测取首个命中）
+    tables_by_call = {
+        "extract": ("jd_record", "position", "competency_model"),
+        "disambiguate": ("jd_record", "position", "competency_model"),
+        "aggregate_level": ("jd_record", "position", "competency_model"),
+        "question_gen": ("assessment_question", "assessment_session"),
+        "interviewer": ("assessment_question", "assessment_session"),
+        "refine": ("assessment_question", "assessment_session"),
+        "score": ("assessment_question", "assessment_session"),
+        "report": ("report", "assessment_session"),
+    }
+    pk_by_table = {
+        "jd_record": "jd_id",
+        "position": "position_id",
+        "competency_model": "model_id",
+        "assessment_question": "question_id",
+        "assessment_session": "session_id",
+        "report": "report_id",
+    }
+    from .services.pipeline import new_id
+
+    rows = conn.execute(
+        "SELECT trace_id, call_type, ref_id, created_at FROM llm_trace"
+    ).fetchall()
+    for trace_id, call_type, ref_id, created_at in rows:
+        for table in tables_by_call.get(call_type, ()):
+            pk = pk_by_table[table]
+            hit = conn.execute(
+                f"SELECT 1 FROM {table} WHERE {pk}=?", (ref_id,)
+            ).fetchone()
+            if hit is not None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO trace_link(id, trace_id, entity_type, entity_id,"
+                    " link_role, created_at) VALUES(?,?,?,?,?,?)",
+                    (new_id("tl"), trace_id, table, ref_id, "source", created_at),
+                )
+                break
+
+
+def _migrate_question_score_phase5(conn: sqlite3.Connection) -> None:
+    """Phase 5（SSOT §12.4/D-55）：question_score 加 4 审计快照列（全部可空、无 DB CHECK）。
+
+    - PRAGMA 嗅探逐列 ALTER（幂等）；新库表已含新列自然跳过。
+    - 全可空（evidence_spans_json/measurement_target/scorer_version 历史行 NULL 接受；
+      rubric_version 由评分运行时写 'v1'——迁移不回填存量，避免臆造）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL，已含新列）
+    for name, decl in (
+        ("evidence_spans_json", "TEXT"),
+        ("measurement_target", "TEXT"),
+        ("rubric_version", "TEXT"),
+        ("scorer_version", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE question_score ADD COLUMN {name} {decl}")
+
+
+def _migrate_report_phase5(conn: sqlite3.Connection) -> None:
+    """Phase 5（SSOT §21.1/D-025）：report 表加 10 列状态机/发布/复核字段（全可空无 DB CHECK）。
+
+    - PRAGMA 嗅探逐列 ALTER（幂等）；新库表已含新列自然跳过。
+    - 存量回填（关口 A 已裁决）：旧 report 行报告已候选端可见，语义最接近终态 →
+      report_status='PUBLISHED' + review_status='NONE' + version=1（仅回填 NULL 行）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(report)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL，已含新列）
+    for name, decl in (
+        ("report_status", "TEXT"),
+        ("review_status", "TEXT"),
+        ("version", "INTEGER"),
+        ("review_request_reason", "TEXT"),
+        ("reviewer_id", "TEXT"),
+        ("review_note", "TEXT"),
+        ("review_outcome", "TEXT"),
+        ("reviewed_at", "TEXT"),
+        ("publish_confirmed_by", "TEXT"),
+        ("published_at", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE report ADD COLUMN {name} {decl}")
+    conn.execute(
+        "UPDATE report SET report_status='PUBLISHED', review_status='NONE', version=1"
+        " WHERE report_status IS NULL"
+    )
+
+
+def _migrate_feedback_phase5(conn: sqlite3.Connection) -> None:
+    """Phase 5（SSOT §13.2/D-66/D-67）：feedback 加 4 审计列（全可空、无 DB CHECK）。
+
+    - PRAGMA 嗅探逐列 ALTER（幂等）；新库表已含新列自然跳过。
+    - 存量行 user_id/review_note/reviewer_id/reviewed_at 保持 NULL（历史异议无审计字段，
+      接受——迁移不虚构提交人/处理人，只有未来新提交/新处理才有溯源）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(feedback)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL，已含新列）
+    for name, decl in (
+        ("user_id", "TEXT"),
+        ("review_note", "TEXT"),
+        ("reviewer_id", "TEXT"),
+        ("reviewed_at", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE feedback ADD COLUMN {name} {decl}")
+
+
+MIGRATIONS: list[tuple[int, str, Callable]] = [
+    (1, "llm_trace", _migrate_llm_trace),
+    (2, "feedback_status", _migrate_feedback_status),
+    (3, "question_bank_v2", _migrate_question_bank_v2),
+    (4, "assessment_question_v2", _migrate_assessment_question_v2),
+    (5, "question_score_v2", _migrate_question_score_v2),
+    (6, "question_score_phase3", _migrate_question_score_phase3),
+    (7, "form_instance", _migrate_form_instance),
+    (8, "idempotency_record", _migrate_idempotency_record),
+    (9, "session_phase3", _migrate_session_phase3),
+    (10, "trace_link", _migrate_trace_link),
+    (11, "question_score_phase5", _migrate_question_score_phase5),
+    (12, "report_phase5", _migrate_report_phase5),
+    (13, "feedback_phase5", _migrate_feedback_phase5),
+]
+
+
+_backup_done_for_this_init = False
+
+
+def _safe_ts() -> str:
+    """文件系统安全时间戳（isoformat 的 ':'/'+' 在 NTFS 非法，Windows 会崩溃）。"""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def _backup_before_migration(conn: sqlite3.Connection) -> None:
+    """未登记迁移执行前，用 stdlib conn.backup() 备份当前库到 backups/（回滚路径，§28-6）。
+
+    每次 init_db() 至多备份一次（单次 pre-migration 快照覆盖本批全部迁移），避免全新库
+    首次建表时对 13 个迁移各备份一次；文件名用文件系统安全时间戳（_safe_ts）。
+    """
+    global _backup_done_for_this_init
+    if _backup_done_for_this_init:
+        return
+    _backup_done_for_this_init = True
+    bdir = os.path.join(os.path.dirname(os.path.abspath(_resolve_db_path())), "backups")
+    os.makedirs(bdir, exist_ok=True)
+    target = sqlite3.connect(os.path.join(bdir, f"app-{_safe_ts()}-pre-migration.db"))
+    try:
+        conn.backup(target)
+    finally:
+        target.close()
+
+
 def init_db() -> None:
-    """建表（幂等）+ 老库迁移，启动时调用一次。"""
-    db_dir = os.path.dirname(DB_PATH)
+    """建表（幂等）+ 老库迁移，启动时调用一次。
+
+    schema_version 登记簿（D-68/REF-2.11）取代旧硬编码 13 次调用：引导登记簿 →
+    读 applied → 循环 MIGRATIONS（未登记先备份再迁移再登记、逐迁移 commit）→ 尾部 _DDL。
+    """
+    global _backup_done_for_this_init
+    path = _resolve_db_path()
+    db_dir = os.path.dirname(path)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(path)
     try:
-        _migrate_llm_trace(conn)
-        _migrate_feedback_status(conn)
-        _migrate_question_bank_v2(conn)
-        _migrate_assessment_question_v2(conn)
-        _migrate_question_score_v2(conn)
+        conn.executescript(_SCHEMA_VERSION_DDL)
+        applied = {r[0] for r in conn.execute("SELECT version FROM schema_version").fetchall()}
+        _backup_done_for_this_init = False
+        for version, name, fn in MIGRATIONS:
+            if version in applied:
+                continue
+            _backup_before_migration(conn)
+            fn(conn)
+            conn.execute(
+                "INSERT INTO schema_version(version, name, applied_at) VALUES(?,?,?)",
+                (version, name, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
         conn.executescript(_DDL)
         conn.commit()
     finally:

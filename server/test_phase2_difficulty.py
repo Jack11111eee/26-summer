@@ -416,17 +416,17 @@ def _seed_position_with_confirmed_model(required_level: int = 3) -> tuple[str, s
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """岗位题：Python easy/medium/hard 各 2（降级/承接测试需同 item 多实例）+ 其余配额。"""
     conn = get_conn()
     now = now_iso()
 
     def _add(std_name, category, difficulty):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), "position", pid, std_name, category, difficulty, "subjective",
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), "position", pid, mid, 1, std_name, category, difficulty, "subjective",
              f"{std_name} {difficulty} 题", None, "判据", None, None, "human", "active", now),
         )
 
@@ -463,25 +463,41 @@ _EVIDENCE = (
 )
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _cur_q(sid: str, headers: dict) -> dict | None:
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start（循环内幂等）
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     return r.json()["current_question"]
 
 
 def _answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": question_id, "answer": answer}, headers=headers)
-    assert r.status_code == 200, r.text
-    return r.json()
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
 
 
 def test_events_payload_and_same_transaction():
     """item 先升到 medium（充分证据）再连续两道低分（followup 后强制 next，有效失败）
     → 封存后 DIFFICULTY_LOWERED：payload 四键（criterion/evidence_counts/from/to）+
     最新封存实例行 snapshot current_difficulty == 事件 to_state（§13.1 同事务）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_diff_lower")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -556,7 +572,7 @@ def test_events_payload_and_same_transaction():
 def test_selection_reads_snapshot():
     """item 有 snapshot(current_difficulty=medium) → 该 item 后续实例 difficulty=='medium'（承接）。"""
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_diff_sel")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)

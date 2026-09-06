@@ -90,21 +90,23 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str, *, hard_extra: int = 0, soft_extra: int = 0) -> None:
+def _seed_question_bank(pid: str, mid: str, *, hard_extra: int = 0, soft_extra: int = 0) -> None:
     """岗位题：hard 7+ / soft 3+（N=10 → hard 7 / soft 3 的 tier 结构满足量）。
 
     required 题挂在 required item 上（Python/MySQL/沟通能力）；
     preferred 挂 Docker/团队协作（缺位时 tier targets 自动 clamp 到可用项）。
+    种子绑定 confirmed 模型（model_id=mid, model_version=1——Phase 4 消费侧强制过滤）。
     """
     conn = get_conn()
     now = now_iso()
 
     def _add(std_name, category, difficulty, rubric):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
-            " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), "position", pid, std_name, category, difficulty, "subjective",
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version,"
+            " std_name, category, difficulty, qtype, stem, answer_key, rubric, chain_key,"
+            " chain_seq, source, status, created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), "position", pid, mid, 1, std_name, category, difficulty, "subjective",
              f"{std_name} {difficulty} 题", None, rubric, None, None, "human", "active", now),
         )
 
@@ -174,8 +176,8 @@ def test_plan_quotas_single_category():
 
 def test_session_creation_no_preselection():
     """建会话后 assessment_question 行数 = 0（SC-1 首断言）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_sel_nopre")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -185,25 +187,43 @@ def test_session_creation_no_preselection():
     assert n == 0, f"会话创建应零预选（实得 {n} 行）"
 
 
+def _stream_answer(sid, headers, question_id, answer) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _answer_one(sid, headers, answer=_LONG_ANSWER) -> dict:
-    """取当前题并提交一次回答，返回响应 json。"""
+    """取当前题并提交一次回答，返回组回 dict。"""
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start（循环内幂等）
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     cur = r.json()["current_question"]
     assert cur is not None, "get_session 应已有派发实例"
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": cur["question_id"], "answer": answer},
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    return r.json()
+    return _stream_answer(sid, headers, cur["question_id"], answer)
 
 
 def test_dynamic_dispatch_per_next():
     """第 1 次 GET 派发首题；每答一题 aq 行数递增；selection_reason 七键可解析（D-18）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_sel_dyn")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -211,6 +231,7 @@ def test_dynamic_dispatch_per_next():
     sid = r.json()["session_id"]
 
     # 第一次 GET 派发首题（1 个未答实例）
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     cur = r.json()["current_question"]
@@ -246,8 +267,8 @@ def test_dynamic_dispatch_per_next():
 
 def test_no_experience_in_selection():
     """整场答完后所有实例 category ⊆ {hard_skill, soft_skill}（SC-2 前半）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     # 额外放经验题进题库：证明 selection 不吃 experience
     conn = get_conn()
     conn.execute(
@@ -277,8 +298,8 @@ def test_no_experience_in_selection():
 
 def test_followup_does_not_create_instance():
     """followup 答次不增 aq 行数（REF-4.1：followup 为实例内子轮次）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_sel_fu")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -294,13 +315,8 @@ def test_followup_does_not_create_instance():
         before = _q("SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (sid,))[0]["c"]
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
         qid = r.json()["current_question"]["question_id"]
-        r = client.post(
-            f"/api/assessment/sessions/{sid}/answer",
-            json={"question_id": qid, "answer": "不知道"},
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-        assert r.json()["action"] == "followup", "短答应触发 followup"
+        r2 = _stream_answer(sid, headers, qid, "不知道")
+        assert r2["action"] == "followup", "短答应触发 followup"
         after = _q("SELECT COUNT(*) c FROM assessment_question WHERE session_id=?", (sid,))[0]["c"]
         assert after == before, f"followup 不应增实例（{before} → {after}）"
 
@@ -319,9 +335,10 @@ def test_required_exception_after_exhaustion():
       按权重选未覆盖 required（Python/算法/Redis/Kafka 各 1 题），权重最低的
       MySQL（required、题在池中）在第 5 轮时 required tier 槽位已满 → 普通计划
       全程不覆盖 → N 题后例外补选其 medium（§10.5）→ REQUIRED_EXCEPTION_GRANTED；
-    - 沟通能力（required soft）：唯一 medium 题挂 model_id='other'（版本近似
-      排除出候选池，readiness 的 std_name 覆盖检查仍通过）→ 例外也无候选 →
-      PATH_UNAVAILABLE 事件留痕（不静默），会话照常 finish 推进不 500。
+    - 沟通能力（required soft）：唯一 easy 题（readiness 覆盖检查通过，但例外只取
+      medium/hard → 无候选）；权重低于协作能力A/B（required soft），soft required
+      槽位（=2）被二者占满 → 普通计划不覆盖 → 例外无候选 → PATH_UNAVAILABLE
+      事件留痕（不静默），会话照常 finish 推进不 500。
     """
     import sqlite3 as _s
     conn = get_conn()
@@ -339,7 +356,10 @@ def test_required_exception_after_exhaustion():
         # 权重最低的 required hard——层②四轮后被 required tier 目标（=4）挡在普通计划外
         {"std_name": "MySQL", "category": "hard_skill", "importance": "required", "weight": 0.20},
         {"std_name": "Docker", "category": "hard_skill", "importance": "preferred", "weight": 0.10},
-        # 唯一 medium 题挂他人 model_id：普通候选池排除（例外无候选 → PATH_UNAVAILABLE）
+        # 沟通能力 required soft：唯一 easy 题（readiness 覆盖通过，例外只取 medium/hard）；
+        # 权重低于协作能力A/B → soft required 槽位（=2）被二者占满 → 普通计划不覆盖。
+        {"std_name": "协作能力A", "category": "soft_skill", "importance": "required", "weight": 0.30},
+        {"std_name": "协作能力B", "category": "soft_skill", "importance": "required", "weight": 0.28},
         {"std_name": "沟通能力", "category": "soft_skill", "importance": "required", "weight": 0.25},
         {"std_name": "团队协作", "category": "soft_skill", "importance": "preferred", "weight": 0.10},
         {"std_name": "跨部门协作", "category": "soft_skill", "importance": "plus", "weight": 0.05},
@@ -357,13 +377,13 @@ def test_required_exception_after_exhaustion():
             (new_id("c"), mid, it["std_name"], it["category"], 3, it["importance"], it["weight"], 0),
         )
 
-    def _add(std_name, category, difficulty, model_id=None):
+    def _add(std_name, category, difficulty, model_id=mid, model_version=1):
         conn.execute(
             "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
-            " model_id, difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,"
+            " model_id, model_version, difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,"
             " source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), "position", pid, std_name, category, model_id, difficulty,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), "position", pid, std_name, category, model_id, model_version, difficulty,
              "subjective", f"{std_name} {difficulty} 题", None, "判据", None, None,
              "human", "active", now),
         )
@@ -376,9 +396,12 @@ def test_required_exception_after_exhaustion():
     # preferred hard：Docker×3 占 pref 3 槽
     for _ in range(3):
         _add("Docker", "hard_skill", "medium")
-    # 沟通能力（required soft）：medium 挂他人 model_id → 候选池排除（例外目标二）
-    _add("沟通能力", "soft_skill", "medium", model_id="cm_other")
-    # soft pref×2 + plus×1 占满 soft 3 槽
+    # required soft：协作能力A/B 各 1 道 medium（占满 soft required 2 槽）；
+    # 沟通能力唯一 easy 题（readiness 覆盖通过，例外只取 medium/hard → 无候选）
+    _add("协作能力A", "soft_skill", "medium")
+    _add("协作能力B", "soft_skill", "medium")
+    _add("沟通能力", "soft_skill", "easy")
+    # soft pref×2 + plus×1 占满 soft 剩余槽
     for _ in range(2):
         _add("团队协作", "soft_skill", "medium")
     _add("跨部门协作", "soft_skill", "medium")
@@ -433,7 +456,7 @@ def test_required_exception_after_exhaustion():
 def test_legacy_session_continues():
     """手工直插旧形态会话（无 selection_reason）+ 未答预选实例 2 行 → 续答走旧 seq 派发不 500。"""
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p2_sel_legacy")
 
     # 取该用户 user_id
@@ -476,13 +499,7 @@ def test_legacy_session_continues():
         "SELECT question_id FROM assessment_question WHERE session_id=? ORDER BY seq",
         (sid,))[0]["question_id"], "legacy 会话应按 seq 顺序派发"
 
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
+    body = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
     assert body["action"] in ("next", "finish"), body
     legacy_rows = _q(
         "SELECT question_id FROM assessment_question WHERE session_id=? ORDER BY seq", (sid,))

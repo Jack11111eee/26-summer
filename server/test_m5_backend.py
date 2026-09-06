@@ -73,7 +73,7 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> dict[str, list[str]]:
+def _seed_question_bank(pid: str, mid: str) -> dict[str, list[str]]:
     """岗位题 + 通用题：hard 7 / soft 3 / experience 2 / qualification 1（通用，走表单）。"""
     conn = get_conn()
     now = now_iso()
@@ -83,10 +83,10 @@ def _seed_question_bank(pid: str) -> dict[str, list[str]]:
              chain_key=None, chain_seq=None):
         qid = new_id("qb")
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (qid, scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (qid, scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, chain_key, chain_seq, "human", "active", now),
         )
         ids[category].append(qid)
@@ -135,12 +135,35 @@ def _auth_headers(username: str = "m5_candidate") -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
+def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
 # ---------- 测试 ----------
 
 def test_session_creation_and_question_selection():
     """建会话：锚定 confirmed 模型；零预选（SC-1 动态选题，02-02 后口径）。"""
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers()
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -148,7 +171,7 @@ def test_session_creation_and_question_selection():
     body = r.json()
     # 02-02 动态选题：建会话零预选；question_count 键删除（不返回预选数）
     assert "question_count" not in body
-    assert body["estimated_duration_minutes"] == 20
+    assert body["estimated_duration_minutes"] == config.SESSION_TOTAL_MINUTES
 
     sid = body["session_id"]
     sess = _q("SELECT * FROM assessment_session WHERE session_id=?", (sid,))[0]
@@ -160,11 +183,12 @@ def test_session_creation_and_question_selection():
 
 def test_session_state():
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("m5_state_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
 
     # 首次 GET 触发首题派发（动态选题）
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -206,9 +230,10 @@ def test_answer_flow_and_scoring():
     预读 assessment_question 必空）。
     """
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("m5_flow_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
 
     def _current_q() -> dict | None:
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
@@ -223,26 +248,20 @@ def test_answer_flow_and_scoring():
     # 第一题：短回答触发 followup，再长回答 next
     q1 = _current_q()
     assert q1 is not None
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": q1["question_id"], "answer": "不知道"}, headers=headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["action"] == "followup"
+    r = _stream_answer(sid, headers, q1["question_id"], "不知道")
+    assert r["action"] == "followup"
 
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": q1["question_id"], "answer": long_answer}, headers=headers)
-    assert r.json()["action"] == "next"
-    assert r.json()["next_question_id"] is not None
+    r = _stream_answer(sid, headers, q1["question_id"], long_answer)
+    assert r["action"] == "next"
+    assert r["next_question_id"] is not None
 
     # 剩余题全部长回答：逐题 GET current_question → POST answer，直到 finish
     while True:
         cur = _current_q()
         if cur is None:
             break
-        r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                        json={"question_id": cur["question_id"], "answer": long_answer * 2},
-                        headers=headers)
-        assert r.status_code == 200, r.text
-        if r.json()["action"] == "finish":
+        r = _stream_answer(sid, headers, cur["question_id"], long_answer * 2)
+        if r["action"] == "finish":
             break
 
     # 整场类别断言（SC-2）：hard=7 / soft=3（N=10 配额），experience 不出现
@@ -309,8 +328,8 @@ def test_answer_flow_and_scoring():
 
 
 def test_form_submission():
-    pid, _ = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("m5_form_user")
     sid = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers).json()["session_id"]
 

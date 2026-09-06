@@ -10,13 +10,13 @@
 
 ### 需求级（REQ）
 
-- [ ] **REQ-jd-parse-model**: JD 文本（粘贴/JSONL）→ 六工位流水线 → 结构化岗位胜任力模型 + 7:3 类目权重（人审 confirm 升版本，confirmed 不被静默覆盖）
+- [x] **REQ-jd-parse-model**: JD 文本（粘贴/JSONL）→ 六工位流水线 → 结构化岗位胜任力模型 + 7:3 类目权重（人审 confirm 升版本，confirmed 不被静默覆盖）
 - [ ] **REQ-dynamic-question-generation**: 基于岗位 + confirmed 模型版本绑定的题库 + 动态实例化四层选题（不是 LLM 自由出题）；追问每题最多 2 次（代码硬约束）
 - [ ] **REQ-interactive-multiturn-assessment**: 有界测评循环（Observation→Policy→Act→Evaluation→Persist）；LLM 输出结构化观察、代码裁决；LLM 不能自行决定切题/结束
-- [ ] **REQ-talent-profile-report**: 报告五段式（总分+门槛标签/雷达/逐项明细含逐行异议/优势短板建议/逐题回顾）；score_final 锚点评分；代码排序优势短板；状态机 + 明确点击发布
-- [ ] **REQ-data-compliance**: 禁恶意爬虫；JD 接入只走粘贴/JSONL 文件导入；输入限额按类型配置；trace/JD/原文数据分级管理
-- [ ] **REQ-e2e-demo-deliverables**: 候选人端完整 E2E（注册→选岗→session→作答/追问→表单→完成→评分→报告→异议）+ 统一 pytest 收集 + CI 为验收入口
-- [ ] **REQ-iterative-loop**: 测试闭环（b 一致性 / c 虚拟考生 / bad case 候选 / eval 隔离）；反馈可回溯、异议永不触发改分
+- [x] **REQ-talent-profile-report**: 报告五段式（总分+门槛标签/雷达/逐项明细含逐行异议/优势短板建议/逐题回顾）；score_final 锚点评分；代码排序优势短板；状态机 + 明确点击发布
+- [x] **REQ-data-compliance**: 禁恶意爬虫；JD 接入只走粘贴/JSONL 文件导入；输入限额按类型配置；trace/JD/原文数据分级管理
+- [x] **REQ-e2e-demo-deliverables**: 候选人端完整 E2E（注册→选岗→session→作答/追问→表单→完成→评分→报告→异议）+ 统一 pytest 收集 + CI 为验收入口
+- [x] **REQ-iterative-loop**: 测试闭环（b 一致性 / c 虚拟考生 / bad case 候选 / eval 隔离）；反馈可回溯、异议永不触发改分
 
 ### 契约级（REF）— 按矩阵分节
 
@@ -34,24 +34,24 @@
 
 #### 矩阵 §2 数据库（REF-2.1~2.11）——演进随阶段走，Phase 6 收口 schema_version
 
-- [ ] **REF-2.1** [结构] 全局 21 张表对齐（汇总行：三新表 + 六表演进）→ Phase 6 收口清点
+- [x] **REF-2.1** [结构] 全局 21 张表对齐（汇总行：三新表 + 六表演进）→ Phase 6 收口清点
 - [ ] **REF-2.2** [P0] 新表 assessment_state_event（append-only，UNIQUE(session_id,sequence_no)）→ Phase 1
-- [ ] **REF-2.3** [结构] 新表 trace_link（统一审计链）→ Phase 5
+- [x] **REF-2.3** [结构] 新表 trace_link（统一审计链）→ Phase 5
 - [ ] **REF-2.4** [结构] 新表 form_instance（schema 快照/生命周期）→ Phase 3
-- [ ] **REF-2.5** [结构] question_bank 演进（model/version 绑定、question_type、measurement_stage、rubric_version、锚点、综合绑定）→ Phase 4 主体（锚点列随 Phase 2 难度状态机先行）
+- [x] **REF-2.5** [结构] question_bank 演进（model/version 绑定、question_type、measurement_stage、rubric_version、锚点、综合绑定）→ Phase 4 主体（锚点列随 Phase 2 难度状态机先行）
 - [ ] **REF-2.6** [结构] assessment_session 演进（phase/计时区间/abandoned/状态机 PENDING_START→ACTIVE→SCORING→COMPLETED）→ Phase 3
 - [ ] **REF-2.7** [结构] assessment_question 演进（动态实例列/封存/selection_reason/路径快照；(session_id,sequence_no) 唯一）→ Phase 2
 - [ ] **REF-2.8** [结构] assessment_message 分列（raw_content/raw_hash/refined_content/client_request_id/sequence_no）→ Phase 3
 - [ ] **REF-2.9** [结构] question_score 演进（统一 score_final 废弃 final_score、score_state、override 列）→ Phase 2 主体（human_override 列随 Phase 5）
-- [ ] **REF-2.10** [结构] 证据定位结构化（span/offset/quote_hash；hash 复用限单 session）→ Phase 5
-- [ ] **REF-2.11** [结构] schema_version 迁移体系（替换 DDL 字符串嗅探式迁移）→ Phase 6 收口
+- [x] **REF-2.10** [结构] 证据定位结构化（span/offset/quote_hash；hash 复用限单 session）→ Phase 5
+- [x] **REF-2.11** [结构] schema_version 迁移体系（替换 DDL 字符串嗅探式迁移）→ Phase 6 收口
 
 #### 矩阵 §3 题库与选题（REF-3.1~3.9）
 
 - [x] **REF-3.1** [结构] 岗位级 N + 7:3 最大余数 + tier 0.8/0.6/1.7 公式（废弃固定 CATEGORY_QUOTA）→ Phase 2
 - [x] **REF-3.2** [结构] 四层动态选题替换 create_session 一次性预选 → Phase 2
 - [ ] **REF-3.3** [结构] experience/qualification 出普通题库，改走表单 → Phase 3
-- [ ] **REF-3.4** [一般] 题库绑定 model/version；升版须重建题库否则阻止开考 → Phase 4
+- [x] **REF-3.4** [一般] 题库绑定 model/version；升版须重建题库否则阻止开考 → Phase 4
 - [ ] **REF-3.5** [P0] 开考前可测量性检查（题库 readiness/配额可行/表单 schema；不通过阻止开考+管理员待办）→ Phase 1
 - [x] **REF-3.6** [一般] required 刚性例外（每 item 最多一次、仅 medium/hard）→ Phase 2
 - [x] **REF-3.7** [结构] 难度→1-5 等级锚点映射（easy[2,3]/medium[3,4]/hard[4,5]，observable_level 列）→ Phase 2
@@ -78,41 +78,41 @@
 - [x] **REF-5.1** [结构·核心] score_live 仅导航；废弃 50/50 合成（synthetic final_score 不得用于聚合）→ Phase 2
 - [x] **REF-5.2** [结构] 客观题 answer_key 空属题库缺陷 → 判题库无效而非满分（漏洞见 REF-8.1）→ Phase 2
 - [x] **REF-5.3** [结构] 拒答 REFUSED=0 特殊状态值，不进能力等级分母，只进行为/完整度聚合 → Phase 2
-- [ ] **REF-5.4** [结构] item_measurement 统一裁决（废弃按题数均分；冲突取低留人工标记）→ Phase 5
-- [ ] **REF-5.5** [结构] 缺失补算 IMPUTED（r 比例 + 特殊标记 + 覆盖率展示；O=∅ → NO_VALID_OBSERVATION）→ Phase 5
-- [ ] **REF-5.6** [结构] required 缺失 → report_status=PROVISIONAL + HUMAN_REVIEW_REQUIRED → Phase 5
+- [x] **REF-5.4** [结构] item_measurement 统一裁决（废弃按题数均分；冲突取低留人工标记）→ Phase 5
+- [x] **REF-5.5** [结构] 缺失补算 IMPUTED（r 比例 + 特殊标记 + 覆盖率展示；O=∅ → NO_VALID_OBSERVATION）→ Phase 5
+- [x] **REF-5.6** [结构] required 缺失 → report_status=PROVISIONAL + HUMAN_REVIEW_REQUIRED → Phase 5
 - [x] **REF-5.7** [结构] 7:3 权重口径修正（config 旧 55/20/20/5 作废；模块三直接复用 item.weight 不二次乘大类比例）→ Phase 2
 - [ ] **REF-5.8** [保持] 报告五段式已合规（雷达 required vs actual 合规，保持）
-- [ ] **REF-5.9** [P0] 报告状态机（GENERATING→PROVISIONAL|READY→PUBLISHED|FAILED）+ review_status + 发布前七项一致性校验 + 管理员明确点击发布 + 报告版本化 → Phase 5
+- [x] **REF-5.9** [P0] 报告状态机（GENERATING→PROVISIONAL|READY→PUBLISHED|FAILED）+ review_status + 发布前七项一致性校验 + 管理员明确点击发布 + 报告版本化 → Phase 5
 - [ ] **REF-5.10** [P0] score→report 串行（实测前端零步断裂：从不调 POST /score，报告聚合恒 no_data；服务端串联修复）→ Phase 1
-- [ ] **REF-5.11** [一般] score_live/score_final 双分背离 ≥ 阈值自动创建 bad case 候选（不自动改分）→ Phase 6
+- [x] **REF-5.11** [一般] score_live/score_final 双分背离 ≥ 阈值自动创建 bad case 候选（不自动改分）→ Phase 6
 
 #### 矩阵 §6 安全（REF-6.1~6.4）
 
-- [ ] **REF-6.1** [一般] JWT HttpOnly cookie 方向（现 Bearer；SSOT 标"方向"，实施期决定，非 P0）→ Phase 6
-- [ ] **REF-6.2** [一般] 生产 secret 启动校验（默认值拒绝/告警）→ Phase 6
-- [ ] **REF-6.3** [一般] 输入限额按类型配置（文件/行数/JD/回答/prompt/max_tokens/分页）→ Phase 6
+- [x] **REF-6.1** [一般] JWT HttpOnly cookie 方向（现 Bearer；SSOT 标"方向"，实施期决定，非 P0）→ Phase 6
+- [x] **REF-6.2** [一般] 生产 secret 启动校验（默认值拒绝/告警）→ Phase 6
+- [x] **REF-6.3** [一般] 输入限额按类型配置（文件/行数/JD/回答/prompt/max_tokens/分页）→ Phase 6
 - [ ] **REF-6.4** [一般] Prompt injection 防护 + INJECTION_DETECTED 事件留痕 → Phase 3
 
 #### 矩阵 §7 §28 对账项（REF-7.1~7.6，矩阵 §7 中未被 §1-6/§8 覆盖的独立工作项）
 
-- [ ] **REF-7.1** [一般] /jds/orphan 路由顺序修复（实测被 /jds/{jd_id} 参数路由吞掉恒 404）→ Phase 4
-- [ ] **REF-7.2** [一般] 模型编辑字段校验（NaN/范围/类别/重复 std_name）→ Phase 4
-- [ ] **REF-7.3** [结构] feedback 补 user_id/note/reviewer/时间戳；question_reviews 补 item_id；submit_feedback 校验 item 属于对应模型 → Phase 5
-- [ ] **REF-7.4** [结构] 测试统一 pytest 收集（test_m6/question_bank 脚本式重构）+ CI 配置 → Phase 6
-- [ ] **REF-7.5** [结构] M1 回归清单（清洗边界/抽取异常/消歧/权重尾差/冲突 stalled/confirmed 不可覆盖/版本 diff/管理员权限）→ Phase 6
-- [ ] **REF-7.6** [结构] 候选人端完整 E2E（含刷新恢复/断线重试/越权/超时）→ Phase 6
+- [x] **REF-7.1** [一般] /jds/orphan 路由顺序修复（实测被 /jds/{jd_id} 参数路由吞掉恒 404）→ Phase 4
+- [x] **REF-7.2** [一般] 模型编辑字段校验（NaN/范围/类别/重复 std_name）→ Phase 4
+- [x] **REF-7.3** [结构] feedback 补 user_id/note/reviewer/时间戳；question_reviews 补 item_id；submit_feedback 校验 item 属于对应模型 → Phase 5
+- [x] **REF-7.4** [结构] 测试统一 pytest 收集（test_m6/question_bank 脚本式重构）+ CI 配置 → Phase 6
+- [x] **REF-7.5** [结构] M1 回归清单（清洗边界/抽取异常/消歧/权重尾差/冲突 stalled/confirmed 不可覆盖/版本 diff/管理员权限）→ Phase 6
+- [x] **REF-7.6** [结构] 候选人端完整 E2E（含刷新恢复/断线重试/越权/超时）→ Phase 6
 
 #### 矩阵 §8 矩阵外发现（REF-8.1~8.8）
 
 - [x] **REF-8.1** [结构] 空 answer_key 客观题恒满分漏洞（并入 REF-5.2）→ Phase 2
 - [ ] **REF-8.2** [一般] completed 会话仍可重复评分/报告（POST /score、/report 无状态护栏）→ Phase 1
-- [ ] **REF-8.3** [一般] 报告后台任务异常静默 pass（FAILED 态应可见，前端可区分"生成中/失败"）→ Phase 5
-- [ ] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4
+- [x] **REF-8.3** [一般] 报告后台任务异常静默 pass（FAILED 态应可见，前端可区分"生成中/失败"）→ Phase 5
+- [x] **REF-8.4** [一般] 题库生成失败静默（状态 + 管理员待办可见）→ Phase 4
 - [ ] **REF-8.5** [一般] 模型 items 为空不阻断开考（并入 REF-3.5 开考检查）→ Phase 1
-- [ ] **REF-8.6** [一般] mock interviewer 主观题固定 3 分（测试重构时处理）→ Phase 6
-- [ ] **REF-8.7** [结构] llm_trace ref_id 单字段弱关联（随 trace_link 落地迁移导入）→ Phase 5
-- [ ] **REF-8.8** [结构] eval 脚本直接操作业务库（违反 §23 隔离；独立/临时数据库改造）→ Phase 6
+- [x] **REF-8.6** [一般] mock interviewer 主观题固定 3 分（测试重构时处理）→ Phase 6
+- [x] **REF-8.7** [结构] llm_trace ref_id 单字段弱关联（随 trace_link 落地迁移导入）→ Phase 5
+- [x] **REF-8.8** [结构] eval 脚本直接操作业务库（违反 §23 隔离；独立/临时数据库改造）→ Phase 6
 
 ## Deferred（登记不排期）
 
@@ -135,13 +135,13 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-jd-parse-model | Phase 4（M1 回归验收在 Phase 6） | Pending |
+| REQ-jd-parse-model | Phase 4（M1 回归验收在 Phase 6） | Complete |
 | REQ-dynamic-question-generation | Phase 2 | Pending |
 | REQ-interactive-multiturn-assessment | Phase 2（传输/表单/计时深化在 Phase 3） | Pending |
-| REQ-talent-profile-report | Phase 5（链路修复前提在 Phase 1） | Pending |
-| REQ-data-compliance | Phase 6 | Pending |
-| REQ-e2e-demo-deliverables | Phase 6 | Pending |
-| REQ-iterative-loop | Phase 6 | Pending |
+| REQ-talent-profile-report | Phase 5（链路修复前提在 Phase 1） | Complete |
+| REQ-data-compliance | Phase 6 | Complete |
+| REQ-e2e-demo-deliverables | Phase 6 | Complete |
+| REQ-iterative-loop | Phase 6 | Complete |
 
 ### REF → Phase（按 Phase 分组；共 68 行：63 排期 + 2 保持 + 3 延后）
 

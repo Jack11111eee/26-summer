@@ -1,15 +1,87 @@
-"""报告生成（07 文档 §10.5 五段式 + §10.6 优劣文字段）。
+"""报告生成（07 文档 §10.5 五段式 + §10.6 优劣文字段）+ 状态机/版本化（SSOT §21.1）。
 
 ①总分+门槛标签 ②雷达图 required vs actual ③逐项明细表 ④优劣文字段（LLM）⑤逐题回顾。
 生成走异步任务（API 层 BackgroundTasks），结果整段 JSON 落 report 表（report_json）。
+
+状态机（D-025/T-05-09）：聚合后先跑七项一致性校验（任一失败 → report_status='FAILED'
+行，不生成正常报告）；通过则版本化 INSERT（不再 DELETE 覆盖旧行，feedback FK 不悬空），
+report_status = PROVISIONAL（provisional 或 HUMAN_REVIEW_REQUIRED）否则 READY。落 report
+行后写 report→trace 运行时 trace_link 写点（reported/source，闭合 D-56 五要素）。
 """
 import json
 
+from .. import config
 from ..db import get_conn
 from .aggregation import aggregate_session_scores
 from .llm import call_llm_json
 from .pipeline import new_id, now_iso
 from .prompts.report import REPORT_SYSTEM, report_prompt
+from .report_checks import _run_consistency_checks
+from .trace_link import link_entity
+
+# 报告状态机枚举（N11：代码校验，无 DB CHECK；D-025）
+REPORT_STATUSES = ("GENERATING", "PROVISIONAL", "READY", "PUBLISHED", "FAILED")
+# 复核状态枚举（D-60 六值并集：§21.1 五值 + HUMAN_REVIEW_REQUIRED）
+REVIEW_STATUSES = ("NONE", "REQUIRED", "IN_PROGRESS", "CONFIRMED", "CLOSED", "HUMAN_REVIEW_REQUIRED")
+
+# 合法迁移图（T-05-09）：终态 PUBLISHED/FAILED 无出边；非终态均可 → FAILED
+_REPORT_TRANSITIONS = {
+    "GENERATING": ("PROVISIONAL", "READY", "FAILED"),
+    "PROVISIONAL": ("PUBLISHED", "FAILED"),
+    "READY": ("PUBLISHED", "FAILED"),
+    "PUBLISHED": (),
+    "FAILED": (),
+}
+
+
+def _assert_report_status(s: str) -> None:
+    """report_status 枚举校验：非法值 raise ValueError（T-05-09）。"""
+    if s not in REPORT_STATUSES:
+        raise ValueError(f"非法 report_status: {s}（允许 {', '.join(REPORT_STATUSES)}）")
+
+
+def _assert_report_transition(from_state: str, to_state: str) -> None:
+    """迁移合法性校验：非法迁移 raise ValueError。"""
+    _assert_report_status(from_state)
+    _assert_report_status(to_state)
+    if to_state not in _REPORT_TRANSITIONS.get(from_state, ()):
+        raise ValueError(f"非法 report_status 迁移: {from_state} → {to_state}")
+
+
+def _insert_report_row(conn, session_id: str, *, status: str, report_json: dict,
+                       review_status: str | None = None, total_score: float = 0.0,
+                       gate_passed: int = 0, report_id: str | None = None) -> str:
+    """写终态 report 行：优先把 GENERATING 占位行原地转终态（复用版本，不残留占位行），
+    无占位则版本化 INSERT。返回 report_id。发布字段本计划置 NULL。"""
+    _assert_report_status(status)
+    if report_id is None:
+        report_id = new_id("rpt")
+    placeholder = conn.execute(
+        "SELECT report_id FROM report WHERE session_id=? AND report_status='GENERATING'"
+        " ORDER BY created_at DESC, version DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    if placeholder is not None:
+        conn.execute(
+            "UPDATE report SET report_id=?, total_score=?, gate_passed=?, report_json=?,"
+            " report_status=?, review_status=?, created_at=?"
+            " WHERE report_id=? AND report_status='GENERATING'",
+            (report_id, total_score, gate_passed,
+             json.dumps(report_json, ensure_ascii=False), status, review_status, now_iso(),
+             placeholder["report_id"]),
+        )
+        return report_id
+    version = 1 + (conn.execute(
+        "SELECT COALESCE(MAX(version), 0) FROM report WHERE session_id=?", (session_id,)
+    ).fetchone()[0] or 0)
+    conn.execute(
+        "INSERT INTO report(report_id, session_id, total_score, gate_passed, report_json,"
+        " report_status, review_status, version, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?)",
+        (report_id, session_id, total_score, gate_passed,
+         json.dumps(report_json, ensure_ascii=False), status, review_status, version, now_iso()),
+    )
+    return report_id
 
 
 def _mock_report(system_prompt: str, user_prompt: str) -> dict:
@@ -36,7 +108,7 @@ def _load_question_reviews(session_id: str) -> list[dict]:
     """逐题回顾：题面/回答/双分/证据/理由（07 §10.5 第⑤段）。"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT qs.question_id, qs.score_live, qs.score_final, qs.score_state,"
+        "SELECT qs.item_id, qs.question_id, qs.score_live, qs.score_final, qs.score_state,"
         " qs.evidence_quote, qs.reason,"
         " b.stem, b.qtype, b.std_name, b.category"
         " FROM question_score qs"
@@ -86,8 +158,53 @@ def _collect_evidence_quotes(session_id: str, item_ids: list[str]) -> dict:
     return out
 
 
+def _detect_bad_case_divergence(conn, session_id: str) -> int:
+    """双分背离检测（REF-5.11/D-075）：|score_live - score_final| ≥ 阈值 → INSERT
+    bad_case_candidate（status='pending'），永不 UPDATE question_score 的 score 字段（D-031）。
+
+    阈值为 None（占位待裁决）时直接返回 0 不检测——不臆造数值。幂等：同
+    (session_id, item_id, question_id) 已有 pending 候选则跳过（报告版本化重复生成不重复建）。
+    返回本次新建候选行数。调用方（generate_report）负责 conn.commit()。
+    """
+    threshold = config.BAD_CASE_DIVERGENCE_THRESHOLD
+    if threshold is None:
+        return 0
+    rows = conn.execute(
+        "SELECT question_id, item_id, score_live, score_final FROM question_score"
+        " WHERE session_id=? AND score_live IS NOT NULL AND score_final IS NOT NULL",
+        (session_id,),
+    ).fetchall()
+    created = 0
+    for r in rows:
+        divergence = abs((r["score_live"] or 0) - (r["score_final"] or 0))
+        if divergence < threshold:
+            continue
+        qid = r["question_id"]
+        exists = conn.execute(
+            "SELECT 1 FROM bad_case_candidate WHERE session_id=? AND item_id=?"
+            " AND status='pending' AND question_id IS ?",
+            (session_id, r["item_id"], qid),
+        ).fetchone()
+        if exists is not None:
+            continue
+        conn.execute(
+            "INSERT INTO bad_case_candidate(candidate_id, session_id, item_id, question_id,"
+            " score_live, score_final, divergence, status, detected_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (new_id("bc"), session_id, r["item_id"], qid,
+             r["score_live"], r["score_final"], divergence, "pending", now_iso()),
+        )
+        created += 1
+    return created
+
+
 def generate_report(session_id: str) -> dict:
-    """生成报告（幂等：同会话重复生成覆盖旧行）。返回完整报告 dict（含 report_id）。"""
+    """生成报告（版本化：同会话重复生成追加新版本行，不覆盖旧行——REF-5.9 SC-3）。
+
+    流程：聚合 → 七项一致性校验（任一失败 → report_status='FAILED' 行，不生成正常
+    报告）→ 版本化 INSERT（version = session 内 MAX+1）→ report→trace trace_link 写点。
+    返回 report_data 附加 report_status/version 键。
+    """
     conn = get_conn()
     s = conn.execute(
         "SELECT s.session_id, p.name AS position_name FROM assessment_session s"
@@ -99,27 +216,30 @@ def generate_report(session_id: str) -> dict:
 
     agg = aggregate_session_scores(session_id)
     question_reviews = _load_question_reviews(session_id)
+    # 双分背离候选检测（REF-5.11）：评分已由 score_session 单独 commit，此处 conn 读取
+    # 已落库的 score_live/score_final，INSERT 候选随本 conn 末尾 commit 一并落库（D-031 不改分）
+    _detect_bad_case_divergence(conn, session_id)
 
     # 雷达图数据（ECharts）：required vs actual，按 item 顺序对齐；gate/无数据项跳过
     radar_items = [it for it in agg["item_scores"]
                    if not it.get("gate") and it.get("actual_level") is not None]
     radar_data = {
-        "indicators": [
-            {"name": it["std_name"], "max": 5} for it in radar_items
-        ],
+        "indicators": [{"name": it["std_name"], "max": 5, "imputed": bool(it.get("imputed"))} for it in radar_items],
         "required": [it["required_level"] or 0 for it in radar_items],
         "actual": [it["actual_level"] for it in radar_items],
     }
 
     gate_passed = all(g["passed"] for g in agg["gate_items"]) if agg["gate_items"] else True
 
-    # LLM 生成优劣/建议文字（绑证据）
+    # LLM 生成优劣/建议文字（绑证据）；trace_out 拿 report LLM 调 trace_id（供 trace_link）
     item_ids = [s["item_id"] for s in agg["strengths"]] + [w["item_id"] for w in agg["weaknesses"]]
     evidence_quotes = _collect_evidence_quotes(session_id, item_ids)
+    trace_out: list[str] = []
     llm_out = call_llm_json(
         "report", session_id, REPORT_SYSTEM,
         report_prompt(s["position_name"], agg["strengths"], agg["weaknesses"], evidence_quotes),
         mock_fn=_mock_report,
+        trace_out=trace_out,
     )
 
     report_id = new_id("rpt")
@@ -131,23 +251,63 @@ def generate_report(session_id: str) -> dict:
         "gate_passed": gate_passed,
         "gate_details": agg["gate_items"],
         "radar_data": radar_data,
-        "item_details": agg["item_scores"],
+        "item_details": [
+            {**it, "score": round(it.get("score") or 0.0, 2)}
+            for it in agg["item_scores"]
+        ],
         "strengths": agg["strengths"],
         "weaknesses": agg["weaknesses"],
         "strengths_text": llm_out.get("strengths_text", ""),
         "weaknesses_text": llm_out.get("weaknesses_text", ""),
         "suggestions_text": llm_out.get("suggestions_text", ""),
         "question_reviews": question_reviews,
+        "review_status": agg.get("review_status"),
+        "observation_status": agg.get("observation_status"),
+        "provisional": agg.get("provisional", False),
+        "coverage": agg.get("coverage", {}),
         "created_at": now_iso(),
     }
 
-    # 幂等：同会话只留最新一份
-    conn.execute("DELETE FROM report WHERE session_id=?", (session_id,))
-    conn.execute(
-        "INSERT INTO report(report_id, session_id, total_score, gate_passed, report_json, created_at)"
-        " VALUES(?,?,?,?,?,?)",
-        (report_id, session_id, agg["total_score"], int(gate_passed),
-         json.dumps(report_data, ensure_ascii=False), report_data["created_at"]),
+    # 七项一致性校验（聚合后、版本化 INSERT 前）；⑦ 只校验 LLM 产出的文案段（不信任 LLM 文案，
+    # 而非候选人可控文本——WR-06）
+    llm_text = "\n".join(filter(None, (
+        llm_out.get("strengths_text"),
+        llm_out.get("weaknesses_text"),
+        llm_out.get("suggestions_text"),
+    )))
+    errors = _run_consistency_checks(agg, session_id, report_text=llm_text)
+    if errors:
+        _insert_report_row(
+            conn, session_id, status="FAILED",
+            report_json={"error": "; ".join(errors)[:200]},
+            review_status=agg.get("review_status"), report_id=report_id,
+        )
+        conn.commit()
+        return {"report_id": report_id, "session_id": session_id,
+                "report_status": "FAILED", "error": "; ".join(errors)[:200]}
+
+    # 状态机推进：provisional 或 HUMAN_REVIEW_REQUIRED → PROVISIONAL，否则 READY
+    report_status = "PROVISIONAL" if (
+        agg.get("provisional") or agg.get("review_status") == "HUMAN_REVIEW_REQUIRED"
+    ) else "READY"
+
+    _insert_report_row(
+        conn, session_id, status=report_status,
+        review_status=agg.get("review_status"),
+        total_score=agg["total_score"], gate_passed=int(gate_passed),
+        report_json=report_data, report_id=report_id,
     )
+
+    # report→trace 运行时 trace_link 写点（D-56 闭合五要素审计链）
+    if trace_out:
+        link_entity(conn, trace_id=trace_out[0], entity_type="report",
+                    entity_id=report_id, link_role="reported")
+        link_entity(conn, trace_id=trace_out[0], entity_type="assessment_session",
+                    entity_id=session_id, link_role="source")
+
     conn.commit()
+    report_data["report_status"] = report_status
+    report_data["version"] = conn.execute(
+        "SELECT version FROM report WHERE report_id=?", (report_id,)
+    ).fetchone()[0]
     return report_data

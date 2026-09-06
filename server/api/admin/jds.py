@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFi
 from ... import schemas
 from ...core.security import require_admin
 from ...db import get_conn
+from ...services.input_limits import validate_jd_length
 from ...services.pipeline import new_id, now_iso, run_parse_pipeline
 
 router = APIRouter(prefix="/api/admin", tags=["admin-jds"], dependencies=[Depends(require_admin)])
@@ -24,6 +25,8 @@ def list_positions() -> list[dict]:
 
 
 def _insert_jd(jd_text: str, company: str | None, source_type: str) -> str:
+    if not validate_jd_length(jd_text):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "JD 文本超长")
     jd_id = new_id("jd")
     conn = get_conn()
     conn.execute(
@@ -72,6 +75,17 @@ def list_jds(position_id: str) -> list[dict]:
         "SELECT jd_id, job_title, company, source_type, status, low_confidence,"
         " error_msg, created_at FROM jd_record WHERE position_id=? ORDER BY created_at DESC",
         (position_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.get("/jds/orphan")
+def list_orphan_jds() -> list[dict]:
+    """待归属 JD 队列（岗位被拒绝后回退的）。置于 /jds/{jd_id} 之前，避免参数路由吞掉 orphan。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT jd_id, job_title, company, source_type, status, created_at"
+        " FROM jd_record WHERE position_id IS NULL AND status != 'failed' ORDER BY created_at DESC"
     ).fetchall()
     return [dict(r) for r in rows]
 

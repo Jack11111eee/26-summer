@@ -73,7 +73,8 @@ import { assessment } from '../api'
 
 const props = defineProps({
   formId: { type: String, required: true },
-  sessionId: { type: String, required: true }
+  sessionId: { type: String, required: true },
+  expectedRevision: { type: Number, default: 1 }
 })
 const emit = defineEmits(['submitted'])
 
@@ -106,7 +107,7 @@ async function onSubmit() {
   }
   submitting.value = true
   try {
-    await assessment.submitForm(props.sessionId, schema.value.form_type, { ...model })
+    await assessment.submitForm(props.sessionId, props.formId, { ...model }, props.expectedRevision)
     submitted.value = true
     ElMessage.success('表单已提交')
     emit('submitted', { ...model })

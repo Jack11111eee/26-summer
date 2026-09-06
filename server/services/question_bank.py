@@ -56,12 +56,15 @@ def _mock_question_gen(system_prompt: str, user_prompt: str) -> dict:
 def _insert_question(conn, *, scope: str, position_id: str | None, item: dict,
                      difficulty: str | None, qtype: str, stem: str,
                      answer_key: str | None, rubric: str | None,
-                     chain_key: str | None, chain_seq: int | None) -> None:
+                     chain_key: str | None, chain_seq: int | None,
+                     model_id: str, model_version: int | None, item_id: str | None) -> None:
     conn.execute(
-        "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
-        " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (new_id("q"), scope, position_id, item["std_name"], item["category"],
+        "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, item_id, rubric_version,"
+        " std_name, category, difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,"
+        " source, status, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (new_id("q"), scope, position_id, model_id, model_version, item_id, "v1",
+         item["std_name"], item["category"],
          difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,
          "llm_seed", "active", now_iso()),
     )
@@ -98,6 +101,10 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
             _update_task_status(conn, position_id, model_id, "FAILED", error_msg="岗位不存在")
             conn.commit()
             return
+        model_row = conn.execute(
+            "SELECT version FROM competency_model WHERE model_id=?", (model_id,)
+        ).fetchone()
+        model_version = model_row["version"] if model_row else None
         _update_task_status(conn, position_id, model_id, "RUNNING")
         conn.commit()
         position_name = pos["name"]
@@ -122,30 +129,33 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                 if scope == "position":
                     if difficulty is None:
                         exists = conn.execute(
-                            "SELECT 1 FROM question_bank WHERE scope='position' AND position_id=?"
+                            "SELECT 1 FROM question_bank WHERE scope='position'"
+                            " AND model_id=? AND model_version=?"
                             " AND std_name=? AND category=? AND status='active' LIMIT 1",
-                            (position_id, item["std_name"], item["category"]),
+                            (model_id, model_version, item["std_name"], item["category"]),
                         ).fetchone()
                     else:
                         exists = conn.execute(
-                            "SELECT 1 FROM question_bank WHERE scope='position' AND position_id=?"
+                            "SELECT 1 FROM question_bank WHERE scope='position'"
+                            " AND model_id=? AND model_version=?"
                             " AND std_name=? AND category=? AND difficulty=?"
                             " AND status='active' LIMIT 1",
-                            (position_id, item["std_name"], item["category"], difficulty),
+                            (model_id, model_version, item["std_name"], item["category"], difficulty),
                         ).fetchone()
                 else:
                     if difficulty is None:
                         exists = conn.execute(
                             "SELECT 1 FROM question_bank WHERE scope='general'"
-                            " AND std_name=? AND category=? AND status='active' LIMIT 1",
-                            (item["std_name"], item["category"]),
+                            " AND std_name=? AND category=? AND model_id=? AND model_version=?"
+                            " AND status='active' LIMIT 1",
+                            (item["std_name"], item["category"], model_id, model_version),
                         ).fetchone()
                     else:
                         exists = conn.execute(
                             "SELECT 1 FROM question_bank WHERE scope='general'"
                             " AND std_name=? AND category=? AND difficulty=?"
-                            " AND status='active' LIMIT 1",
-                            (item["std_name"], item["category"], difficulty),
+                            " AND model_id=? AND model_version=? AND status='active' LIMIT 1",
+                            (item["std_name"], item["category"], difficulty, model_id, model_version),
                         ).fetchone()
                 if exists:
                     continue
@@ -168,6 +178,7 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                         item=item, difficulty=difficulty, qtype=q_qtype,
                         stem=q["stem"], answer_key=q_answer_key, rubric=q.get("rubric"),
                         chain_key=chain_key, chain_seq=seq if chain_key else None,
+                        model_id=model_id, model_version=model_version, item_id=item["item_id"],
                     )
                 conn.commit()
         _update_task_status(conn, position_id, model_id, "SUCCEEDED")

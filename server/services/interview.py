@@ -25,6 +25,8 @@ MIN_ANSWER_CHARS = 20  # mock 规则：低于此长度视为需澄清
 # mock 分类器词表（D-23——模块级元组惯例照 _VALID_ACTOR_TYPES）
 _DECLINE_WORDS = ("不方便回答", "不想说", "隐私", "无可奉告", "拒绝回答")
 _EVIDENCE_WORDS = ("项目", "举例", "具体", "结果", "数据", "负责")
+# 注入词表（03-05，D-45/REF-6.4——mock 双轨可离线触发 PROMPT_INJECTION 全链）
+_INJECTION_WORDS = ("忽略上面的指令", "无视之前的指令", "无视以上", "你现在是", "jailbreak", "忽略以上指令")
 
 # 拒答确认话术（§11.4 拒答处理原则——SUPPORT 控制类一次性确认，D-24）
 _CONFIRM_REPLY = "可以不回答这道题吗？跳过后将不再回到该题。"
@@ -72,6 +74,26 @@ def _is_confirmed_refusal(session_id: str, question_id: str) -> bool:
     return row["c"] > 0
 
 
+def _truncate_history(history: list[dict], max_tokens: int) -> list[dict]:
+    """滑窗截断（SSOT §31-2/D-43——Code Examples #6 reversed 累积 + len//2 近似 token）。
+
+    从最新往前累积，超出 max_tokens 则丢弃更早的历史（保尾部 + 保当前题——最新一条必保留）。
+    近似 token = len(content)//2（refine.py _approx_tokens 同口径）。纯函数不读 provider 配置
+    （Pitfall 9 裁量：mock 全量由调用方 decide_next_action 决定形态）。当前题 stem 与
+    user_message 在 _build_user_prompt 组装面外（Pitfall 7——不进截断面）。
+    """
+    kept: list[dict] = []
+    budget = max_tokens
+    for m in reversed(history):
+        cost = len(m.get("content", "")) // 2
+        if budget - cost < 0 and kept:
+            break  # 已保留最新优先；更早的丢弃
+        kept.append(m)
+        budget -= cost
+    kept.reverse()
+    return kept
+
+
 def _build_user_prompt(session: dict, question: dict, history: list[dict],
                        user_message: str, is_last: bool) -> str:
     lines = [
@@ -108,6 +130,13 @@ def _mock_interview(system_prompt: str, user_prompt: str) -> dict:
         dims = {"relevance": False, "specificity": 0, "attribution": False}
         return {"answer_state": state, "observation": dims,
                 "reply_suggestion": "", "reason": "mock: 拒答关键词",
+                "score_live": None, "score_live_reason": None}
+    # 注入词（03-05，D-45——与 DECLINED 同路径形态；长度判断前拦截，短注入串也命中）
+    if any(w in last_user for w in _INJECTION_WORDS):
+        state = "PROMPT_INJECTION"
+        dims = {"relevance": False, "specificity": 0, "attribution": False}
+        return {"answer_state": state, "observation": dims,
+                "reply_suggestion": "", "reason": "mock: 注入词命中",
                 "score_live": None, "score_live_reason": None}
     if len(last_user) < MIN_ANSWER_CHARS:
         state = "NEED_CLARIFICATION"
@@ -203,6 +232,9 @@ def decide_next_action(session_id: str, question_id: str, user_message: str) -> 
         (session_id,),
     ).fetchall()
     history = [dict(r) for r in history_rows]
+    # 滑窗截断（D-43/Pitfall 9）：mock 全量直通，真实模式按 MAX_CONTEXT_TOKENS 截尾保当前题
+    history = (_truncate_history(history, config.MAX_CONTEXT_TOKENS)
+               if config.LLM_PROVIDER != "mock" else history)
 
     # 1) 观察层：LLM 结构化观察 → InterviewObservation（aggregate.py:77 同款消费先例）
     # CR-01：call_llm_json 重试全败 raise RuntimeError——观察层捕获降级 MODEL_UNCERTAIN

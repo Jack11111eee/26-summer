@@ -1,5 +1,6 @@
 """聚合触发、模型获取/编辑/确认、stalled 处理（P3 人审 + 状态机流转）。"""
 import json
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -18,10 +19,10 @@ class ModelItem(BaseModel):
 
     std_name: str = Field(min_length=1)
     category: str = Field(pattern="^(hard_skill|soft_skill|experience|qualification)$")
-    weight: float = Field(ge=0)
-    required_level: int | None = None
-    importance: str | None = None
-    years: float | None = None
+    weight: float = Field(ge=0, le=1, allow_inf_nan=False)
+    required_level: int | None = Field(default=None, ge=1, le=5)
+    importance: Literal["required", "preferred", "plus"] | None = None
+    years: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     gate: int = 0
     level_reason: str | None = None
     occurrence: dict = {}
@@ -86,6 +87,18 @@ def update_model(model_id: str, body: ModelUpdateBody) -> dict:
     if abs(total_weight - 1.0) > 0.005:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             f"权重合计须为 100%（当前 {total_weight * 100:.1f}%）")
+
+    # 同 category 内 std_name 重复拒绝（判重键 (std_name, category) 对齐 competency_item
+    # 主键与 diff_models 的 "std_name|category" 对齐键，重复会破坏 diff）
+    seen: set[tuple[str, str]] = set()
+    for it in items:
+        key = (it.std_name, it.category)
+        if key in seen:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"同一类目内能力项重复：{it.std_name}({it.category})",
+            )
+        seen.add(key)
 
     # 存库 model_json：前端原 body 的额外字段（position_id 等）经 model_dump 保序保留，
     # items 部分以校验后的结构化字段覆盖（stall_reason 清除）

@@ -77,17 +77,17 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """岗位题：hard 6 / soft 2 / experience 2（配 10 题会话）。"""
     conn = get_conn()
     now = now_iso()
 
     def _add(scope, position_id, std_name, category, difficulty, qtype, stem, answer_key, rubric):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, None, None, "human", "active", now),
         )
 
@@ -163,21 +163,40 @@ _LONG_ANSWER = (
 )
 
 
+def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _answer_whole_session(sid: str, headers: dict) -> None:
     """把一场会话全部题答完（长回答触发 next/finish），不出现任何 score 直调。"""
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     while True:
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
         assert r.status_code == 200, r.text
         cur = r.json()["current_question"]
         if cur is None:
             break
-        r = client.post(
-            f"/api/assessment/sessions/{sid}/answer",
-            json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-        if r.json()["action"] == "finish":
+        resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
+        if resp["action"] == "finish":
             break
 
 
@@ -187,8 +206,8 @@ def _seed_a_full_chain() -> tuple[str, str, dict]:
     种子链硬约束（01-03 稳定性）：会话先 finish 置 completed 再 POST /report；
     全程不出现 score_session 直调。
     """
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_candidate_a")
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
@@ -205,20 +224,16 @@ def _seed_a_full_chain() -> tuple[str, str, dict]:
 
 def _seed_in_progress_session(headers: dict) -> str:
     """建一个只答 1 题、未 finish 的 in_progress 小会话（owner score 断言专用）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     cur = r.json()["current_question"]
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["action"] == "next", "只答 1 题后应仍 in_progress"
+    resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
+    assert resp["action"] == "next", "只答 1 题后应仍 in_progress"
     return sid
 
 
@@ -312,12 +327,13 @@ def test_admin_read_exemption_write_denied():
 
 def test_owner_main_chain_unaffected():
     """owner 主链不回归：A 本人 GET session 200；POST answer 200；in_progress 会话 POST /score 200。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_owner_chain")
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
 
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
@@ -338,8 +354,8 @@ def test_owner_main_chain_unaffected():
 
 def test_admin_own_resources():
     """admin 建自己会话 → GET 200（owner 判定恒优先于角色豁免，Pitfall 10）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     admin = _admin_headers()
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=admin)
     assert r.status_code == 201, r.text
@@ -408,8 +424,8 @@ def test_actor_type_validated():
 
 def test_session_created_event():
     """create_session 落 SESSION_CREATED：from NULL → in_progress，actor_type=candidate，sequence_no=1。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_event_created")
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
@@ -426,8 +442,8 @@ def test_session_created_event():
 def test_question_answered_and_session_completed_events():
     """答题推进落 QUESTION_ANSWERED（assessment_question_id 非空）；finish 落 SESSION_COMPLETED；
     同 session 的 sequence_no 严格递增无重复。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_event_chain")
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text

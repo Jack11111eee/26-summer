@@ -13,26 +13,30 @@ from .. import config
 from .question_selection import ORDINARY_CATEGORIES, plan_quotas
 
 
-def _question_count_by_category(conn, position_id: str) -> dict[str, int]:
+def _question_count_by_category(conn, position_id: str, model_id: str,
+                                model_version: int) -> dict[str, int]:
     """按 category 计数实际可选 active 题（照抄 question_selection 的 WHERE 口径）。
 
-    scope='general' 跨岗位可见；scope='position' 仅本岗位可见。
+    scope='general' 跨岗位可见；scope='position' 仅本岗位可见；两者同绑 model/version。
     """
     rows = conn.execute(
         "SELECT category, COUNT(*) c FROM question_bank WHERE status='active'"
+        " AND model_id=? AND model_version=?"
         " AND (scope='general' OR (scope='position' AND position_id=?))"
         " GROUP BY category",
-        (position_id,),
+        (model_id, model_version, position_id),
     ).fetchall()
     return {r["category"]: r["c"] for r in rows}
 
 
-def _covered_std_names(conn, position_id: str) -> set[str]:
+def _covered_std_names(conn, position_id: str, model_id: str,
+                       model_version: int) -> set[str]:
     """题库中已覆盖的 std_name 集合（与配额计数同一 WHERE 口径）。"""
     rows = conn.execute(
         "SELECT DISTINCT std_name FROM question_bank WHERE status='active'"
+        " AND model_id=? AND model_version=?"
         " AND (scope='general' OR (scope='position' AND position_id=?))",
-        (position_id,),
+        (model_id, model_version, position_id),
     ).fetchall()
     return {r["std_name"] for r in rows}
 
@@ -93,7 +97,7 @@ def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict 
 
     # 3) 题库 readiness：按 (position_id, model_id, model_version) 取最新 task 行
     task = conn.execute(
-        "SELECT status FROM question_bank_task"
+        "SELECT status, error_msg FROM question_bank_task"
         " WHERE position_id=? AND model_id=? AND model_version=?"
         " ORDER BY created_at DESC LIMIT 1",
         (position_id, model["model_id"], model["version"]),
@@ -101,12 +105,16 @@ def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict 
     if task is not None and task["status"] in ("QUEUED", "RUNNING"):
         return {"error_code": "QUESTION_BANK_GENERATING",
                 "detail": "该岗位题库正在生成中，请稍后开考"}
-    # FAILED → INCOMPLETE（失败细节 Phase 4 REF-8.4 再做）；
+    if task is not None and task["status"] == "FAILED":
+        detail = "该岗位题库生成失败，不可开考"
+        if task["error_msg"]:
+            detail += f"（{task['error_msg'][:200]}）"
+        return {"error_code": "QUESTION_BANK_INCOMPLETE", "detail": detail}
     # SUCCEEDED 或无 task 行 → 看实际可选题量（兼容 m5/m6 直插题库种子，Pitfall 3）
 
     # 4)+5) required 覆盖 + 配额可行（按实际题量判定）
-    counts = _question_count_by_category(conn, position_id)
-    covered = _covered_std_names(conn, position_id)
+    counts = _question_count_by_category(conn, position_id, model["model_id"], model["version"])
+    covered = _covered_std_names(conn, position_id, model["model_id"], model["version"])
     required_items = conn.execute(
         "SELECT std_name FROM competency_item WHERE model_id=? AND importance='required'"
         " AND gate=0",
@@ -135,9 +143,10 @@ def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict 
             " LEFT JOIN competency_item ci ON ci.model_id=?"
             " AND ci.std_name=qb.std_name AND ci.category=qb.category"
             " WHERE qb.status='active' AND qb.category=?"
+            " AND qb.model_id=? AND qb.model_version=?"
             " AND (qb.scope='general' OR (qb.scope='position' AND qb.position_id=?))"
             " GROUP BY COALESCE(ci.importance, 'plus')",
-            (model["model_id"], category, position_id),
+            (model["model_id"], category, model["model_id"], model["version"], position_id),
         ).fetchall()
         for r in rows:
             tiers[r["tier"]] = r["c"]

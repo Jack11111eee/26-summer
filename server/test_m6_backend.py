@@ -7,6 +7,8 @@ import os
 import sys
 import tempfile
 
+import pytest
+
 # 隔离测试库：必须在 import server 模块前设置
 _tmpdir = tempfile.mkdtemp(prefix="m6_test_")
 os.environ["DB_PATH"] = os.path.join(_tmpdir, "test.db")
@@ -88,10 +90,10 @@ def _seed_full_chain() -> dict:
     ]
     for q in bank:
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (q["qid"], "position", pid, q["std_name"], q["category"], "medium",
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (q["qid"], "position", pid, mid, 1, q["std_name"], q["category"], "medium",
              q["qtype"], q["stem"], q["answer_key"], q["rubric"], "llm_seed", "active", now),
         )
 
@@ -145,7 +147,13 @@ def _seed_full_chain() -> dict:
     }
 
 
-def _test_dual_scoring(ctx: dict) -> None:
+@pytest.fixture(scope="session")
+def ctx(_session_db):
+    """session 级：整个收集进程只 seed 一次全链，供 4 个 test_* 顺序复用（脚本语义保持）。"""
+    return _seed_full_chain()
+
+
+def test_dual_scoring(ctx: dict) -> None:
     print("[1] 双分独立落库（02-05：无 50/50 合成）")
     sid = ctx["session_id"]
     # 客观题
@@ -187,22 +195,22 @@ def _test_dual_scoring(ctx: dict) -> None:
           all(r["score_state"] == "SCORED" for r in by_qid.values()))
 
 
-def _test_aggregation(ctx: dict) -> None:
+def test_aggregation(ctx: dict) -> None:
     print("[2] 聚合（item 均分 + gap + 权重 + 门槛）")
     agg = aggregate_session_scores(ctx["session_id"])
 
     by_name = {it["std_name"]: it for it in agg["item_scores"]}
     py = by_name["Python"]
-    # Python 两题：客观 5 分 + 主观 3 分 → actual = 4.0
-    check("Python actual_level = (5+3)/2 = 4.0", py["actual_level"] == 4.0,
+    # Python 两题：客观 5 分 + 主观 3 分 → 冲突取低（adjudicate 极差≥2 → 3.0）
+    check("Python actual_level = adjudicate([5,3]) = 3.0", py["actual_level"] == 3.0,
           f"实际 {py['actual_level']}")
-    check("Python gap = 4 - 4 = 0", py["gap"] == 0.0, f"实际 {py['gap']}")
-    check("Python score = 0.19 * 4/5 * 100 = 15.2", abs(py["score"] - 15.2) < 0.01,
+    check("Python gap = 4 - 3 = 1", py["gap"] == 1.0, f"实际 {py['gap']}")
+    check("Python score = 0.19 * (3-1)/4 * 100 = 9.5", abs(py["score"] - 9.5) < 0.01,
           f"实际 {py['score']}")
 
     comm = by_name["沟通能力"]
     check("沟通能力 actual=3 gap=0", comm["actual_level"] == 3.0 and comm["gap"] == 0.0)
-    check("沟通能力 score = 0.12 * 3/5 * 100 = 7.2", abs(comm["score"] - 7.2) < 0.01)
+    check("沟通能力 score = 0.12 * (3-1)/4 * 100 = 6.0", abs(comm["score"] - 6.0) < 0.01)
 
     exp = by_name["后端开发经验"]
     check("后端经验为门槛项", exp["gate"] is True or exp["gate"] == 1)
@@ -213,8 +221,8 @@ def _test_aggregation(ctx: dict) -> None:
     check("本科门槛通过", edu["gate_passed"] is True)
     check("本科 score = 0.01 * 100 = 1.0", abs(edu["score"] - 1.0) < 0.01)
 
-    # 总分 = 15.2 + 7.2 + 8.0 + 1.0 = 31.4
-    check("total_score = 31.4", abs(agg["total_score"] - 31.4) < 0.01,
+    # 总分 = 9.5 + 6.0 + 8.0 + 1.0 = 24.5
+    check("total_score = 24.5", abs(agg["total_score"] - 24.5) < 0.01,
           f"实际 {agg['total_score']}")
 
     check("strengths 含 Python 和沟通能力（gap≥0）",
@@ -225,12 +233,12 @@ def _test_aggregation(ctx: dict) -> None:
     check("gate_items 全通过", all(g["passed"] for g in agg["gate_items"]))
 
 
-def _test_report(ctx: dict) -> None:
+def test_report(ctx: dict) -> None:
     print("[3] 报告生成（五段式）")
     rpt = generate_report(ctx["session_id"])
 
     check("report_id 存在", bool(rpt.get("report_id")))
-    check("total_score 一致", abs(rpt["total_score"] - 31.4) < 0.01)
+    check("total_score 一致", abs(rpt["total_score"] - 24.5) < 0.01)
     check("gate_passed=True", rpt["gate_passed"] is True)
     check("gate_details 2 条", len(rpt["gate_details"]) == 2)
 
@@ -238,7 +246,7 @@ def _test_report(ctx: dict) -> None:
     check("radar 含 Python/沟通 2 项",
           [i["name"] for i in radar["indicators"]] == ["Python", "沟通能力"])
     check("radar required = [4,3]", radar["required"] == [4, 3])
-    check("radar actual = [4.0,3.0]", radar["actual"] == [4.0, 3.0])
+    check("radar actual = [3.0,3.0]", radar["actual"] == [3.0, 3.0])
 
     check("strengths_text 包含 Python 与 沟通能力",
           "Python" in rpt["strengths_text"] and "沟通能力" in rpt["strengths_text"])
@@ -249,13 +257,16 @@ def _test_report(ctx: dict) -> None:
     check("逐题回顾含 answer", "numpy" in obj_rev["answer"])
     check("逐题回顾含 score_final", obj_rev["score_final"] == 5)
 
-    # 落库 + 幂等
+    # 落库 + 版本化（重复生成不再 DELETE 覆盖，追加新版本行）
     conn = get_conn()
     rpt_id_1 = rpt["report_id"]
     rpt2 = generate_report(ctx["session_id"])
     n = conn.execute("SELECT COUNT(*) c FROM report WHERE session_id=?",
                      (ctx["session_id"],)).fetchone()["c"]
-    check("重复生成幂等（同会话仅 1 行 report）", n == 1, f"实际 {n}")
+    maxv = conn.execute("SELECT MAX(version) m FROM report WHERE session_id=?",
+                        (ctx["session_id"],)).fetchone()["m"]
+    check("重复生成追加版本（同会话 2 行 report）", n == 2, f"实际 {n}")
+    check("最新 version = 2", maxv == 2, f"实际 {maxv}")
     check("重新生成 report_id 更新", rpt2["report_id"] != rpt_id_1)
 
     # llm_trace 落 'report' 类型
@@ -263,7 +274,7 @@ def _test_report(ctx: dict) -> None:
     check("P-report 调用落 llm_trace (call_type='report')", tr["c"] >= 1, f"实际 {tr['c']}")
 
 
-def _test_feedback_api(ctx: dict) -> None:
+def test_feedback_api(ctx: dict) -> None:
     print("[4] feedback 表写入")
     from server.api.assessment import submit_feedback
     conn = get_conn()
@@ -289,9 +300,9 @@ def _test_feedback_api(ctx: dict) -> None:
 if __name__ == "__main__":
     init_db()
     ctx = _seed_full_chain()
-    _test_dual_scoring(ctx)
-    _test_aggregation(ctx)
-    _test_report(ctx)
-    _test_feedback_api(ctx)
+    test_dual_scoring(ctx)
+    test_aggregation(ctx)
+    test_report(ctx)
+    test_feedback_api(ctx)
     print(f"\n结果: {PASS} 通过, {FAIL} 失败")
     sys.exit(1 if FAIL else 0)

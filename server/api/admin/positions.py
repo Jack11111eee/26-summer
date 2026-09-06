@@ -25,11 +25,19 @@ def get_todos() -> dict:
     question_bank_not_ready = conn.execute(
         "SELECT COUNT(DISTINCT position_id) c FROM question_bank_task WHERE status != 'SUCCEEDED'"
     ).fetchone()["c"]
+    # 题库生成失败明细（D-51/REF-8.4）：status='FAILED' 任务行（error_msg 入库时已 str(e)[:200] 截断）
+    question_bank_failed = [
+        dict(r) for r in conn.execute(
+            "SELECT position_id, model_id, model_version, error_msg FROM question_bank_task"
+            " WHERE status='FAILED'"
+        ).fetchall()
+    ]
     return {
         "pending_positions": pending_positions,
         "stalled_models": stalled,
         "orphan_jds": orphan_jds,
         "question_bank_not_ready": question_bank_not_ready,
+        "question_bank_failed": question_bank_failed,
     }
 
 
@@ -82,17 +90,6 @@ def review_position(position_id: str, body: dict) -> dict:
         conn.commit()
         return {"position_id": position_id, "status": "rejected", "jds_orphaned": True}
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "action 仅支持 approve/reject")
-
-
-@router.get("/jds/orphan")
-def list_orphan_jds() -> list[dict]:
-    """待归属 JD 队列（岗位被拒绝后回退的）。"""
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT jd_id, job_title, company, source_type, status, created_at"
-        " FROM jd_record WHERE position_id IS NULL AND status != 'failed' ORDER BY created_at DESC"
-    ).fetchall()
-    return [dict(r) for r in rows]
 
 
 @router.post("/jds/{jd_id}/reassign")

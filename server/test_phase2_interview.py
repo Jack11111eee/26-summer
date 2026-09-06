@@ -79,17 +79,17 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """岗位题：hard 7 / soft 3（N=10 → hard 7 / soft 3 配额可满足；主观题为主）。"""
     conn = get_conn()
     now = now_iso()
 
     def _add(std_name, category, difficulty, qtype, stem, answer_key, rubric):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), "position", pid, std_name, category, difficulty, qtype,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), "position", pid, mid, 1, std_name, category, difficulty, qtype,
              stem, answer_key, rubric, None, None, "human", "active", now),
         )
 
@@ -116,14 +116,21 @@ def _auth_headers(username: str = "p2_itv_candidate") -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _new_session(username: str) -> tuple[str, dict]:
     """建会话并派发首题，返回 (sid, headers)。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers(username)
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
     assert r.status_code == 201, r.text
     sid = r.json()["session_id"]
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     assert r.json()["current_question"] is not None, "首次 GET 应派发首题"
@@ -139,10 +146,19 @@ def _cur_q(sid: str, headers: dict) -> dict:
 
 
 def _answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": question_id, "answer": answer}, headers=headers)
-    assert r.status_code == 200, r.text
-    return r.json()
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
 
 
 # 答案文案：避开 _DECLINE_WORDS 与 _EVIDENCE_WORDS 的相近词（plan Task 1 提醒）
@@ -344,12 +360,8 @@ def test_llm_failure_degrades_model_uncertain(monkeypatch):
     qid = cur["question_id"]
 
     monkeypatch.setattr(interview_mod, "call_llm_json", _boom)
-    r = client.post(f"/api/assessment/sessions/{sid}/answer",
-                    json={"question_id": qid, "answer": _EVIDENCE_ANSWER}, headers=headers)
+    resp = _answer(sid, headers, qid, _EVIDENCE_ANSWER)
     monkeypatch.undo()
-    assert r.status_code == 200, f"LLM 失败不得 500（主链断裂），实得 {r.status_code}: {r.text}"
-
-    resp = r.json()
     assert resp["action"] in ("next", "finish"), \
         f"MODEL_UNCERTAIN 按规则 3 应 next 推进，实得 {resp['action']}"
     # 决策观察留痕已落（审计链完整，非静默吞异常）

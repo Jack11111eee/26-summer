@@ -24,6 +24,7 @@ question_score 应已落库且报告雷达/逐题评分非空（断言不经 Pyt
 """
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -95,7 +96,7 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
     return pid, mid
 
 
-def _seed_question_bank(pid: str) -> None:
+def _seed_question_bank(pid: str, mid: str) -> None:
     """岗位题 + 通用题：hard 7 / soft 3 / experience 2（含 py/mysql 难度链）。"""
     conn = get_conn()
     now = now_iso()
@@ -103,10 +104,10 @@ def _seed_question_bank(pid: str) -> None:
     def _add(scope, position_id, std_name, category, difficulty, qtype, stem, answer_key, rubric,
              chain_key=None, chain_seq=None):
         conn.execute(
-            "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+            "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
             " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq, source, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("qb"), scope, position_id, std_name, category, difficulty, qtype, stem,
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), scope, position_id, mid, 1, std_name, category, difficulty, qtype, stem,
              answer_key, rubric, chain_key, chain_seq, "human", "active", now),
         )
 
@@ -159,13 +160,39 @@ _LONG_ANSWER = (
 )
 
 
+def _stream_answer(sid: str, headers: dict, question_id: str, answer: str) -> dict:
+    """流式消费 POST /answer → 组回旧 JSON 同构 dict（action/reply/question_id/next_question_id/score_live）。"""
+    with client.stream("POST", f"/api/assessment/sessions/{sid}/answer",
+                       json={"question_id": question_id, "answer": answer},
+                       headers=headers) as r:
+        assert r.status_code == 200, f"answer 应 200，实得 {r.status_code}"
+        lines = [ln for ln in r.iter_lines() if ln.startswith("data: ")]
+    events = [json.loads(ln[6:]) for ln in lines]
+    decision = next(e for e in events if e["type"] == "decision")
+    done = next(e for e in events if e["type"] == "done")
+    reply = "".join(e["content"] for e in events if e["type"] == "reply")
+    return {"action": done["action"], "reply": reply,
+            "question_id": question_id,
+            "next_question_id": done.get("next_question_id"),
+            "score_live": decision.get("score_live")}
+
+
+def _start(sid: str, headers: dict) -> None:
+    """POST /start 入场确认（PENDING_START→ACTIVE）；容忍 409（幂等重复调用）。"""
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code in (200, 409), r.text
+
+
 def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
     """把一场会话全部题答完（长回答触发 next/finish），返回题目列表。
 
     02-02 动态选题：改为每轮 GET /sessions/{id} 取 current_question → POST answer
     循环（零预选后预读 assessment_question 必空）；GET 返回 None 即完卷。
+    03-01 表单链：action=='form' 时提取 📎[form:id] → submit-v2（gate 项白名单值），
+    完成语义恢复 finish 后继续下一轮 GET。
     """
     questions: list[dict] = []
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     while True:
         r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
         assert r.status_code == 200, r.text
@@ -173,13 +200,22 @@ def _answer_whole_session(sid: str, headers: dict) -> list[dict]:
         if cur is None:
             break
         questions.append(cur)
-        r = client.post(
-            f"/api/assessment/sessions/{sid}/answer",
-            json={"question_id": cur["question_id"], "answer": _LONG_ANSWER},
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-        assert r.json()["action"] in ("next", "finish"), r.text
+        resp = _stream_answer(sid, headers, cur["question_id"], _LONG_ANSWER)
+        assert resp["action"] in ("next", "finish", "form"), resp
+        if resp["action"] == "form":
+            # 表单步骤（03-01）：提取 form_instance_id → submit-v2（experience 项填年限）
+            reply = resp.get("reply", "")
+            m = re.search(r"📎\[form:([^\]]+)\]", reply)
+            assert m, f"reply 应含 📎[form:id]，实得 {reply}"
+            form_id = m.group(1)
+            r = client.post(
+                f"/api/assessment/sessions/{sid}/forms/submit-v2",
+                json={"form_instance_id": form_id, "schema_version": "v1",
+                      "expected_revision": 1, "payload": {"years_of_experience": 5}},
+                headers=headers,
+            )
+            assert r.status_code in (200, 201), r.text
+            assert r.json()["action"] in ("finish", "next"), r.text
     sess = _q("SELECT status FROM assessment_session WHERE session_id=?", (sid,))[0]
     assert sess["status"] == "completed"
     return questions
@@ -215,10 +251,10 @@ def _seed_completed_session_direct(username: str) -> str:
         )
     qid = new_id("qb")
     conn.execute(
-        "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+        "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
         " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (qid, "position", pid, "Python", "hard_skill", "easy", "objective",
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (qid, "position", pid, mid, 1, "Python", "hard_skill", "easy", "objective",
          "Python 中用什么关键字定义函数？", "def", None, "human", "active", now),
     )
     uid = conn.execute(
@@ -290,7 +326,7 @@ def _seed_empty_items_confirmed_model() -> str:
 def _seed_inactive_position_with_full_setup() -> str:
     """pending_review 岗位 + confirmed 模型 + 足量题库（W-2 inactive 分支，直插合法）。"""
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     conn = get_conn()
     conn.execute("UPDATE position SET status='pending_review' WHERE position_id=?", (pid,))
     conn.commit()
@@ -331,8 +367,8 @@ def test_ui_main_chain_score_report_serial():
     零步断裂（前端从不调 /score 导致报告恒 no_data）修复的直接证明——
     断言不经 Python 直调 score_session 掩盖。
     """
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_main")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -365,8 +401,8 @@ def test_completed_session_guardrail():
 
     报告行数仍为 1——重复评分/报告被拒（不重复触发串行链）。
     """
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_guard")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -394,8 +430,8 @@ def test_completed_session_guardrail():
 
 def test_in_progress_report_rejected():
     """in_progress 会话（答题中途）POST /report → 409（非法前置：报告必须在完成后请求）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_inprog")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -403,16 +439,12 @@ def test_in_progress_report_rejected():
     sid = r.json()["session_id"]
 
     # 只答 1 题，不 finish（02-02：GET current_question 取题——零预选后预读必空）
+    _start(sid, headers)  # 03-05 phase 门：PENDING_START 不派发，须先 start
     r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
     assert r.status_code == 200, r.text
     q_id = r.json()["current_question"]["question_id"]
-    r = client.post(
-        f"/api/assessment/sessions/{sid}/answer",
-        json={"question_id": q_id, "answer": _LONG_ANSWER},
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["action"] == "next"
+    resp = _stream_answer(sid, headers, q_id, _LONG_ANSWER)
+    assert resp["action"] == "next"
     sess = _q("SELECT status FROM assessment_session WHERE session_id=?", (sid,))[0]
     assert sess["status"] == "in_progress"
 
@@ -440,8 +472,8 @@ def test_completed_without_report_retriggers():
 def test_serial_chain_events():
     """主链完成后事件表含 TASK_QUEUED / TASK_STARTED / SESSION_ENTERED_SCORING /
     TASK_SUCCEEDED（评分子步 + 报告子步至少各一）；同 session sequence_no 无重复。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_events")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
@@ -492,7 +524,7 @@ def test_question_bank_generating_blocks_session():
     即使题库当前已足量（生成中状态优先于实际题量判定——判定逻辑 D-12）。
     """
     pid, mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    _seed_question_bank(pid, mid)
     _insert_qb_task(pid, mid, 1, "QUEUED")
     headers = _auth_headers("p0_chain_gen")
 
@@ -508,10 +540,10 @@ def test_question_bank_incomplete_blocks_session():
     # 仅插 1 题（远低于新配额：N=10 → hard 7 / soft 3， esperienza/qualification 不占题）
     conn = get_conn()
     conn.execute(
-        "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+        "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
         " difficulty, qtype, stem, answer_key, rubric, source, status, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (new_id("qb"), "position", pid, "Python", "hard_skill", "easy", "objective",
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (new_id("qb"), "position", pid, mid, 1, "Python", "hard_skill", "easy", "objective",
          "Python 中用什么关键字定义函数？", "def", None, "human", "active", now_iso()),
     )
     conn.commit()
@@ -552,8 +584,8 @@ def test_inactive_position_blocks_session():
 
 def test_legacy_seed_without_task_row_passes():
     """存量种子形态（无 task 行 + 题库足量，m5 直插模式）→ 201 不误伤（Pitfall 3 兼容）。"""
-    pid, _mid = _seed_position_with_confirmed_model()
-    _seed_question_bank(pid)
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
     headers = _auth_headers("p0_chain_legacy")
 
     r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)

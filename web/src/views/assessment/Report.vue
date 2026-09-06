@@ -92,6 +92,15 @@
 
           <!-- ③ 逐项明细表 -->
           <div class="rc-section">逐项明细 <span class="cnt">SECTION 3/5 · {{ report.item_details?.length || 0 }} 项</span></div>
+          <div v-if="report.coverage?.total_measureable" class="coverage-bar">
+            观察覆盖率 <b>{{ Math.round(report.coverage.coverage_ratio * 100) }}%</b>
+            · 真实观察 {{ report.coverage.observed_count }} / 可测量 {{ report.coverage.total_measureable }}
+            · 补算 {{ report.coverage.imputed_count }}
+            <div v-if="report.coverage.missing_reasons?.length" class="missing-reasons">
+              缺失：
+              <span v-for="m in report.coverage.missing_reasons" :key="m.item_id">{{ m.std_name }}（{{ reasonLabel(m.reason) }}）</span>
+            </div>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -106,6 +115,7 @@
                     <div class="cell-main">{{ it.std_name }}</div>
                     <div v-if="it.gate" class="cell-sub">门槛项</div>
                     <div v-else-if="it.no_data" class="cell-sub">未出题/未作答</div>
+                    <div v-else-if="it.imputed" class="cell-sub imputed-tag">补算 · 加权估算</div>
                   </td>
                   <td><span class="tag tag-grey">{{ it.category }}</span></td>
                   <td class="num">{{ it.required_level ?? '—' }}</td>
@@ -313,12 +323,24 @@ function scoreTagClass(s) {
   return 'tag-red'
 }
 
-// 明细行理由：question_reviews 未携带 item_id（07 §10.5 契约），按 std_name 反查首条带理由题目
+// 缺失原因 score_state → 中文（D-79 契约修复：后端 missing_reasons.reason 返回原始
+// code，前端映射可读文案；未知 code 原样回退）
+const REASON_LABELS = {
+  INVALIDATED: '无效',
+  INCOMPLETE: '未完成',
+  INSUFFICIENT_EVIDENCE: '证据不足',
+  NOT_ADMINISTERED: '未施测',
+  CONFLICT: '冲突',
+  HUMAN_REVIEW_REQUIRED: '需人工复核'
+}
+function reasonLabel(code) {
+  return REASON_LABELS[code] || code || '—'
+}
+
+// 明细行理由：question_reviews 已携带 item_id，按 item_id 精确匹配
 function itemReason(itemId) {
   const reviews = report.value?.question_reviews || []
-  const item = report.value?.item_details?.find((d) => d.item_id === itemId)
-  if (!item) return ''
-  const hit = reviews.find((q) => q.std_name === item.std_name && q.reason)
+  const hit = reviews.find((q) => q.item_id === itemId && q.reason)
   return hit?.reason || ''
 }
 
@@ -335,6 +357,9 @@ function renderRadar() {
   if (!radarEl.value || !report.value?.radar_data?.indicators?.length) return
   if (!radarChart) radarChart = echarts.init(radarEl.value)
   const rd = report.value.radar_data
+  const indicators = rd.indicators.map((ind) =>
+    ind.imputed ? { ...ind, name: `${ind.name}（补算）` } : ind
+  )
   radarChart.setOption({
     tooltip: {},
     legend: {
@@ -343,7 +368,7 @@ function renderRadar() {
       textStyle: { color: '#6f6e69', fontSize: 12 }
     },
     radar: {
-      indicator: rd.indicators,
+      indicator: indicators,
       radius: '65%',
       axisName: { color: '#37352f', fontSize: 12 },
       splitArea: { areaStyle: { color: ['#ffffff', '#f7f6f3'] } },
@@ -380,9 +405,18 @@ function onResize() {
 async function bootstrap() {
   stopPolling()
   phase.value = 'generating'
-  // 1. 先查是否已有报告
+  // 1. 先查是否已有报告（读 report_status 确定性区分 FAILED/GENERATING/ready）
   try {
     const { data } = await assessment.getReportBySession(sessionId)
+    if (data?.report_status === 'FAILED') {
+      phase.value = 'failed'
+      return
+    }
+    if (data?.report_status === 'GENERATING') {
+      pollCount = 0
+      pollTimer = setInterval(poll, 3000)
+      return
+    }
     await onReportReady(data)
     return
   } catch (e) {
@@ -410,6 +444,18 @@ async function poll() {
   pollCount += 1
   try {
     const { data } = await assessment.getReportBySession(sessionId)
+    if (data?.report_status === 'FAILED') {
+      stopPolling()
+      phase.value = 'failed'
+      return
+    }
+    if (data?.report_status === 'GENERATING') {
+      if (pollCount >= MAX_POLLS) {
+        stopPolling()
+        phase.value = 'failed'
+      }
+      return
+    }
     stopPolling()
     await onReportReady(data)
   } catch (e) {
@@ -487,6 +533,21 @@ onBeforeUnmount(() => {
 .gap-bad { color: var(--red); font-weight: 600; }
 
 .reason-cell { max-width: 260px; }
+
+/* IMPUTED 补算标记 + 覆盖率摘要 */
+.imputed-tag { color: var(--amber); font-weight: 600; }
+.coverage-bar {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.coverage-bar b { color: var(--ink-1); font-weight: 600; }
+.missing-reasons { margin-top: 6px; color: var(--ink-3); }
+.missing-reasons span { margin-right: 10px; }
 
 /* 优势/短板卡片 */
 .sw-grid {

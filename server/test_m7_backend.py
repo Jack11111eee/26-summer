@@ -143,12 +143,18 @@ def test_trace_by_session():
         "INSERT INTO position(position_id, name, status, created_at) VALUES(?,?,?,?)",
         (pos_id, "测试岗位", "active", now_iso()),
     )
+    model_id = new_id("cm")
     conn.execute(
-        "INSERT INTO question_bank(question_id, scope, position_id, std_name, category,"
+        "INSERT INTO competency_model(model_id, position_id, version, status, model_json, created_at)"
+        " VALUES(?,?,1,'confirmed','{}',?)",
+        (model_id, pos_id, now_iso()),
+    )
+    conn.execute(
+        "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"
         " difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,"
         " source, status, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (bq_id, "position", pos_id, "Python", "hard_skill",
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (bq_id, "position", pos_id, model_id, 1, "Python", "hard_skill",
          "easy", "objective", "测试题", "key", None, None, None,
          "human", "active", now_iso()),
     )
@@ -158,12 +164,6 @@ def test_trace_by_session():
         "INSERT INTO user(user_id, username, password_hash, role, is_active, created_at)"
         " VALUES(?,?,?,?,1,?)",
         (uid, "cand_test", "hash", "candidate", now_iso()),
-    )
-    model_id = new_id("cm")
-    conn.execute(
-        "INSERT INTO competency_model(model_id, position_id, version, status, model_json, created_at)"
-        " VALUES(?,?,1,'confirmed','{}',?)",
-        (model_id, pos_id, now_iso()),
     )
     conn.execute(
         "INSERT INTO assessment_session(session_id, user_id, position_id, model_id, model_version,"

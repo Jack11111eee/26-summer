@@ -14,11 +14,11 @@
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: P0 安全与主链修复** - 所有权校验 / score→report 串行 / 开考检查 / 状态事件表 + 附带护栏 (completed 2026-09-03)
-- [ ] **Phase 2: 动态选题与有界循环** - 四层选题 / 难度状态机 / 回答状态分类 / 评分链 50-50 废除 / 7:3 权重口径
-- [ ] **Phase 3: 表单/SSE/幂等/计时** - 表单实例链 / 真实 SSE / 幂等并发 / 计时区间 / 上下文三层
-- [ ] **Phase 4: 题库版本绑定与模块一收口** - model/version 绑定 / 生成失败可见 / orphan 路由 / 模型编辑校验
-- [ ] **Phase 5: 证据链与报告契约** - 证据 span + trace_link / 报告状态机与发布 / item 裁决与补算 / feedback 补全
-- [ ] **Phase 6: 迁移体系与测试闭环收口** - schema_version 收口 / pytest 统一 + CI / M1 回归 / E2E / eval 隔离 / bad case
+- [x] **Phase 2: 动态选题与有界循环** - 四层选题 / 难度状态机 / 回答状态分类 / 评分链 50-50 废除 / 7:3 权重口径 (completed 2026-09-05)
+- [x] **Phase 3: 表单/SSE/幂等/计时** - 表单实例链 / 真实 SSE / 幂等并发 / 计时区间 / 上下文三层 (completed 2026-09-05)
+- [x] **Phase 4: 题库版本绑定与模块一收口** - model/version 绑定 / 生成失败可见 / orphan 路由 / 模型编辑校验 (completed 2026-09-05)
+- [x] **Phase 5: 证据链与报告契约** - 证据 span + trace_link / 报告状态机与发布 / item 裁决与补算 / feedback 补全 (completed 2026-09-05)
+- [x] **Phase 6: 迁移体系与测试闭环收口** - schema_version 收口 / pytest 统一 + CI / M1 回归 / E2E / eval 隔离 / bad case (completed 2026-09-05)
 
 ## Phase Details
 
@@ -115,23 +115,23 @@ Plans:
 
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — 表单链（form_instance 不可变快照 + gate 九列四步放宽[A2 呈报] + render 池耗尽扩展 + GET /forms 白名单 + 六维校验 + GATE_EVALUATED + admin 覆盖 + 双源迁移 + score_session gate 行保留）—— REF-2.4/3.3/4.7/4.10
+- [x] 03-01-PLAN.md — 表单链（form_instance 不可变快照 + gate 九列四步放宽[A2 呈报] + render 池耗尽扩展 + GET /forms 白名单 + 六维校验 + GATE_EVALUATED + admin 覆盖 + 双源迁移 + score_session gate 行保留）—— REF-2.4/3.3/4.7/4.10
 
 **Wave 2** *(blocked on 03-01——submit_answer form 分支返回值先定形)*
 
-- [ ] 03-02-PLAN.md — 真实 SSE（三相 commit 后 StreamingResponse；generator 零 DB；reply 假流分块；AnswerRequest Pydantic；7 回归文件流式解析适配）—— REF-4.6/4.7
+- [x] 03-02-PLAN.md — 真实 SSE（三相 commit 后 StreamingResponse；generator 零 DB；reply 假流分块；AnswerRequest Pydantic；7 回归文件流式解析适配）—— REF-4.6/4.7
 
 **Wave 3** *(blocked on 03-02——answer 返回形态定形后幂等快照才有基准)*
 
-- [ ] 03-03-PLAN.md — 幂等（idempotency_record 三键 + 两阶段 PENDING/COMMITTED + 快照 200 JSON 回放[A1 呈报] + revision 乐观锁 + 无 key 零影响）—— REF-4.9
+- [x] 03-03-PLAN.md — 幂等（idempotency_record 三键 + 两阶段 PENDING/COMMITTED + 快照 200 JSON 回放[A1 呈报] + revision 乐观锁 + 无 key 零影响）—— REF-4.9
 
 **Wave 4** *(blocked on 03-03——A4 前置区时序在幂等之后挂计时)*
 
-- [ ] 03-04-PLAN.md — 计时区间（session_time_intervals + partial unique + Python merge + 单题超时第四路 + 全场超时收尾 + 6h ABANDONED 惰性 + phase 双轨 + 分列三列 + 滑窗[MAX_CONTEXT_TOKENS 占位呈报]）—— REF-2.6/2.8/4.8/4.12
+- [x] 03-04-PLAN.md — 计时区间（session_time_intervals + partial unique + Python merge + 单题超时第四路 + 全场超时收尾 + 6h ABANDONED 惰性 + phase 双轨 + 分列三列 + 滑窗[MAX_CONTEXT_TOKENS 占位呈报]）—— REF-2.6/2.8/4.8/4.12
 
 **Wave 5** *(blocked on 03-04——pause 409 消费面与 timer 服务就绪后收口)*
 
-- [ ] 03-05-PLAN.md — 收口（start/pause/resume 三端点 + Pitfall 12 派发条件 + INJECTION_DETECTED 白名单留痕 + 12 文件 PENDING_START 拦截面全量适配）—— REF-2.6/4.7/6.4
+- [x] 03-05-PLAN.md — 收口（start/pause/resume 三端点 + Pitfall 12 派发条件 + INJECTION_DETECTED 白名单留痕 + 12 文件 PENDING_START 拦截面全量适配）—— REF-2.6/4.7/6.4
 
 ### Phase 4: 题库版本绑定与模块一收口
 
@@ -145,12 +145,17 @@ Plans:
   3. 管理员访问 /jds/orphan 返回孤儿 JD 列表（当前被 /jds/{jd_id} 参数路由捕获恒 404 的缺陷修复）
   4. 管理员编辑模型提交 NaN 权重/越界类别/重复 std_name 被服务端拒绝并返回明确错误（保留 Σ=100% 校验）
 
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 
-- [ ] 04-01: question_bank 绑定 model/version + 升版重建/阻止开考联动 + 生成失败可见（状态+管理员待办）
-- [ ] 04-02: /jds/orphan 路由顺序修复 + 模型编辑字段级校验（NaN/范围/类别/重复）
+**Wave 1**
+
+- [x] 04-01-PLAN.md — question_bank 绑定 model/version（落库填充 model_id/model_version/item_id/rubric_version="v1" + 4 处判重键升级）+ 消费侧收紧（readiness 三处 + selection 一处 WHERE 加 model_id+model_version）+ 生成失败可见（FAILED 分支 + get_todos 的 question_bank_failed 明细）—— REF-2.5/3.4/8.4
+
+**Wave 2** *(blocked on 04-01——positions.py 共享文件冲突)*
+
+- [x] 04-02-PLAN.md — /jds/orphan 路由迁移至 jds.py（置于 /jds/{jd_id} 前）+ 移除 positions.py 重复路由 + ModelItem 字段级校验（NaN/范围/枚举/重复 std_name，保留 Σ=100%）—— REF-7.1/7.2
 
 ### Phase 5: 证据链与报告契约
 
@@ -165,15 +170,26 @@ Plans:
   4. 报告生成失败显式可见（FAILED 状态 + 前端可区分"生成中/失败"，不再静默 pass）
   5. 候选人异议带完整字段（user_id/note/reviewer/时间戳），submit_feedback 校验 item 属于该报告对应模型，admin review note 不再被丢弃
 
-**Plans**: TBD
+**Plans**: 4 plans
 **UI hint**: yes
 
 Plans:
 
-- [ ] 05-01: 证据 span 结构化 + hash 复用限单 session + trace_link 表与审计链闭合（旧 ref_id 导入）
-- [ ] 05-02: item_measurement 统一裁决 + IMPUTED 补算 + required 缺失 PROVISIONAL/人工复核标记
-- [ ] 05-03: 报告状态机 + 七项发布校验 + 报告版本化（不可变版本，防 feedback 外键断裂）+ 失败显式可见
-- [ ] 05-04: feedback/question_reviews 字段补全 + item 归属校验
+**Wave 1**
+
+- [x] 05-01: 证据 span 结构化 + hash 复用限单 session + trace_link 表与审计链闭合（旧 ref_id 导入）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 05-02: item_measurement 统一裁决 + IMPUTED 补算 + required 缺失 PROVISIONAL/人工复核标记
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 05-03: 报告状态机 + 七项发布校验 + 报告版本化（不可变版本，防 feedback 外键断裂）+ 失败显式可见
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 05-04: feedback/question_reviews 字段补全 + item 归属校验
 
 ### Phase 6: 迁移体系与测试闭环收口
 
@@ -188,15 +204,23 @@ Plans:
   4. 候选人端完整 E2E 通过：注册→选岗→session→作答/追问→表单→完成→评分→报告→异议，含刷新恢复、断线重试、越权、超时（M5–M7 verified 必要条件）
   5. 评测契约兑现：b 一致性（固定 transcript 复跑 score_final 分差 ≤1）、c 虚拟考生（强>中>弱 + 短板定位 + required 覆盖 + 拒答/缺失状态 + 证据引用 + 报告状态）、bad case 双分背离自动候选（管理员审核不自动改分）、eval 独立/临时数据库不污染业务库
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
 
-- [ ] 06-01: schema_version 迁移登记簿收口（各阶段内嵌迁移归档 + 迁移测试 + 备份/回滚）
-- [ ] 06-02: 测试统一 pytest 收集 + CI 配置 + 越权/幂等/计时/SSE/迁移必测项
-- [ ] 06-03: M1 回归清单（模块一八项）+ mock interviewer 评分恒 3 分问题处理
-- [ ] 06-04: 候选人端完整 E2E（主链 + 刷新恢复/断线重试/越权/超时）
-- [ ] 06-05: eval 隔离（独立/临时数据库）+ b/c 评测契约 + bad case 自动候选 + 输入限额/secret 启动校验/HttpOnly cookie 方向决策等安全收尾项
+**Wave 1**
+
+- [x] 06-01-PLAN.md — schema_version 迁移登记簿收口（MIGRATIONS 注册 + 迁移测试 + 备份/回滚）+ conftest.py mock 三件套（Wave 0 linchpin）
+
+**Wave 2** *(blocked on 06-01)*
+
+- [x] 06-02-PLAN.md — 测试统一 pytest 收集（question_bank/m6 脚本式重构）+ CI 配置 + requirements.txt 补 pytest
+- [x] 06-04-PLAN.md — 候选人端完整 E2E（主链 + 刷新/断线/越权/超时）+ 前端契约修复（submit-v2/missing_reasons 映射/报告重试）
+- [x] 06-05-PLAN.md — eval 隔离 + b/c 评测契约 + bad case 双分背离候选 + 输入限额/secret 校验/JWT 方向等安全收尾
+
+**Wave 3** *(blocked on 06-01 + 06-02 + 06-05)*
+
+- [x] 06-03-PLAN.md — M1 回归清单（模块一八项）+ mock interviewer 评分恒 3 分记档 + 13 文件 model_id/model_version 补齐
 
 ## Progress
 
@@ -206,8 +230,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. P0 安全与主链修复 | 4/4 | Complete   | 2026-09-03 |
-| 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-04 |
-| 3. 表单/SSE/幂等/计时 | 0/5 | Not started | - |
-| 4. 题库版本绑定与模块一收口 | 0/2 | Not started | - |
-| 5. 证据链与报告契约 | 0/4 | Not started | - |
-| 6. 迁移体系与测试闭环收口 | 0/5 | Not started | - |
+| 2. 动态选题与有界循环 | 5/5 | Complete   | 2026-09-05 |
+| 3. 表单/SSE/幂等/计时 | 5/5 | Complete   | 2026-09-05 |
+| 4. 题库版本绑定与模块一收口 | 2/2 | Complete   | 2026-09-05 |
+| 5. 证据链与报告契约 | 5/5 | Complete    | 2026-09-05 |
+| 6. 迁移体系与测试闭环收口 | 5/5 | Complete   | 2026-09-05 |
