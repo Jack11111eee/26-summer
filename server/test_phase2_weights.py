@@ -92,9 +92,9 @@ def test_weight_gate_items_zero():
 
 
 def test_aggregation_no_double_scaling():
-    """总分公式只含 weight×(actual/5)×100，无 CATEGORY_RATIO 二次乘（§8.2）。"""
+    """总分公式只含 weight×(actual_level−1)/4×100，无 CATEGORY_RATIO 二次乘（§20.3）。"""
     src = inspect.getsource(aggregation_module)
-    assert "actual / 5.0" in src  # :118-121 公式锚点在位
+    assert "(score - 1) / 4.0" in src  # _normalize_score 归一化锚点（§20.3，作废 score/5）
     assert "CATEGORY_RATIO" not in src, "aggregation.py 不得引入 CATEGORY_RATIO（二次乘违约）"
 
 

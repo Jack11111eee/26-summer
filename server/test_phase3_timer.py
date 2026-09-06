@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from server import config as cfg  # noqa: E402
-from server.db import init_db, get_conn  # noqa: E402
+from server.db import init_db, get_conn, _migrate_session_phase3  # noqa: E402
 from server.main import app  # noqa: E402
 from server.services.interview import _truncate_history  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
@@ -518,7 +518,7 @@ def test_phase_column_defaults():
     sid = _create_session(pid, headers)
     assert _q("SELECT phase FROM assessment_session WHERE session_id=?", (sid,))[0]["phase"] == "PENDING_START"
 
-    # 旧行回填：直插 status 合法值 + phase NULL → 重跑 init_db → 回填 PENDING_START（migration 幂等）
+    # 旧行回填：直插 status 合法值 + phase NULL → 直调迁移函数 → 回填 PENDING_START（迁移函数幂等）
     conn = get_conn()
     try:
         # FK ON 语境：先插合法 user 父行，再插 assessment_session（无父行必 FK 违反假红——W4）
@@ -536,7 +536,12 @@ def test_phase_column_defaults():
         conn.commit()
     finally:
         conn.close()
-    init_db()  # 重跑迁移（幂等）
+    conn = get_conn()
+    try:
+        _migrate_session_phase3(conn)  # 直调迁移函数（幂等：WHERE phase IS NULL 回填）
+        conn.commit()
+    finally:
+        conn.close()
     row = _q("SELECT phase, status FROM assessment_session WHERE session_id='sess_old'")[0]
     assert row["phase"] == "PENDING_START"
     assert row["status"] == "completed"  # status 存量语义不动
