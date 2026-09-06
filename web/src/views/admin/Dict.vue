@@ -81,6 +81,16 @@
           <el-empty description="暂无词条" />
         </template>
       </el-table>
+      <el-pagination
+        class="pager"
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="onSizeChange"
+        @current-change="onPageChange"
+      />
     </el-card>
 
     <!-- 新增对话框 -->
@@ -169,17 +179,30 @@ const entries = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const filters = reactive({ category: '', created_by: '', status: '', q: '' })
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 
-// 加载词条列表
-async function load() {
+// 加载词条列表（按当前筛选 + 分页）
+async function fetchEntries() {
   loading.value = true
   try {
-    const { data } = await api.get('/admin/dict', { params: filters })
-    entries.value = data
+    const { data } = await api.get('/admin/dict', { params: { ...filters, page: page.value, page_size: pageSize.value } })
+    entries.value = data.items
+    total.value = data.total
   } finally {
     loading.value = false
   }
 }
+
+// 查询/筛选变更：回到第一页
+function load() {
+  page.value = 1
+  fetchEntries()
+}
+
+function onPageChange(p) { page.value = p; fetchEntries() }
+function onSizeChange(s) { pageSize.value = s; page.value = 1; fetchEntries() }
 
 // ---- 新增 ----
 const createVisible = ref(false)
@@ -348,5 +371,9 @@ onMounted(load)
   margin: 12px 0 0;
   color: #909399;
   font-size: 13px;
+}
+.pager {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 </style>

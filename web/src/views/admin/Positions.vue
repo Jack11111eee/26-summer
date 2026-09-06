@@ -35,7 +35,7 @@
     <el-card shadow="never" class="panel mb16" v-if="hasTodo">
       <el-collapse v-model="activeTodo">
         <!-- 待审新岗位 -->
-        <el-collapse-item :title="`待审新岗位（${pendingPositions.length}）`" name="pending">
+        <el-collapse-item :title="`待审新岗位（${pendingTotal}）`" name="pending">
           <el-table :data="pendingPositions" v-loading="pendingLoading" size="small">
             <el-table-column prop="name" label="岗位名称" min-width="160" />
             <el-table-column prop="jd_count" label="JD 数" width="80" align="center" />
@@ -50,10 +50,20 @@
             </el-table-column>
             <template #empty><el-empty description="暂无待审岗位" :image-size="60" /></template>
           </el-table>
+          <el-pagination
+            class="pager"
+            v-model:current-page="pendingPage"
+            v-model:page-size="pendingPageSize"
+            :total="pendingTotal"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next, jumper"
+            @size-change="onPendingSizeChange"
+            @current-change="onPendingPageChange"
+          />
         </el-collapse-item>
 
         <!-- 待归属 JD -->
-        <el-collapse-item :title="`待归属 JD（${orphanJds.length}）`" name="orphan">
+        <el-collapse-item :title="`待归属 JD（${orphanTotal}）`" name="orphan">
           <el-table :data="orphanJds" v-loading="orphanLoading" size="small">
             <el-table-column prop="job_title" label="岗位名称" min-width="140">
               <template #default="{ row }">{{ row.job_title || '（未解析）' }}</template>
@@ -78,7 +88,7 @@
                   style="width: 130px; margin-right: 8px"
                 >
                   <el-option
-                    v-for="p in positions"
+                    v-for="p in positionOptions"
                     :key="p.position_id"
                     :label="p.name"
                     :value="p.position_id"
@@ -96,6 +106,16 @@
             </el-table-column>
             <template #empty><el-empty description="暂无待归属 JD" :image-size="60" /></template>
           </el-table>
+          <el-pagination
+            class="pager"
+            v-model:current-page="orphanPage"
+            v-model:page-size="orphanPageSize"
+            :total="orphanTotal"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next, jumper"
+            @size-change="onOrphanSizeChange"
+            @current-change="onOrphanPageChange"
+          />
         </el-collapse-item>
       </el-collapse>
     </el-card>
@@ -126,6 +146,16 @@
           <el-empty description="暂无岗位。导入 JD 后系统会自动归岗创建岗位。" />
         </template>
       </el-table>
+      <el-pagination
+        class="pager"
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="onSizeChange"
+        @current-change="onPageChange"
+      />
     </el-card>
   </div>
 </template>
@@ -144,13 +174,24 @@ const orphanJds = ref([])
 const pendingLoading = ref(false)
 const orphanLoading = ref(false)
 const activeTodo = ref(['pending', 'orphan'])
+// 待办分页
+const pendingPage = ref(1)
+const pendingPageSize = ref(20)
+const pendingTotal = ref(0)
+const orphanPage = ref(1)
+const orphanPageSize = ref(20)
+const orphanTotal = ref(0)
 // 每行的改归岗位选择
 const reassignMap = ref({})
 // 岗位列表
 const positions = ref([])
+const positionOptions = ref([]) // 改归下拉全量选项（不分页）
 const loading = ref(false)
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 
-const hasTodo = computed(() => pendingPositions.value.length > 0 || orphanJds.value.length > 0)
+const hasTodo = computed(() => pendingTotal.value > 0 || orphanTotal.value > 0)
 
 async function loadTodos() {
   const { data } = await api.get('/admin/todos')
@@ -160,18 +201,25 @@ async function loadTodos() {
 async function loadPositions() {
   loading.value = true
   try {
-    const { data } = await api.get('/admin/positions')
-    positions.value = data
+    const { data } = await api.get('/admin/positions', { params: { page: page.value, page_size: pageSize.value } })
+    positions.value = data.items
+    total.value = data.total
   } finally {
     loading.value = false
   }
 }
 
+async function loadPositionOptions() {
+  const { data } = await api.get('/admin/positions/options')
+  positionOptions.value = data
+}
+
 async function loadPending() {
   pendingLoading.value = true
   try {
-    const { data } = await api.get('/admin/positions/pending')
-    pendingPositions.value = data
+    const { data } = await api.get('/admin/positions/pending', { params: { page: pendingPage.value, page_size: pendingPageSize.value } })
+    pendingPositions.value = data.items
+    pendingTotal.value = data.total
   } finally {
     pendingLoading.value = false
   }
@@ -180,8 +228,9 @@ async function loadPending() {
 async function loadOrphan() {
   orphanLoading.value = true
   try {
-    const { data } = await api.get('/admin/jds/orphan')
-    orphanJds.value = data
+    const { data } = await api.get('/admin/jds/orphan', { params: { page: orphanPage.value, page_size: orphanPageSize.value } })
+    orphanJds.value = data.items
+    orphanTotal.value = data.total
   } finally {
     orphanLoading.value = false
   }
@@ -190,9 +239,18 @@ async function loadOrphan() {
 function loadAll() {
   loadTodos()
   loadPositions()
+  loadPositionOptions()
   loadPending()
   loadOrphan()
 }
+
+// 分页回调
+function onPageChange(p) { page.value = p; loadPositions() }
+function onSizeChange(s) { pageSize.value = s; page.value = 1; loadPositions() }
+function onPendingPageChange(p) { pendingPage.value = p; loadPending() }
+function onPendingSizeChange(s) { pendingPageSize.value = s; pendingPage.value = 1; loadPending() }
+function onOrphanPageChange(p) { orphanPage.value = p; loadOrphan() }
+function onOrphanSizeChange(s) { orphanPageSize.value = s; orphanPage.value = 1; loadOrphan() }
 
 // 岗位审核：approve 直接过；reject 需二次确认
 async function onReview(row, action) {
@@ -282,5 +340,9 @@ onMounted(loadAll)
 }
 .stat.hot .stat-num {
   color: #e6a23c;
+}
+.pager {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 </style>

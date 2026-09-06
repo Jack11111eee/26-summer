@@ -156,7 +156,7 @@ const activeSections = ref(['raw', 'cleaned', 'raw_items', 'std_items'])
 let pollTimer = null
 
 async function loadPosition() {
-  const { data } = await api.get('/admin/positions')
+  const { data } = await api.get('/admin/positions/options')
   const cur = data.find((p) => p.position_id === positionId)
   positionName.value = cur ? cur.name : ''
 }

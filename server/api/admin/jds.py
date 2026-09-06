@@ -6,22 +6,37 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFi
 from ... import schemas
 from ...core.security import require_admin
 from ...db import get_conn
-from ...services.input_limits import validate_jd_length
+from ...services.input_limits import clamp_pagination_limit, validate_jd_length
 from ...services.pipeline import new_id, now_iso, run_parse_pipeline
 
 router = APIRouter(prefix="/api/admin", tags=["admin-jds"], dependencies=[Depends(require_admin)])
 
 
-@router.get("/positions")
-def list_positions() -> list[dict]:
-    """岗位列表（M1 简版：id/名称/状态/JD 数）。完整 P1 岗位库在 M3 实现。"""
+@router.get("/positions/options")
+def list_position_options() -> list[dict]:
+    """岗位轻量选项（改归下拉 / 详情页名称查找用）：id+名称，全量不分页。"""
     conn = get_conn()
+    rows = conn.execute(
+        "SELECT position_id, name FROM position ORDER BY created_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.get("/positions")
+def list_positions(page: int = 1, page_size: int = 20) -> dict:
+    """岗位列表（M1 简版：id/名称/状态/JD 数）。完整 P1 岗位库在 M3 实现。"""
+    page = max(1, page)
+    page_size = clamp_pagination_limit(page_size)
+    offset = (page - 1) * page_size
+    conn = get_conn()
+    total = conn.execute("SELECT COUNT(*) c FROM position").fetchone()["c"]
     rows = conn.execute(
         "SELECT p.position_id, p.name, p.status,"
         " (SELECT COUNT(*) FROM jd_record j WHERE j.position_id=p.position_id) AS jd_count"
-        " FROM position p ORDER BY p.created_at DESC"
+        " FROM position p ORDER BY p.created_at DESC LIMIT ? OFFSET ?",
+        (page_size, offset),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return {"items": [dict(r) for r in rows], "total": total}
 
 
 def _insert_jd(jd_text: str, company: str | None, source_type: str) -> str:
@@ -80,14 +95,22 @@ def list_jds(position_id: str) -> list[dict]:
 
 
 @router.get("/jds/orphan")
-def list_orphan_jds() -> list[dict]:
+def list_orphan_jds(page: int = 1, page_size: int = 20) -> dict:
     """待归属 JD 队列（岗位被拒绝后回退的）。置于 /jds/{jd_id} 之前，避免参数路由吞掉 orphan。"""
+    page = max(1, page)
+    page_size = clamp_pagination_limit(page_size)
+    offset = (page - 1) * page_size
     conn = get_conn()
+    total = conn.execute(
+        "SELECT COUNT(*) c FROM jd_record WHERE position_id IS NULL AND status != 'failed'"
+    ).fetchone()["c"]
     rows = conn.execute(
         "SELECT jd_id, job_title, company, source_type, status, created_at"
-        " FROM jd_record WHERE position_id IS NULL AND status != 'failed' ORDER BY created_at DESC"
+        " FROM jd_record WHERE position_id IS NULL AND status != 'failed'"
+        " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        (page_size, offset),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return {"items": [dict(r) for r in rows], "total": total}
 
 
 @router.get("/jds/{jd_id}")
