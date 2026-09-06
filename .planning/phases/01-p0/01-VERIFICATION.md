@@ -106,6 +106,8 @@ human_verification: []
 
 ### Anti-Patterns Found（含 01-REVIEW.md 发现的代码级核实）
 
+> **2026-09-06 收口注记：下表所列问题均已在 01-REVIEW-FIX.md（iteration 1，20/20 all_fixed，2026-09-03，commits 333e9f9..ce2d6dc）修复**，现行代码以 REVIEW-FIX 与仓库现状为准：CR-02/WR-11（readiness 连接卫生）→ try/finally；CR-03/WR-12（finished_at 保护）→ CASE ELSE finished_at；WR-03 表首行（FAILED 无重触发，即 REVIEW CR-01）→ `/api/admin/question-bank-tasks/{task_id}/retry` 路由已存在；WR-04（confirm 事务原子性、REVIEW CR-05 同批修复）；WR-05（报告 404 oracle）→ 统一「报告不存在」；CR-04（reject 撞 FK 500）→ 子表占用 409。2026-09-06 复核 grep 全部存活于现行代码。本表保留为历史发现记录。
+
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
 | server/services/readiness.py | 51, 58-60, 76-77, 86-88, 112-116 | 四个失败分支 return 前未 conn.close()（REVIEW CR-02 核实属实：仅成功路径 :116 有 close） | ⚠️ Warning | 依赖 CPython 引用计数兜底回收；代码卫生缺陷，不破坏任何 SC 行为（三态 409 测试全 PASS）。建议 try/finally 收口 |
@@ -126,7 +128,7 @@ human_verification: []
 
 ## Acknowledged Gaps
 
-无。01-REVIEW.md 的 4 Critical 经代码核实属实但均在五条 Success Criteria 字面之外（retry 入口、连接卫生、审计字段保护、既有路由 FK seam），归 Warning 供后续阶段消费（见 Anti-Patterns Found）。
+无。01-REVIEW.md 的 4 Critical 经代码核实属实但均在五条 Success Criteria 字面之外（retry 入口、连接卫生、审计字段保护、既有路由 FK seam），归 Warning 供后续阶段消费（见 Anti-Patterns Found）。 **（2026-09-06 注：该批 Warning 已全部由 01-REVIEW-FIX 收口，不再是悬置债务。）**
 
 ---
 

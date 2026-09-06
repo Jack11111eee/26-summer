@@ -3,7 +3,7 @@ phase: 6
 slug: migration-test-closure
 status: ready
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-09-05
 ---
 
@@ -38,12 +38,12 @@ created: 2026-09-05
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 06-01 | 01 | 1 | REF-2.11 | T-06-01 / — | registry replay parity + idempotency + legacy-DB migration | unit/integration | `python -m pytest server/test_migration.py -q` | ❌ W0 | ⬜ pending |
-| 06-02 | 02 | 2 | REF-7.4 | T-06-02 / — | full collection green (no fixture errors) | collection | `python -m pytest server/ -q` | ❌ (3 errors today) | ⬜ pending |
-| 06-03 | 03 | 3 | REF-7.5 / REF-8.6 | T-06-03 / — | M1 eight-item regression locks + mock-fixed-3 documented | unit | `python -m pytest server/test_m1_regression.py -q` | ❌ W0 | ⬜ pending |
-| 06-04 | 04 | 2 | REF-7.6 | T-06-04 / — | candidate full-chain E2E + refresh/retry/timeout/authz | integration | `python -m pytest server/test_e2e_full_chain.py -q` | ❌ W0 | ⬜ pending |
-| 06-05 | 05 | 2 | REF-5.11 / REF-8.8 | T-06-05 / — | bad-case candidate never auto-scores; eval uses temp DB | unit/integration | `python -m pytest server/test_bad_case.py server/test_eval_isolation.py -q` | ❌ W0 | ⬜ pending |
-| 06-05 | 05 | 2 | REF-6.2 / REF-6.3 | T-06-05 / — | startup secret validation; per-type input limits | unit | `python -m pytest server/test_secret_gate.py server/test_input_limits.py -q` | ❌ W0 | ⬜ pending |
+| 06-01 | 01 | 1 | REF-2.11 | T-06-01 / — | registry replay parity + idempotency + legacy-DB migration | unit/integration | `python -m pytest server/test_migration.py -q` | ✓ exists | ✅ green |
+| 06-02 | 02 | 2 | REF-7.4 | T-06-02 / — | full collection green (no fixture errors) | collection | `python -m pytest server/ -q` | ✓ exists | ✅ green |
+| 06-03 | 03 | 3 | REF-7.5 / REF-8.6 | T-06-03 / — | M1 eight-item regression locks + mock-fixed-3 documented | unit | `python -m pytest server/test_m1_regression.py -q` | ✓ exists | ✅ green |
+| 06-04 | 04 | 2 | REF-7.6 | T-06-04 / — | candidate full-chain E2E + refresh/retry/timeout/authz | integration | `python -m pytest server/test_e2e_full_chain.py -q` | ✓ exists | ✅ green |
+| 06-05 | 05 | 2 | REF-5.11 / REF-8.8 | T-06-05 / — | bad-case candidate never auto-scores; eval uses temp DB | unit/integration | `python -m pytest server/test_bad_case.py server/test_eval_isolation.py -q` | ✓ exists | ✅ green |
+| 06-05 | 05 | 2 | REF-6.2 / REF-6.3 | T-06-05 / — | startup secret validation; per-type input limits | unit | `python -m pytest server/test_secret_gate.py server/test_input_limits.py -q` | ✓ exists | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -51,13 +51,13 @@ created: 2026-09-05
 
 ## Wave 0 Requirements
 
-- [ ] `server/conftest.py` — session temp-DB fixture (blocking prerequisite for ALL collection work)
-- [ ] `pytest` added to `server/requirements.txt` (CI reproducibility)
-- [ ] `server/test_migration.py` — registry replay / idempotency / legacy-DB path
-- [ ] `server/test_m1_regression.py` — eight-item locks
-- [ ] `server/test_e2e_full_chain.py` — full candidate chain
-- [ ] `server/test_bad_case.py` / `test_secret_gate.py` / `test_input_limits.py` / `test_eval_isolation.py`
-- [ ] Fix 13 session-test files' direct `question_bank` INSERTs to write `model_id`/`model_version` ([04-011])
+- [x] `server/conftest.py` — session temp-DB fixture (blocking prerequisite for ALL collection work)
+- [x] `pytest` added to `server/requirements.txt` (CI reproducibility)
+- [x] `server/test_migration.py` — registry replay / idempotency / legacy-DB path
+- [x] `server/test_m1_regression.py` — eight-item locks
+- [x] `server/test_e2e_full_chain.py` — full candidate chain
+- [x] `server/test_bad_case.py` / `test_secret_gate.py` / `test_input_limits.py` / `test_eval_isolation.py`
+- [x] Fix 13 session-test files' direct `question_bank` INSERTs to write `model_id`/`model_version` ([04-011] — closed, 1002d2f)
 
 ---
 
@@ -73,11 +73,11 @@ created: 2026-09-05
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved（2026-09-06 收口回写：全量回归 236 passed / 4 warnings，上表六行全绿；初验占位未回填属记录滞后，非策略未执行——见 06-VERIFICATION.md 复验）

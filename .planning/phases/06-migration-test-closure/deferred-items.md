@@ -1,10 +1,12 @@
 # Phase 6 — Deferred / Out-of-Scope Items
 
 > Log of discoveries during plan execution that are out of scope for the current plan and deferred to a later plan (or user decision). Kept separate from STATE.md's global Deferred Items for phase-level visibility.
+>
+> **2026-09-06 收口复核：本文件列出的全部 5 个既有失败 + 13 文件回归缺口均已闭合**（f827ceb / fbc4aac / 1002d2f / d5f377f），全量回归 **236 passed**（见 STATE.md）。各条目下方已标 CLOSED。
 
 ## From 06-01 (migration registry + conftest + migration tests)
 
-### [04-011] — test_m5_backend.py 4 failures are pre-existing (NOT caused by 06-01)
+### [04-011] — test_m5_backend.py 4 failures are pre-existing (NOT caused by 06-01) — **✅ CLOSED**
 
 - **Found during:** 06-01 plan-level regression check (`cd server && python -m pytest test_m5_backend.py test_m7_backend.py -q`)
 - **Symptom:** 4 failed / 8 passed. All 4 failures in `test_m5_backend.py`:
@@ -18,7 +20,7 @@
 
 ## From 06-03 (M1 regression + config §31-4 + 13-file column fill)
 
-### 2 pre-existing failures unmasked by the 13-file column fill (NOT caused by 06-03)
+### 2 pre-existing failures unmasked by the 13-file column fill (NOT caused by 06-03) — **✅ CLOSED（两项均）**
 
 06-03's Task 3 is a purely mechanical edit: add `model_id`/`model_version` to each `INSERT INTO question_bank` across 13 session-test files + thread `mid`. It does **not** touch `api/assessment.py`, `db.py`, or any migration/report logic. Two failures surfaced after the fill, both in code paths unrelated to `question_bank` columns — they were previously masked because the missing `model_id`/`model_version` caused those tests to fail earlier (at session creation / readiness), before ever reaching these assertions.
 
@@ -30,30 +32,34 @@
 - **Why out of scope for 06-03:** Task 3 scope is "补 model_id/model_version 两列，不改其他列、不改断言数值、不改测试语义". Fixing #1 requires changing the report endpoint's re-trigger semantics (a D-08 design decision, Rule 4 architectural); fixing #2 requires changing migration-registry idempotency semantics (D-68, also design-level). Neither is a mechanical column fill.
 - **Evidence of correctness of 06-03's own changes:** the 3 acceptance files `test_m5_backend.py` / `test_m6_backend.py` / `test_m7_backend.py` are green (16 passed). The grep acceptance check (each `INSERT INTO question_bank` column list contains both `model_id` and `model_version`) is clean for all 13 files.
 - **Action:** defer to a design decision. #1 needs SSOT confirmation of whether `POST /report` on a terminal-status report should 409 (test's expectation) or re-generate (current D-08 endpoint). #2 needs a decision on whether the phase backfill should be idempotently re-applied (e.g. a `WHERE phase IS NULL` idempotent backfill outside the registry) or the test's re-run expectation is stale.
+- **Closure（2026-09-06）:** #1 由 `f827ceb` 收口（§21.1 终态报告 409 护栏，SSOT fbc4aac 已记 §14 变更日志）；#2 同由 `f827ceb` 修 `test_phase3` 过期断言。两项现均绿（236 passed 全量回归）。
 
 ## From post-merge test gate（执行期全量回归 — 5 failed / 218 passed）
 
 执行期全量回归（`cd server && python -m pytest -q`）最终 **5 failed / 218 passed**。全部 5 个均以基线（commit 13f6743，无 conftest）核实为**既有失败**：基线全量 **98 failed**（无 conftest 的 DB_PATH 首导入冻结污染 + 13 文件缺 model_id/model_version），06-01 conftest + 06-03 补列把 98 降到 5。5 个中 2 个（test_p0_chain / test_phase3_timer）已在上文 06-03 节记档；本节补记其余 3 个。
 
-### test_phase2_weights.py::test_aggregation_no_double_scaling — 过期源码字符串断言
+### test_phase2_weights.py::test_aggregation_no_double_scaling — 过期源码字符串断言 — **✅ CLOSED**
 
 - **Symptom:** `assert 'actual / 5.0' in src`（`inspect.getsource(aggregation_module)` 取整模块源码后做字面量断言）失败 —— 聚合模块源码已不含字面量 `actual / 5.0`（公式锚点写法漂移）。
 - **Root cause:** 测试用 `inspect.getsource` 抓整模块源码再断言字符串字面量，脆弱且与实现细节强耦合；重构后字面量漂移即挂。与 DB/conftest 无关（纯源码字符串断言）。
 - **Why out of scope:** Phase 6 未触及 `services/aggregation.py` 或 `test_phase2_weights.py`；该断言是 Phase 2 遗留的脆弱断言，非本 phase 回归（单独跑同样失败）。改为行为断言（调函数断言结果）而非源码字面量断言属测试重构，超出 5 计划 files_modified 范围。
+- **Closure（2026-09-06）:** `f827ceb`（修 test_phase2/3 两处过期断言）收口，现绿。
 
-### test_phase4_binding.py::test_generate_writes_binding_columns — 旧式 DB_PATH 隔离假设被 conftest 打破
+### test_phase4_binding.py::test_generate_writes_binding_columns — 旧式 DB_PATH 隔离假设被 conftest 打破 — **✅ CLOSED**
 
 - **Symptom:** `assert len(rows) == 6` 实得 **1046**（`SELECT * FROM question_bank`）。
 - **Root cause:** 该文件沿用旧式 `os.environ["DB_PATH"] = _tmp_db`（第 18 行，`from server.db import` 之前）的隔离手法。06-01 conftest 先 import server.config 冻结 DB_PATH 到 session 级 `gsd-test-` 共享库，测试文件的 `os.environ["DB_PATH"]` 赋值失效 → `init_db()`/`get_conn()` 落在共享库，`SELECT *` 读到其他测试文件播种的 1046 行。
 - **Pre-existing 证据:** 基线（无 conftest，首导入冻结污染）同测**同样失败**（基线 98 failed 之列）。非 06-01 新引入 —— 06-01 之前它就因「首导入 wins」污染挂；06-01 只是把污染机制从「首导入 wins」换成「共享 session 库」，未修复该文件的隔离。
 - **Why out of scope:** 修复即把该文件迁移到 `set_db_path()` 模式（与 test_phase2_migration 同款），属测试文件隔离模式迁移，超出 5 计划 files_modified。**可低成本跟进**：改 `os.environ["DB_PATH"]` → autouse fixture `set_db_path(_tmp_db)`，或直接改用 `db_module.DB_PATH = _tmp_db` 直接改 config 属性（test_phase3_forms 同款）。
+- **Closure（2026-09-06）:** `1002d2f`（迁移 test_phase4_binding + test_phase5_evidence 到 set_db_path autouse fixture，WR-05）收口，现绿。
 
-### test_phase5_evidence.py::test_ref_id_import_migration — 裸连接指向从未建表的 _tmp_db
+### test_phase5_evidence.py::test_ref_id_import_migration — 裸连接指向从未建表的 _tmp_db — **✅ CLOSED**
 
 - **Symptom:** `sqlite3.OperationalError: no such table: assessment_session`（`sqlite3.connect(_tmp_db)` 后直插 assessment_session）。
 - **Root cause:** 该测试用**裸 sqlite3** 直连自建 `_tmp_db`，期望 `_tmp_db` 已有 `assessment_session` 表。但 `_tmp_db` 的建表依赖旧式 `os.environ["DB_PATH"] = _tmp_db`（被 conftest 冻结失效），`init_db()` 实际建表落在共享 `gsd-test-` 库，`_tmp_db` 始终为空。
 - **Pre-existing 证据:** 基线同测**同样失败**（98 failed 之列）。非 06-01 新引入。
 - **Why out of scope:** 修复即让 `_tmp_db` 真正被 init（迁移到 `set_db_path()` 模式或裸连后手动 `executescript` 建 assessment_session），超出 5 计划 files_modified。**可低成本跟进**：同 test_phase4_binding，改 `set_db_path()` 隔离模式。
+- **Closure（2026-09-06）:** `1002d2f`（同上，set_db_path autouse fixture 迁移）收口，现绿。
 
 ## From verify-gap closure — SSOT §21 gap 符号约定 vs §23「短板定位」语义张力（§2.2 硬关口）✅ 已解决（选项 A）
 

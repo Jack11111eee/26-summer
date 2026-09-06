@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 
 Phase: 06 (migration-test-closure) — COMPLETE（代码/测试收口完成）
 Plan: 5 of 5 — 全部 execute + verify + code-review(fix) + secure 完成
-Status: 全量回归 3 failed / 220 passed（3 个均为既有设计级失败，已记 deferred-items）
+Status: 全量回归 236 passed / 4 warnings（2026-09-06 第十轮收口后；初验时 3 failed / 220 passed 的既有设计级失败均已闭合）
 Last activity: 2026-09-06
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
@@ -130,8 +130,8 @@ None yet.
 | 契约 | REF-3.8 等值备用题组（SSOT 未列 §28 硬项） | 登记不排期 | 2026-09-02 (Init) |
 | 契约 | REF-3.9 综合题槽位（生成 Prompt 待讨论，D-030） | 登记不排期 | 2026-09-02 (Init) |
 | 契约 | REF-4.11 Tools 白名单（本期无工具调用，接口登记随 Prompt 模块） | 登记不排期 | 2026-09-02 (Init) |
-| 回归 | 13 个会话类测试文件（test_m5/m6/m7、test_p0_chain/security、phase2 difficulty/interview/scoring、phase3 forms/sse/timer/idempotency/misc）直插 question_bank 不写 model_id/model_version，Phase 4 消费侧收紧后失败 | 并入 Phase 6 M1 回归收口（[04-011]） | 2026-09-05 (Phase 4) |
-| 代码质量 | code-review 6 warning（WR-01 配额守卫恒 False / WR-02 todos 全行口径 / WR-03 error_msg 进候选端 / WR-04 model_json 丢字段 / WR-05 conn 不 close / WR-06 rubric 兜底） | 候选清单随 Phase 6 收口按需处置（[04-016]，见 04-REVIEW.md） | 2026-09-05 (Phase 4) |
+| 回归 | 13 个会话类测试文件（test_m5/m6/m7、test_p0_chain/security、phase2 difficulty/interview/scoring、phase3 forms/sse/timer/idempotency/misc）直插 question_bank 不写 model_id/model_version，Phase 4 消费侧收紧后失败 | **已闭合**（1002d2f 全量迁移 set_db_path autouse fixture + Phase 6 补回归，2026-09-06 复核 236 全绿） | 2026-09-05 (Phase 4) |
+| 代码质量 | code-review 6 warning（WR-01 配额守卫恒 False / WR-02 todos 全行口径 / WR-03 error_msg 进候选端 / WR-04 model_json 丢字段 / WR-05 conn 不 close / WR-06 rubric 兜底） | **已闭合**（8fa15e4 fix(phase4) 逐项处置 WR-01~06，见 04-REVIEW.md 处置记录） | 2026-09-05 (Phase 4) |
 
 ## Session Continuity
 
