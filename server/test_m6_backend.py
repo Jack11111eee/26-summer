@@ -225,10 +225,12 @@ def test_aggregation(ctx: dict) -> None:
     check("total_score = 24.5", abs(agg["total_score"] - 24.5) < 0.01,
           f"实际 {agg['total_score']}")
 
-    check("strengths 含 Python 和沟通能力（gap≥0）",
-          {s["std_name"] for s in agg["strengths"]} == {"Python", "沟通能力"},
+    check("strengths 含 沟通能力（gap≤0）",
+          {s["std_name"] for s in agg["strengths"]} == {"沟通能力"},
           f"实际 {agg['strengths']}")
-    check("weaknesses 为空（无 gap<0）", agg["weaknesses"] == [])
+    check("weaknesses 含 Python（gap>0）",
+          {s["std_name"] for s in agg["weaknesses"]} == {"Python"},
+          f"实际 {agg['weaknesses']}")
 
     check("gate_items 全通过", all(g["passed"] for g in agg["gate_items"]))
 
@@ -248,8 +250,10 @@ def test_report(ctx: dict) -> None:
     check("radar required = [4,3]", radar["required"] == [4, 3])
     check("radar actual = [3.0,3.0]", radar["actual"] == [3.0, 3.0])
 
-    check("strengths_text 包含 Python 与 沟通能力",
-          "Python" in rpt["strengths_text"] and "沟通能力" in rpt["strengths_text"])
+    check("strengths_text 包含 沟通能力",
+          "沟通能力" in rpt["strengths_text"])
+    check("weaknesses_text 包含 Python",
+          "Python" in rpt["weaknesses_text"])
     check("mock 模式 suggestions_text 非空", bool(rpt["suggestions_text"]))
 
     check("question_reviews 3 条", len(rpt["question_reviews"]) == 3)
