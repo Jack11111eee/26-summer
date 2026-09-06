@@ -7,12 +7,18 @@ LLM_PROVIDER=anthropic 走 Anthropic Messages 协议（urllib 零依赖实现—
 chat 路由长 prompt 100% 503 no_available_providers）。
 """
 import json
+import threading
+import time
 import urllib.request
 from typing import Any
 
 from .. import config
 from ..db import get_conn
 from .pipeline import now_iso, new_id
+
+# 中转类服务 Messages 端点并发容量实测 ≈1（2026-09-06：并发 2 即 503
+# no_available_providers，串行连发 2/3 过）——LLM 调用全局串行化 + 503 指数退避。
+_LLM_SEMA = threading.Semaphore(config.LLM_MAX_CONCURRENT)
 
 
 def _record_trace(call_type: str, ref_id: str, attempt: int,
@@ -30,20 +36,40 @@ def _record_trace(call_type: str, ref_id: str, attempt: int,
 
 
 def _chat(system_prompt: str, user_prompt: str) -> str:
-    """真实 LLM 调用，OpenAI 兼容 chat.completions，JSON 模式。"""
-    from openai import OpenAI
+    """真实 LLM 调用，OpenAI 兼容 chat.completions，JSON 模式。
 
-    client = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
-    resp = client.chat.completions.create(
-        model=config.LLM_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0,
-    )
-    return resp.choices[0].message.content
+    503 指数退避同 _messages（2026-09-06 实测 bingchanpro 免费池：令牌桶
+    容量≈3、回填慢，超出即 503 no_available_providers，密集重打无用）。
+    """
+    from openai import OpenAI, APIStatusError
+
+    # max_retries=0 拧死 SDK 内部静默重试：503 统一走本函数的显式退避 +
+    # call_llm_json 外环，三层重试叠乘会把单条拖到分钟级（冒烟实测教训）
+    client = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL,
+                     timeout=300, max_retries=0)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    def _create():
+        return client.chat.completions.create(
+            model=config.LLM_MODEL,
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=0,
+        ).choices[0].message.content
+
+    with _LLM_SEMA:  # 全局并发上限（免费池容量≈3）
+        for backoff in (5, 20):
+            try:
+                return _create()
+            except APIStatusError as e:
+                if e.status_code == 503:
+                    time.sleep(backoff)
+                    continue
+                raise
+        return _create()  # 退避两轮后仍 503：末试，失败上抛 call_llm_json 重试环
 
 
 def _strip_code_fence(text: str) -> str:
@@ -63,6 +89,7 @@ def _messages(system_prompt: str, user_prompt: str) -> str:
 
     中转类服务常仅暴露 Messages/Responses 接口（chat 不可用），此函数提供
     协议适配：system 独立参数、content 块拼接、code fence 归一。
+    503（池枯竭）指数退避重试：5s、20s——池恢复期常为几十秒，密集重打无用。
     """
     body = json.dumps({
         "model": config.LLM_MODEL,
@@ -72,17 +99,33 @@ def _messages(system_prompt: str, user_prompt: str) -> str:
         "temperature": 0,
     }).encode()
     url = config.LLM_BASE_URL.rstrip("/") + "/messages"
-    req = urllib.request.Request(url, data=body, method="POST", headers={
+    headers = {
         "x-api-key": config.LLM_API_KEY,
         "Authorization": f"Bearer {config.LLM_API_KEY}",  # 中转普遍两者都认
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        data = json.loads(resp.read())
-    return _strip_code_fence(
-        "".join(c.get("text", "") for c in data.get("content", []) if c.get("type") == "text")
-    )
+    }
+    with _LLM_SEMA:  # 全局串行：中转 Messages 端点并发容量 ≈1
+        for backoff in (5, 20):
+            try:
+                req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+                with urllib.request.urlopen(req, timeout=300) as resp:
+                    data = json.loads(resp.read())
+                return _strip_code_fence(
+                    "".join(c.get("text", "") for c in data.get("content", []) if c.get("type") == "text")
+                )
+            except urllib.error.HTTPError as e:
+                if e.code == 503:
+                    time.sleep(backoff)
+                    continue
+                raise
+        # 退避两轮后仍 503：最后一试，失败上抛给 call_llm_json 的重试环
+        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = json.loads(resp.read())
+        return _strip_code_fence(
+            "".join(c.get("text", "") for c in data.get("content", []) if c.get("type") == "text")
+        )
 
 
 def call_llm_json(call_type: str, ref_id: str, system_prompt: str, user_prompt: str,
@@ -104,7 +147,7 @@ def call_llm_json(call_type: str, ref_id: str, system_prompt: str, user_prompt: 
                 raw = _messages(system_prompt, user_prompt)
                 result = json.loads(raw)
             else:
-                raw = _chat(system_prompt, user_prompt)
+                raw = _strip_code_fence(_chat(system_prompt, user_prompt))
                 result = json.loads(raw)
             trace_id = _record_trace(call_type, ref_id, attempt, prompt_for_trace, raw, True, None)
             if trace_out is not None:

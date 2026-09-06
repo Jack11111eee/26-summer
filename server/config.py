@@ -14,6 +14,9 @@ LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "mock")  # deepseek | anthropic | 
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+# LLM 并发上限（2026-09-06 实测 bingchanpro 免费池：同时错峰在途 >3 即
+# 503 no_available_providers，前 3 个可并行——令牌桶容量≈3、回填慢）
+LLM_MAX_CONCURRENT = int(os.environ.get("LLM_MAX_CONCURRENT", "3"))
 
 # ---- JWT ----
 JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-.env")
