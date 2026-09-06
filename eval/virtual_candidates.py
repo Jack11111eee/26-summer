@@ -234,9 +234,8 @@ def test_virtual_candidates(position_id: str) -> dict:
 
     # 报告下游五子项：weak 档全 miss → 短板即被测客观题 std_name；客观题
     # evidence_quote=answer[:60]（scoring.py）→ 证据引用非空；报告状态 READY/PROVISIONAL。
-    # 注：短板定位依赖 SSOT §21 约定「短板=gap<0」（gap=required−actual）。weak 档
-    # actual<required → gap>0 → 现约定落入 strengths 而非 weaknesses，故此断言当前
-    # 揭示该 gap 符号约定的语义张力（见 06-DECISIONS [06-013]），待 SSOT 裁决后定案。
+    # 短板定位依赖 SSOT §21 约定「短板=gap>0」（gap=required−actual）。weak 档
+    # actual<required → gap>0 → 落入 weaknesses，断言短板定位命中被测客观题 std_name。
     report = generate_report(sessions["weak"])
     used = _used_std_names(position_id)
     weakness_ok, weakness_msg = assert_weakness_identified(report, used[0]) if used \

@@ -31,8 +31,8 @@ Status: 全量回归 3 failed / 220 passed（3 个均为既有设计级失败，
 Last activity: 2026-09-06
 
 - **工作分支**：`feature/m5-assessment`（当前分支，直接在此推进 M1 修复/重构流）
-- **下一动作**：**§2.2 硬关口停车**——SSOT §21 gap 符号约定（短板=`gap<0`）与 §23「短板定位」自然语义相反，待用户裁决（见 06-DECISIONS [06-013] + deferred-items.md「SSOT §21 gap 符号约定」节）。裁决前不动 SSOT/aggregation.py/test_m6_backend.py。
-- **阶段顺序权威**：SSOT §28 六步（P0 四项 → 动态选题/状态机 → 表单/SSE/幂等/计时 → 题库版本 → 证据/报告契约 → 迁移/测试收口）；Phase 6 已收口 schema_version（登记簿 D-68），milestone v2.0 六阶段全部完成。
+- **下一动作**：milestone v2.0 六阶段全部完成，Phase 6 收口闭环。SSOT §21 gap 符号约定已按用户裁决 [06-013] 选项 A 反转（短板=gap>0、优势=gap≤0），先改 SSOT（ce09bb1）再动代码（aggregation.py/test_m6_backend/eval virtual_candidates）。
+- **阶段顺序权威**：SSOT §28 六步（P0 四项 → 动态选题/状态机 → 表单/SSE/幂等/计时 → 题库版本 → 证据/报告契约 → 迁移/测试收口）；Phase 6 已收口 schema_version（登记簿 D-68）。
 
 ## Performance Metrics
 

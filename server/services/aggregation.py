@@ -354,15 +354,15 @@ def aggregate_session_scores(session_id: str) -> dict:
             "observation_status": "NO_VALID_OBSERVATION",
         })
 
-    # 优势 = gap≥0 中权重最大前 3；短板 = gap<0 中 |gap|×weight 最大前 3
+    # 优势 = gap≤0 中权重最大前 3；短板 = gap>0 中 gap×weight 最大前 3
     non_gate = [it for it in item_scores if not it.get("gate") and it.get("gap") is not None]
     strengths = sorted(
-        (it for it in non_gate if it["gap"] >= 0),
+        (it for it in non_gate if it["gap"] <= 0),
         key=lambda x: (-x["weight"], x["item_id"]),
     )[:3]
     weaknesses = sorted(
-        (it for it in non_gate if it["gap"] < 0),
-        key=lambda x: (-abs(x["gap"] * x["weight"]), x["item_id"]),
+        (it for it in non_gate if it["gap"] > 0),
+        key=lambda x: (-(x["gap"] * x["weight"]), x["item_id"]),
     )[:3]
 
     coverage = {
