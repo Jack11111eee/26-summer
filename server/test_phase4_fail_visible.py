@@ -1,6 +1,6 @@
 """Phase 4 题库生成失败可见测试（REF-8.4——SSOT §10.4 管理员待办 + readiness FAILED 明细）。
 
-- readiness FAILED 分支返回 QUESTION_BANK_INCOMPLETE + detail 含 error_msg[:200]
+- readiness FAILED 分支返回 QUESTION_BANK_INCOMPLETE + 固定文案（不泄露 error_msg，WR-03）
 - GET /api/admin/todos 返回 question_bank_failed 明细列表
   （position_id/model_id/model_version/error_msg）+ question_bank_not_ready 保持 int
 
@@ -100,15 +100,16 @@ def _admin_headers() -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
-def test_readiness_failed_reports_error_msg():
-    """REF-8.4：FAILED task → QUESTION_BANK_INCOMPLETE + detail 含 error_msg。"""
+def test_readiness_failed_reports_fixed_message():
+    """REF-8.4/WR-03：FAILED task → QUESTION_BANK_INCOMPLETE + 固定文案，不泄露 error_msg。"""
     pid, mid = _seed_failed_bank()
     model = _q(
         "SELECT model_id, version, model_json FROM competency_model WHERE model_id=?", (mid,))[0]
     result = check_session_readiness(pid, model=model)
     assert result is not None, "生成失败应阻止开考"
     assert result["error_code"] == "QUESTION_BANK_INCOMPLETE", result
-    assert "LLM 解析异常" in result["detail"], f"detail 应含 error_msg: {result}"
+    assert result["detail"] == "该岗位题库生成失败，不可开考", result
+    assert "LLM 解析异常" not in result["detail"], f"detail 不应泄露 error_msg: {result}"
 
 
 def test_todos_reports_failed_detail():

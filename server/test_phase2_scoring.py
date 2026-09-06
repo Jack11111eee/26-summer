@@ -102,16 +102,16 @@ def _seed_question_bank(pid: str, mid: str) -> None:
              stem, answer_key, rubric, None, None, "human", "active", now),
         )
 
-    # 沟通能力 subjective ×2（easy/medium——为软性配额与 difficulty 快照提供池）
-    _add("沟通能力", "soft_skill", "easy", "subjective",
-         "讲一次跨团队沟通的经历。", None, "背景/冲突/结果")
-    _add("沟通能力", "soft_skill", "medium", "subjective",
-         "遇到意见分歧怎么处理？", None, "倾听/数据/共识")
-    # Python subjective ×2（hard_skill 主观池——不命中 answer_key）
-    _add("Python", "hard_skill", "easy", "subjective",
-         "讲一个你用 Python 解决性能问题的经历。", None, "场景/方法/结果")
-    _add("Python", "hard_skill", "medium", "subjective",
-         "讲一次你用 Python 做模块设计的经历。", None, "结构/取舍/结果")
+    # 沟通能力 subjective ×3（soft 配额 3）
+    for i in range(3):
+        _add("沟通能力", "soft_skill", "easy", "subjective",
+             f"沟通题 {i+1}：讲一次跨团队沟通的经历。", None, "背景/冲突/结果")
+    # Python subjective ×7（hard_skill 主观池——不命中 answer_key；hard 配额 7；
+    # 无效客观题 _seed_invalid_objective 以「删一主换一客」替换保持配额恒 7；
+    # 全 easy 难度——required_level=3 下 hard 档不可达，difficulty 快照落回 easy 不丢题）
+    for i in range(7):
+        _add("Python", "hard_skill", "easy", "subjective",
+             f"Python 经验题 {i+1}：讲一个用 Python 解决性能问题的经历。", None, "场景/方法/结果")
     conn.commit()
     conn.close()
 
@@ -171,9 +171,17 @@ _DECLINE_ANSWER = "这道题我不方便回答，涉及隐私"
 def _seed_invalid_objective(pid: str, mid: str, std_name: str = "Python") -> str:
     """直插 1 道 answer_key=NULL 的客观题（绕过 CR-01 生成侧——题库生成层会拦空 key）。
 
-    返回 question_id。INVALIDATED 路径的题库侧种子。
+    以「删一道同 std_name 主观题再插」替换，保持 hard 配额恒 7（6 主观 + 1 无效
+    客观），使配额恰满、7 题全选命中无效题——若叠加为 8 题则 7 选 8 有概率跳过
+    无效题。返回 question_id。INVALIDATED 路径的题库侧种子。
     """
     conn = get_conn()
+    conn.execute(
+        "DELETE FROM question_bank WHERE rowid = ("
+        " SELECT MIN(rowid) FROM question_bank WHERE model_id=? AND std_name=?"
+        " AND category='hard_skill' AND qtype='subjective')",
+        (mid, std_name),
+    )
     qid = new_id("qb")
     conn.execute(
         "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, std_name, category,"

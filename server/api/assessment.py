@@ -1122,6 +1122,11 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"error_code": "REPORT_GENERATING",
                                     "message": "报告生成中，请勿重复触发"})
+    # 终态报告（PROVISIONAL/READY/PUBLISHED）已生成 → 409 拒绝重复触发（P0 成功标准 5）
+    if report_row is not None and report_row["report_status"] in ("PROVISIONAL", "READY", "PUBLISHED"):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail={"error_code": "REPORT_ALREADY_GENERATED",
+                                    "message": "报告已生成，请勿重复触发"})
     # 仅 (c) 分支写 GENERATING 占位行 + 入队；TASK_QUEUED 事件务必在 add_task 前落库
     version = 1 + (conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM report WHERE session_id=?", (session_id,)

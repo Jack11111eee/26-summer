@@ -244,3 +244,9 @@ def test_update_model_accepts_valid_edit() -> None:
     )
     assert [row["std_name"] for row in rows] == ["Python", "沟通能力"]
     assert sum(row["weight"] for row in rows) == 1.0
+    # WR-04：编辑后 model_json 保留 position_id/version 等非 items 元数据（不因
+    # ModelUpdateBody 仅声明 items + Pydantic extra='ignore' 被丢弃）
+    mrow = _q("SELECT position_id, model_json FROM competency_model WHERE model_id=?", (mid,))[0]
+    model_json = json.loads(mrow["model_json"])
+    assert model_json.get("position_id") == mrow["position_id"], model_json
+    assert model_json.get("version") == 1, model_json

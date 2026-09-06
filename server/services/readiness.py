@@ -10,7 +10,7 @@ MODEL_NOT_MEASURABLE）只在本函数统一返回（D-11）。
 """
 from ..db import get_conn
 from .. import config
-from .question_selection import ORDINARY_CATEGORIES, plan_quotas
+from .question_selection import ORDINARY_CATEGORIES, largest_remainder_73
 
 
 def _question_count_by_category(conn, position_id: str, model_id: str,
@@ -106,10 +106,10 @@ def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict 
         return {"error_code": "QUESTION_BANK_GENERATING",
                 "detail": "该岗位题库正在生成中，请稍后开考"}
     if task is not None and task["status"] == "FAILED":
-        detail = "该岗位题库生成失败，不可开考"
-        if task["error_msg"]:
-            detail += f"（{task['error_msg'][:200]}）"
-        return {"error_code": "QUESTION_BANK_INCOMPLETE", "detail": detail}
+        # WR-03：面向考生仅固定文案，不拼内部 error_msg（ASVS V7.4.1）；
+        # 内部细节保留在管理员侧 todos.question_bank_failed 明细
+        return {"error_code": "QUESTION_BANK_INCOMPLETE",
+                "detail": "该岗位题库生成失败，不可开考"}
     # SUCCEEDED 或无 task 行 → 看实际可选题量（兼容 m5/m6 直插题库种子，Pitfall 3）
 
     # 4)+5) required 覆盖 + 配额可行（按实际题量判定）
@@ -153,18 +153,20 @@ def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict 
         available[category] = tiers
 
     n = config.ORDINARY_PLAN_N
-    quotas = plan_quotas(n, available)
+    # WR-01：用未 clamp 的原始大类配额对比实际题量。旧实现 `have < min(target_total,
+    # sum(available))` 中 target_total 来自 plan_quotas（tier_targets 已按可用量 clamp），
+    # 故 target_total ≤ sum(available) = have，缺口判定恒为 False——题量不足仍放行开考。
+    hard_n, soft_n = largest_remainder_73(n)
+    cat_quota = {"hard_skill": hard_n, "soft_skill": soft_n}
+    present = [c for c in ORDINARY_CATEGORIES if c in available]
+    raw_target = {c: cat_quota[c] for c in present}
+    if len(present) == 1:
+        raw_target[present[0]] = n  # 大类退化：单类目岗位另一类名额并入本类（对齐 plan_quotas）
     gaps: list[str] = []
-    for category, tier_targets_map in quotas.items():
-        if category not in needed_categories:
-            continue  # 模型不含该类目：不要求配额（CR-04）
+    for category, target in raw_target.items():
         have = counts.get(category, 0)
-        target_total = sum(tier_targets_map.values())
-        # §10.3 优先级预检：题量不足时先保 required 再保 preferred——即 clamp 后
-        # 的目标能被满足即可（plan_quotas 的 tier_targets 已按可用量 clamp，
-        # 缺口在类目总量级呈现）
-        if have < min(target_total, sum(available[category].values())):
-            gaps.append(f"{category} {have}/{target_total}")
+        if have < target:
+            gaps.append(f"{category} {have}/{target}")
     if missing_required or gaps:
         detail = "该岗位题库不完整，不可开考"
         if missing_required:

@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from server import config as cfg  # noqa: E402
-from server.db import init_db, get_conn  # noqa: E402
+from server.db import init_db, get_conn, _migrate_session_phase3  # noqa: E402
 from server.main import app  # noqa: E402
 from server.services.interview import _truncate_history  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
@@ -99,7 +99,7 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
 
 
 def _seed_question_bank(pid: str, mid: str) -> None:
-    """普通题 hard×4/soft×2（池耗尽才触发表单）+ gate 项题库行。"""
+    """普通题 hard 7/soft 3（满足 §10.4 原始配额）+ gate 项题库行。"""
     conn = get_conn()
     now = now_iso()
 
@@ -112,16 +112,16 @@ def _seed_question_bank(pid: str, mid: str) -> None:
              answer_key, rubric, "human", "active", now),
         )
 
-    _add("position", pid, "Python", "hard_skill", "easy", "objective",
-         "Python 中用什么关键字定义函数？", "def", None)
-    _add("position", pid, "Python", "hard_skill", "medium", "subjective",
-         "讲一个你用 Python 解决过的性能问题。", None, "有具体场景/有数据/有方法")
-    _add("position", pid, "MySQL", "hard_skill", "easy", "objective",
-         "MySQL 默认事务隔离级别是？", "REPEATABLE", None)
-    _add("position", pid, "MySQL", "hard_skill", "medium", "subjective",
-         "讲一次慢查询优化经历。", None, "explain/索引/效果")
-    _add("position", pid, "沟通能力", "soft_skill", "easy", "subjective",
-         "讲一次跨团队沟通的经历。", None, "背景/冲突/结果")
+    # 全 easy 难度：required_level=3 下 hard 档不可达，difficulty 快照落回 easy 不丢题
+    for i in range(4):
+        _add("position", pid, "Python", "hard_skill", "easy", "subjective",
+             f"Python 经验题 {i+1}：讲一个用 Python 解决问题的场景。", None, "场景/方法/结果")
+    for i in range(3):
+        _add("position", pid, "MySQL", "hard_skill", "easy", "subjective",
+             f"MySQL 经验题 {i+1}：讲一次数据库优化经历。", None, "场景/方法/结果")
+    for i in range(2):
+        _add("position", pid, "沟通能力", "soft_skill", "easy", "subjective",
+             f"沟通题 {i+1}：讲一次跨团队沟通的经历。", None, "背景/冲突/结果")
     _add("position", pid, "团队协作", "soft_skill", "easy", "subjective",
          "你如何带新人？", None, "方法/耐心")
     # gate 项题库行（scope=general 但 selection 不取——ORDINARY_CATEGORIES 保证）
@@ -518,7 +518,7 @@ def test_phase_column_defaults():
     sid = _create_session(pid, headers)
     assert _q("SELECT phase FROM assessment_session WHERE session_id=?", (sid,))[0]["phase"] == "PENDING_START"
 
-    # 旧行回填：直插 status 合法值 + phase NULL → 重跑 init_db → 回填 PENDING_START（migration 幂等）
+    # 旧行回填：直插 status 合法值 + phase NULL → 直调迁移函数 → 回填 PENDING_START（迁移函数幂等）
     conn = get_conn()
     try:
         # FK ON 语境：先插合法 user 父行，再插 assessment_session（无父行必 FK 违反假红——W4）
@@ -536,7 +536,12 @@ def test_phase_column_defaults():
         conn.commit()
     finally:
         conn.close()
-    init_db()  # 重跑迁移（幂等）
+    conn = get_conn()
+    try:
+        _migrate_session_phase3(conn)  # 直调迁移函数（幂等：WHERE phase IS NULL 回填）
+        conn.commit()
+    finally:
+        conn.close()
     row = _q("SELECT phase, status FROM assessment_session WHERE session_id='sess_old'")[0]
     assert row["phase"] == "PENDING_START"
     assert row["status"] == "completed"  # status 存量语义不动

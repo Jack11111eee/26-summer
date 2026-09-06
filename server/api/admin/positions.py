@@ -21,15 +21,29 @@ def get_todos() -> dict:
     orphan_jds = conn.execute(
         "SELECT COUNT(*) c FROM jd_record WHERE position_id IS NULL AND status != 'failed'"
     ).fetchone()["c"]
-    # 题库未就绪（D-13）：存在非 SUCCEEDED 生成任务行（QUEUED/RUNNING/FAILED）的岗位数，按 position 去重
+    # 题库未就绪（D-13/WR-02）：按 (position_id, model_id, model_version) 取最新 task 行判定。
+    # retry 保留旧 FAILED 行作审计并新增 QUEUED 行（models.py retry_question_bank_task），
+    # 故须「无更新行」（NOT EXISTS）口径——重试成功后旧 FAILED 行不误计入未就绪/失败明细
+    # （与 readiness.py ORDER BY created_at DESC LIMIT 1 取最新行的口径一致）。
     question_bank_not_ready = conn.execute(
-        "SELECT COUNT(DISTINCT position_id) c FROM question_bank_task WHERE status != 'SUCCEEDED'"
+        "SELECT COUNT(DISTINCT position_id) c FROM question_bank_task qbt"
+        " WHERE status != 'SUCCEEDED'"
+        " AND NOT EXISTS (SELECT 1 FROM question_bank_task q2"
+        "   WHERE q2.position_id = qbt.position_id AND q2.model_id = qbt.model_id"
+        "   AND q2.model_version = qbt.model_version"
+        "   AND (q2.created_at > qbt.created_at"
+        "        OR (q2.created_at = qbt.created_at AND q2.rowid > qbt.rowid)))"
     ).fetchone()["c"]
-    # 题库生成失败明细（D-51/REF-8.4）：status='FAILED' 任务行（error_msg 入库时已 str(e)[:200] 截断）
+    # 题库生成失败明细（D-51/REF-8.4）：最新 task 行为 FAILED 的岗位
     question_bank_failed = [
         dict(r) for r in conn.execute(
-            "SELECT position_id, model_id, model_version, error_msg FROM question_bank_task"
+            "SELECT position_id, model_id, model_version, error_msg FROM question_bank_task qbt"
             " WHERE status='FAILED'"
+            " AND NOT EXISTS (SELECT 1 FROM question_bank_task q2"
+            "   WHERE q2.position_id = qbt.position_id AND q2.model_id = qbt.model_id"
+            "   AND q2.model_version = qbt.model_version"
+            "   AND (q2.created_at > qbt.created_at"
+            "        OR (q2.created_at = qbt.created_at AND q2.rowid > qbt.rowid)))"
         ).fetchall()
     ]
     return {

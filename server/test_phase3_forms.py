@@ -125,7 +125,7 @@ def _seed_position_with_confirmed_model() -> tuple[str, str]:
 
 
 def _seed_question_bank(pid: str, mid: str) -> None:
-    """普通题 hard 2 / soft 1（配额经 clamp 通过）+ gate 项题库行（general 不进普通池）。"""
+    """普通题 hard 7 / soft 3（满足 §10.4 原始配额）+ gate 项题库行（general 不进普通池）。"""
     conn = get_conn()
     now = now_iso()
 
@@ -138,12 +138,16 @@ def _seed_question_bank(pid: str, mid: str) -> None:
              answer_key, rubric, "human", "active", now),
         )
 
-    _add("position", pid, "Python", "hard_skill", "easy", "objective",
-         "Python 中用什么关键字定义函数？", "def", None)
-    _add("position", pid, "MySQL", "hard_skill", "easy", "objective",
-         "MySQL 默认事务隔离级别是？", "REPEATABLE", None)
-    _add("position", pid, "沟通能力", "soft_skill", "medium", "subjective",
-         "讲一次跨团队沟通的经历。", None, "背景/冲突/结果")
+    # 全 easy 难度：required_level=3 下 hard 档不可达，difficulty 快照落回 easy 不丢题
+    for i in range(4):
+        _add("position", pid, "Python", "hard_skill", "easy", "subjective",
+             f"Python 经验题 {i+1}：讲一个用 Python 解决问题的场景。", None, "场景/方法/结果")
+    for i in range(3):
+        _add("position", pid, "MySQL", "hard_skill", "easy", "subjective",
+             f"MySQL 经验题 {i+1}：讲一次数据库优化经历。", None, "场景/方法/结果")
+    for i in range(3):
+        _add("position", pid, "沟通能力", "soft_skill", "easy", "subjective",
+             f"沟通题 {i+1}：讲一次跨团队沟通的经历。", None, "背景/冲突/结果")
     # gate 项题库行（scope=general 但 selection 不取——ORDINARY_CATEGORIES 保证）
     _add("general", None, "后端开发经验", "experience", None, "subjective",
          "介绍你最近一个后端项目。", None, "角色/规模/成果")
