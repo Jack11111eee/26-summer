@@ -38,6 +38,9 @@ SCORE_STATES = (
 _MAX_KEY_LEN = 512
 MAX_ANSWER_LEN = 64 * 1024  # WR-07：输入侧（assessment）与评分侧同口径公开设定的上限
 _MAX_ANSWER_LEN = MAX_ANSWER_LEN  # 旧私有名（模块内既有引用保持）
+# 客观题 evidence_quote 展示截断长度（SSOT §17 登记口径：固定展示规则非开放参数；
+# 主观题引文由 LLM 摘引，客观题回答可长文，前缀截断仅为引文列展示约定）
+_OBJECTIVE_QUOTE_LEN = 60
 
 
 def _score_objective(answer_key: str, answer: str) -> tuple[int, str]:
@@ -189,7 +192,7 @@ def score_question(session_id: str, question_id: str) -> dict:
                 "trace_id": None,
             }
         score, reason = _score_objective(q["answer_key"], answer_text)
-        evidence_quote = answer_text[:60]
+        evidence_quote = answer_text[:_OBJECTIVE_QUOTE_LEN]
         return {"score_final": score, "evidence_quote": evidence_quote,
                 "reason": reason, "score_state": "SCORED",
                 "evidence_spans_json": _build_evidence_spans(

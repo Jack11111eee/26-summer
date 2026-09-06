@@ -49,7 +49,7 @@ app = FastAPI(title="岗位胜任力测评系统 - 模块一")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=config.CORS_ORIGINS,  # env CORS_ORIGINS（默认 Vite dev；credentials 模式不可为 *）
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

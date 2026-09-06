@@ -3,10 +3,14 @@ import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, status
 
-from ... import schemas
+from ... import config, schemas
 from ...core.security import require_admin
 from ...db import get_conn
-from ...services.input_limits import clamp_pagination_limit, validate_jd_length
+from ...services.input_limits import (
+    clamp_pagination_limit,
+    validate_jd_file_lines,
+    validate_jd_length,
+)
 from ...services.pipeline import new_id, now_iso, run_parse_pipeline
 
 router = APIRouter(prefix="/api/admin", tags=["admin-jds"], dependencies=[Depends(require_admin)])
@@ -65,6 +69,13 @@ def import_jd(body: schemas.JdImportRequest, background: BackgroundTasks) -> dic
 async def import_file(background: BackgroundTasks, file: UploadFile) -> dict:
     """JSONL 批量上传：每行 {"id"?,"position"?,"company","jd_text"}。"""
     raw = (await file.read()).decode("utf-8")
+    # 行数上限（SSOT §25/REF-6.3，已裁决 500）：防误传大文件触发无上限后台解析成本
+    line_count = sum(1 for line in raw.splitlines() if line.strip())
+    if not validate_jd_file_lines(line_count):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"文件超过行数上限 {config.MAX_JD_FILE_LINES}（实际 {line_count} 行）",
+        )
     jd_ids = []
     for lineno, line in enumerate(raw.splitlines(), 1):
         line = line.strip()

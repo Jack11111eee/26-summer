@@ -19,8 +19,10 @@ import json
 from ..db import get_conn
 
 
-# §19 重大冲突取低：观测等级极差 ≥ 此阈值视为重大冲突（实施期可调）
-ADJUDICATE_CONFLICT_THRESHOLD = 2
+# §19 重大冲突取低：观测等级极差 ≥ 此阈值视为重大冲突。已转正进 config
+# （2026-09-06 第十轮收口，SSOT §14——全项目唯一影响裁决行为的阈值不再留模块级）。
+from .. import config as _config
+ADJUDICATE_CONFLICT_THRESHOLD = _config.ADJUDICATE_CONFLICT_THRESHOLD
 # 归一化 source 标签（§20.1 s_i=(score−1)/4 与 §20.3 normalized_item_score 同尺度）
 NORMALIZE_IMPUTED = "imputed"
 NORMALIZE_OBSERVED = "observed"

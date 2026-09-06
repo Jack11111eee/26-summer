@@ -1,7 +1,7 @@
 """bad case 候选测试（REF-5.11/D-031）：双分背离 ≥ 阈值建候选，永不自动改分。
 
-阈值 = 开放参数（config.BAD_CASE_DIVERGENCE_THRESHOLD，None 占位待裁决）；本测试
-monkeypatch 成 2.0 验证检测逻辑（不提交任何生产默认数值）。
+阈值已裁决 2（2026-09-06 第十轮收口，SSOT §14）；测试 monkeypatch 显式值
+验证检测逻辑，并加生产默认回归（锁裁决值）。
 """
 import os
 import sys
@@ -102,7 +102,14 @@ def test_bad_case_threshold_unset_skips(monkeypatch):
     monkeypatch.setattr(C, "BAD_CASE_DIVERGENCE_THRESHOLD", None)
     conn = get_conn()
     try:
-        # 阈值未裁决（None）时直接跳过，不臆造数值、不误建候选
+        # 阈值显式置 None（部署方关闭检测）时直接跳过，不误建候选
         assert _detect_bad_case_divergence(conn, "no-such-session") == 0
     finally:
         conn.close()
+
+
+def test_bad_case_threshold_production_default():
+    """已裁决生产默认 2（2026-09-06，SSOT §14）：极差 2 触发、1 不触发。"""
+    assert C.BAD_CASE_DIVERGENCE_THRESHOLD == 2
+    assert abs(5.0 - 1.0) >= C.BAD_CASE_DIVERGENCE_THRESHOLD
+    assert abs(5.0 - 4.0) < C.BAD_CASE_DIVERGENCE_THRESHOLD

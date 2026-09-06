@@ -60,26 +60,35 @@ MAX_CONTEXT_TOKENS = 8000  # 已裁决值（关口包 [03-007]——不再 check
 
 # ---- 模块四·Phase 6 评测收口（REF-5.11 bad case 双分背离）----
 # |score_live - score_final| ≥ 阈值 → 自动 INSERT bad_case_candidate（status='pending'），
-# 永不自动改分（D-031）。阈值 = SSOT §2.3「配置阈值」开放参数——None 占位，
-# 实施期校准待用户裁决（禁止臆造默认值）；None 时 _detect_bad_case_divergence 直接跳过不检测。
-BAD_CASE_DIVERGENCE_THRESHOLD = None  # 实施期校准 — 待用户裁决（双分背离阈值）
+# 永不自动改分（D-031）。已裁决 2（2026-09-06 第十轮收口，SSOT §14；1–5 整数刻度下
+# |diff|>=2 才构成"双分显著相反"信号，阈值 1 会把 mock 单点偏差灌成噪声队列）。
+BAD_CASE_DIVERGENCE_THRESHOLD = 2
 
 # ---- 模块四·Phase 6 安全收尾（REF-6.3 输入限额 + §31-5/§31-6 开放参数）----
-# 输入限额按类型配置（REF-6.3/D-078）：各类型具体数值为开放参数——None 占位，
-# 实施期校准待用户裁决（禁止臆造默认值）。已决值沿用：MAX_ANSWER_LEN=64*1024
-# （services/scoring.py）、MAX_CONTEXT_TOKENS=8000（本文件上方）。
-MAX_JD_LENGTH = None  # 实施期校准 — 待用户裁决（JD 文本长度上限）
-MAX_JD_FILE_LINES = None  # 实施期校准 — 待用户裁决（JSONL 文件行数上限）
-MAX_PAGINATION_LIMIT = None  # 实施期校准 — 待用户裁决（分页 limit 上限）
-# trace 数据治理开放参数（SSOT §31-5）：保留期/脱敏开关——None 占位待裁决
-TRACE_RETENTION_DAYS = None  # 实施期校准 — 待用户裁决（trace 保留期天数）
-TRACE_DESENSITIZE = None  # 实施期校准 — 待用户裁决（trace 脱敏开关）
-# 幂等清理开放参数（SSOT §31-6）：清理阈值——None 占位待裁决
-IDEMPOTENCY_CLEANUP_THRESHOLD = None  # 实施期校准 — 待用户裁决（幂等清理阈值）
+# 输入限额按类型配置（REF-6.3/D-078）。已裁决（2026-09-06 第十轮收口，SSOT §14）：
+# JD 文本上限 10000 字符（真实 JD 鲜超 5000，宽裕上限；控单请求输入成本）、
+# JSONL 批量导入行数上限 500（防误传大文件的无上限后台成本）、
+# 分页 limit 上限 100（超限钳到 100，下限 1）。
+# 已决值沿用：MAX_ANSWER_LEN=64*1024（services/scoring.py）、MAX_CONTEXT_TOKENS=8000（上方）。
+MAX_JD_LENGTH = 10000
+MAX_JD_FILE_LINES = 500
+MAX_PAGINATION_LIMIT = 100
 
-# ---- 模块一·消歧/归岗开放参数（SSOT §31-4）----
+# ---- 演示期不启用（SSOT §31-4/§31-5/§31-6，2026-09-06 裁决 by-design）----
+# 曾经的开放参数占位已摘除：TRACE_RETENTION_DAYS / TRACE_DESENSITIZE（trace 全量保留
+# 利于验收审计，脱敏妨碍 #40 观察层验证）、IDEMPOTENCY_CLEANUP_THRESHOLD（demo 量级
+# 到不了阈值，无清理任务/接口）、TITLE_CLEAN_WORDS（清洗走 pipeline 内置
+# NOISE_HEADERS/_SUFFIXES 硬编码表）。生产 PII 治理/清理策略随真实上线在 SSOT §31 重开。
+# 重大冲突极差阈值（§19：观测等级极差 ≥ 阈值判冲突取低）——历史在 aggregation.py 模块级，
+# 2026-09-06 转正集中到 config（值不变，SSOT §14）。
+ADJUDICATE_CONFLICT_THRESHOLD = 2
+
+# ---- 模块一·消歧/归岗（SSOT §31-4）----
 # 词典候选 top10 匹配阈值：已裁决 0.5（difflib ratio + 子串包含，2026-09-06），
-# 由 services/pipeline._dict_candidates 消费；清洗标题词表 TITLE_CLEAN_WORDS
-# 仍为开放参数——占位待裁决（禁止臆造默认值）。
+# 由 services/pipeline._dict_candidates 消费；清洗标题词表不启用（见上方摘除说明）。
 DICT_MATCH_THRESHOLD = 0.5  # 词典候选 top10 匹配阈值（已裁决，difflib ratio）
-TITLE_CLEAN_WORDS: list[str] = []  # 实施期校准 — 待用户裁决（清洗标题词表）
+
+# ---- Web 层（server/main.py CORS）----
+# allow_credentials=True 下 CORS 不可为 *；env 化便于换机/局域网演示，
+# 默认 Vite dev server，多来源逗号分隔（CORS_ORIGINS=http://a,http://b）。
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]

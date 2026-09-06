@@ -14,6 +14,11 @@ def validate_jd_length(text: str) -> bool:
     return len(text or "") <= config.MAX_JD_LENGTH
 
 
+def validate_jd_file_lines(line_count: int) -> bool:
+    """JSONL 批量导入行数校验：超限返回 False（拒绝）。已裁决 500（2026-09-06）。"""
+    return line_count <= config.MAX_JD_FILE_LINES
+
+
 def clamp_pagination_limit(limit: int) -> int:
     """分页 limit 钳制：超限钳到上限（下限 1）；限额 None（未裁决）时原样返回。"""
     if limit < 1:
