@@ -100,15 +100,18 @@ plan 落 config 占位（`None`/`[]` + 注释「实施期校准 — 待用户裁
 
 verify（06-VERIFICATION.md）标 SC5-c「c 虚拟考生」仅 1/6 兑现（`assert_weakness_identified` 已定义却无调用点）。修复：把 `generate_report` 接入 c 评测链路，`test_virtual_candidates` 补 4/5 子项断言（报告状态 / 证据引用 / required 覆盖 / 缺失状态，均绿），并接线 `assert_weakness_identified` 断言短板定位。
 
-**发现（SSOT §21 gap 符号约定与 §23「短板定位」语义张力，待用户裁决）：**
+**发现（SSOT §21 gap 符号约定与 §23「短板定位」语义张力）→ 已由用户裁决 [06-013] 选项 A 解决：**
 
-- SSOT §21（行 561）约定 `短板=gap<0`（gap=required_level−actual_level，§20.3 行 553），代码与 test_m6 均忠实实现。
-- c 评测 weak 档全部 miss → `actual=1 < required=3` → `gap=+2 >0` → 现约定落入 **strengths**（优势）而非 **weaknesses**（短板）。故 `assert_weakness_identified(report, expected_weakness)` 对 weak 档恒返回「实际短板=[]」。
-- 「短板」自然语义 = 木桶短板 = 低于要求（actual<required，即 gap>0），与 §21 公式相反——疑似 §21 符号反转（短板应为 `gap>0`、优势应为 `gap≤0`）。**SSOT 修改权 exclusively 属用户（章程 §3.1），本项未动 SSOT/aggregation.py/test_m6，留待用户裁决。**
+- SSOT §21（行 561）原约定 `短板=gap<0`（gap=required_level−actual_level，§20.3 行 553），代码与 test_m6 均忠实实现。
+- c 评测 weak 档全部 miss → `actual=1 < required=3` → `gap=+2 >0` → 原约定落入 **strengths**（优势）而非 **weaknesses**（短板），`assert_weakness_identified` 恒返回「实际短板=[]」。
+- 「短板」自然语义 = 木桶短板 = 低于要求（actual<required，即 gap>0），与 §21 原公式相反。
+
+**用户裁决（选项 A，2026-09-06）**：反转符号约定——`gap = required−actual` 不变，优势=`gap≤0`、短板=`gap>0`，短板排序键 `|gap|×weight` → `gap×weight`。**先改 SSOT（正文 §21 + §14 变更日志，commit ce09bb1）再动代码**（D-001）：aggregation.py 筛选反转、test_m6_backend 断言反转（strengths=沟通能力 / weaknesses=Python）、virtual_candidates 断言自然通过。全量回归 3 failed/220 passed（同 3 个既有设计级失败）；isolated virtual_candidates 6/6 子项全绿（weak 档实际短板=['Python','MySQL']）。
 
 | ID | 日期 | 步骤 | 决定 | 依据 |
 |----|------|------|------|------|
 | [06-013] | 2026-09-06 | verify gap 闭环（auto） | c 评测接入报告生成 + 补 4/5 子项断言；`assert_weakness_identified` 接线但如实报告 failure（暴露 §21 符号张力），不动 SSOT | 章程 §1 行 22（verify 发现记档）+ §3.1（SSOT 修改须授权） |
+| [06-013] | 2026-09-06 | §2.2 硬关口用户裁决 | **选项 A**：SSOT §21 符号反转（短板=gap>0、优势=gap≤0），先改 SSOT 再动代码 | 用户「做A」指令 + D-001（先 SSOT 后代码） |
 
 ## 执行期回归修复纪要
 
