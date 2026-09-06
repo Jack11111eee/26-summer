@@ -177,7 +177,7 @@ def disambiguate_items(jd_id: str, items: list[dict]) -> list[dict]:
             build_disambiguate_user(names, candidates), mock_fn=_mock_disambiguate,
         )
         merges = DisambiguateResult(**result).merges
-        merge_map = {m["from"]: m["to"] for m in merges}
+        merge_map = {m.from_: m.to for m in merges}
 
     conn = get_conn()
     out: list[dict] = []
