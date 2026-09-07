@@ -1,7 +1,8 @@
 # 模块一设计：岗位 JD 解析与胜任力模型构建
 
 > 本文档为《design/final-design/总设计文档.md》（唯一 SSOT）**第二部分的分块摘录**，聚焦模块一阅读。
-> 状态：**已实现（M1~M3）**，重构时按本文保持并补齐回归测试。
+> 状态：**已实现（M1~M3）**；§8 M1 回归已落地为 `server/test_m1_regression.py`（八项脆弱点回归锁）。
+> 2026-09-07 与 SSOT v2.0（含 §14 变更日志至 2026-09-06）全量核对同步；同日随 SSOT 2026-09-07「源标题优先归岗」条目同步本文件 §2/§3/§9。
 > 维护规则：任何设计变更，先更新《总设计文档.md》（正文 + §14 变更日志），再动代码。
 
 ---
@@ -19,7 +20,8 @@
 
 - `imported → parsing → parsed / failed → aggregating → draft / stalled → confirmed`；
 - confirmed 后新增 JD / 重解析 → 产出新 draft → **diff 审阅流**（逐项三选一：保留人工值/采用新值/再编辑）升 v{n+1}；
-- 归岗：job_title 规范化（去空格/大小写/常见后缀）→ position 精确匹配 → 别名表 → 未命中建 `pending_review` 岗位（人工审核激活；不聚合、不对测评端可见）；
+- 标题源优先：JSONL 行内 `job_title`（兼容 `position` 键名）入库即存 `jd_record.job_title`；pipeline 与 reparse 不覆写已存标题，仅库内标题为空时以 LLM#1 抽取兜底；
+- 归岗：取标题（上述源标题优先）→ 规范化（去空格/大小写/常见后缀）→ position 精确匹配（`COLLATE NOCASE`，大小写不敏感；存量岗位名不迁移）→ 别名表 → 未命中建 `pending_review` 岗位（人工审核激活；不聚合、不对测评端可见）；
 - 异步：导入/聚合不在请求内同步执行；前端列表轮询（5s）；聚合自动触发钩子独立于解析异常处理（聚合自身异常不连累 JD 状态）。
 
 ## 3. 工序实现约束
@@ -27,8 +29,8 @@
 | 工序 | 要点 |
 |---|---|
 | ② 清洗 | 纯规则按标题词切段，职责块/要求块分离；要求块空或 <30 字 → `low_confidence=1` 但**继续流程**；无 LLM 兜底；header 与内容同行时保留内容段 |
-| ③ 抽取 | LLM#1，JSON 模式 + 强 Schema（items[]：name/category/required_level/importance/evidence/years?/job_title）；校验失败带错误重试 ×2 → `failed`；四条硬约束（原子化/抄录证据/三档措辞映射/1–5 级措辞映射）写入 prompt |
-| ④ 消歧 | 词典候选 = 同类目过滤 + 编辑距离/拼音首字母 top10 → LLM#2 裁决同义/包含/重合；失败重试 ×2 → 降级代码精确去重；新标准名写词典 `llm_pending`；词典为空跳过 LLM#2 |
+| ③ 抽取 | LLM#1，JSON 模式 + 强 Schema（items[]：name/category/required_level/importance/evidence/years?/job_title）；校验失败带错误重试 ×2 → `failed`；四条硬约束（原子化/抄录证据/三档措辞映射/1–5 级措辞映射）写入 prompt；job_title 仅当库内标题为空时兜底（源标题优先——见 §2，导入行内 job_title 直接入库） |
+| ④ 消歧 | 词典候选 = 同 category 相似度过滤（difflib 编辑距离 ratio + 子串包含，归一化 lowercase/strip，阈值 `DICT_MATCH_THRESHOLD=0.5`）取 top10 → LLM#2 裁决同义/包含/重合；失败重试 ×2 → 降级代码精确去重；新标准名写词典 `llm_pending`；词典为空跳过 LLM#2。拼音匹配未启用（干净语料收益低，避免 pypinyin 依赖——§31-4 裁决） |
 | ⑤ 聚合 | 纯代码频次（r、req）→ importance 阈值映射（配置项）→ level 冲突交 LLM#3（**无自动取众数后门**）→ 权重纯代码；LLM#3 重试 ×2 仍败 → 模型 `stalled`（管理员 P1 待办） |
 | ⑥ 人审 | PUT 编辑草稿 → confirm 升版本；编辑 stalled 模型后自动转 draft 并清 stall_reason（与"重试 LLM"并列的手动定级恢复路径） |
 
@@ -59,7 +61,9 @@ hard_skill : soft_skill = 0.70 : 0.30（Σ 各大类 item.weight 分别 = 0.70 /
 
 ## 6. 可配置常量（config.py）
 
-`IMPORTANCE_COEF={required:1.0, preferred:0.6, plus:0.3}`、`REQ_THRESHOLD=0.5`、`R_THRESHOLD=0.5`、`LLM_RETRY=2`、`CLEAN_MIN_REQ_LEN=30`。（旧 `CATEGORY_RATIO=5.5:2:2:0.5` 由 7:3 + gate 不占权重的新口径取代。）
+`IMPORTANCE_COEF={required:1.0, preferred:0.6, plus:0.3}`、`REQ_THRESHOLD=0.5`、`R_THRESHOLD=0.5`、`LLM_RETRY=2`、`CLEAN_MIN_REQ_LEN=30`、`DICT_MATCH_THRESHOLD=0.5`（§31-4，2026-09-06 裁决）、`MAX_JD_LENGTH=10000`、`MAX_JD_FILE_LINES=500`。（旧 `CATEGORY_RATIO=5.5:2:2:0.5` 由 7:3 + gate 不占权重的新口径取代。）
+
+清洗噪声词表走 pipeline 内置硬编码表（`NOISE_HEADERS`），配置词表**不启用**（2026-09-06 演示期裁决，`TITLE_CLEAN_WORDS` 占位摘除——§31-4）。
 
 ## 7. 前端页面（现状沿用）
 
@@ -75,17 +79,20 @@ hard_skill : soft_skill = 0.70 : 0.30（Σ 各大类 item.weight 分别 = 0.70 /
 
 状态色约定：pending_review 橙、failed 红、stalled 红、draft 蓝、confirmed 绿。
 
-## 8. M1 回归测试（后续动态测评实施前的硬前置）
+管理员列表接口（2026-09-06 裁决）：`GET /admin/positions`、`/admin/positions/pending`、`/admin/jds/orphan`、`/admin/dict`、`/admin/users` 均服务端分页（`page`/`page_size`，默认 page_size=20，上限 `MAX_PAGINATION_LIMIT=100`），返回 `{items, total}`；`GET /admin/positions/options`（现立于 jds 路由 `/positions/options`）轻量选项接口全量不分页，供改归下拉/名称查找。
 
-清洗边界、抽取 schema 异常、消歧与词典排除项、importance 阈值、多 JD 聚合、权重尾差（Σ=1）、等级冲突失败→stalled、confirmed 不可静默覆盖、版本升级与 diff、管理员权限。
+## 8. M1 回归测试（已落地）
+
+SSOT §8.1 八项脆弱点回归锁已实现为 `server/test_m1_regression.py`（统一 pytest 收集）：清洗边界、抽取 schema 异常与 evidence 兜底、消歧（空词典降级 / 非空 merges）、权重尾差 Σ=1（尾差由最大项吸收）、等级冲突极差 ≥ 阈值取低 + 人工复核标记（`ADJUDICATE_CONFLICT_THRESHOLD=2`）、gate 保守失败、confirmed 不可静默覆盖、版本升级与 diff、管理员权限。
 
 ## 9. 重构注意
 
-- `/jds/orphan` 静态路由必须注册在 `/jds/{jd_id}` 参数路由**之前**（当前顺序冲突导致待归属列表恒 404，需修复并加路由集成测试）；
-- JD 文件导入：先完整解析校验、单事务批量插入（当前逐行提交遇坏行留半成品，需修复）；
-- 文件大小/行数/编码限制按输入类型配置；
-- 模型编辑 PUT 除总权重外须校验单项字段/类型/类目/等级/重复项/NaN。
+- ~~`/jds/orphan` 静态路由必须注册在 `/jds/{jd_id}` 参数路由之前~~ **已修复**（现路由顺序正确，注释标明置于参数路由前，并有 `test_phase4_orphan.py` 覆盖）；
+- JD 文件导入：解析校验在前、逐行 `_insert_jd` 各自 commit（行级独立，坏行校验时抛 400 回滚该次插入，不留半成品行；跨行非原子为 by-design——多 JD 相互独立）；
+- JSONL 行内 `job_title`（兼容 `position` 键）透传入库；pipeline/reparse 不覆写已存标题；存量漂移标题（修复前已被 LLM 覆写的行）的修正走 `scripts/backfill_jd_source_title.py`（raw_text 全文配对源 jsonl，dry-run 默认，须用户审阅后手动 `--apply`），reparse 不是修正漂移的手段；
+- 输入限额已接线：JD 长度 10000、文件行数 500（`server/services/input_limits.py` 纯函数 + 接口层调用）；
+- 模型编辑 PUT 字段校验已接线：Pydantic 强类型 + `allow_inf_nan=False`（NaN/Inf 拒绝）、weight 0–1 边界、同 category 内 std_name 重复拒绝（判重键 `(std_name, category)` 与 diff 对齐键一致）。
 
 ## 10. 本文依据
 
-《总设计文档.md》§8–§8.3、§27、§28；差异登记见总文档 §30。
+《总设计文档.md》§8–§8.3、§27、§28、§31（开放参数裁决）；变更日志条目 2026-09-06（词典阈值/管理员分页）、2026-09-07（源标题优先归岗）；差异登记见总文档 §30。

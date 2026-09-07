@@ -1,7 +1,8 @@
-"""题库生成（07 文档 §6.2）：模型 confirmed 后异步触发，岗位题 + 通用题双轨。
+"""题库生成（07 §6.2）：模型 confirmed 后异步触发，仅生成岗位普通题（scope=position）。
 
 - hard_skill / soft_skill → 岗位题库（scope=position，带难度链条）
-- experience / qualification → 通用题库（scope=general，无难度，跨岗位复用）
+- experience / qualification → 不生成题（SSOT §9.1 2026-09-07 裁决：两类只走 §16
+  表单链采集；历史 scope=general 通用题为存量遗留，不迁移不删除）
 幂等：同岗位同能力项已有 active 题则跳过，不重复生成。
 """
 import json
@@ -17,7 +18,7 @@ def _question_plan(item: dict) -> list[tuple[str, str]]:
 
     hard_skill：weight>10% → 3 档（easy/medium/hard），否则 2 档（easy/medium）
     soft_skill：2 档（easy/hard）
-    experience / qualification：无难度（difficulty=None），各 1 题
+    experience/qualification：返回空清单——不生成题（SSOT §9.1 2026-09-07）
     """
     cat = item["category"]
     if cat == "hard_skill":
@@ -26,7 +27,7 @@ def _question_plan(item: dict) -> list[tuple[str, str]]:
         return [("easy", "objective"), ("medium", "subjective")]
     if cat == "soft_skill":
         return [("easy", "subjective"), ("hard", "subjective")]
-    return [(None, "subjective")]
+    return []  # experience/qualification：走表单链，不生成题
 
 
 def _mock_question_gen(system_prompt: str, user_prompt: str) -> dict:
@@ -116,47 +117,25 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
 
         for row in items:
             item = dict(row)
+            # experience/qualification：不生成题（SSOT §9.1 2026-09-07——只走表单链）。
+            # 历史通用题不迁移不删除；scope=general 生成路径已随之移除。
+            if item["category"] not in ("hard_skill", "soft_skill"):
+                continue
             item["evidence"] = json.loads(item.pop("evidence_json") or "[]")
-            scope = "position" if item["category"] in ("hard_skill", "soft_skill") else "general"
 
             plan = _question_plan(item)
-            chain_key = item["item_id"] if scope == "position" and len(plan) > 1 else None
+            chain_key = item["item_id"] if len(plan) > 1 else None
             for seq, (difficulty, qtype) in enumerate(plan, start=1):
                 # WR-03：幂等按 (std_name, category, difficulty) 的 plan 目标粒度——
                 # 部分 item 成功的链条重触发时只补缺档（easy 有/medium missing 只生成
-                # medium），不再整 item 跳过导致残缺链条永不补齐；difficulty 为 None
-                # 的通用题按 std_name+category 判重（无难度维度）
-                if scope == "position":
-                    if difficulty is None:
-                        exists = conn.execute(
-                            "SELECT 1 FROM question_bank WHERE scope='position'"
-                            " AND model_id=? AND model_version=?"
-                            " AND std_name=? AND category=? AND status='active' LIMIT 1",
-                            (model_id, model_version, item["std_name"], item["category"]),
-                        ).fetchone()
-                    else:
-                        exists = conn.execute(
-                            "SELECT 1 FROM question_bank WHERE scope='position'"
-                            " AND model_id=? AND model_version=?"
-                            " AND std_name=? AND category=? AND difficulty=?"
-                            " AND status='active' LIMIT 1",
-                            (model_id, model_version, item["std_name"], item["category"], difficulty),
-                        ).fetchone()
-                else:
-                    if difficulty is None:
-                        exists = conn.execute(
-                            "SELECT 1 FROM question_bank WHERE scope='general'"
-                            " AND std_name=? AND category=? AND model_id=? AND model_version=?"
-                            " AND status='active' LIMIT 1",
-                            (item["std_name"], item["category"], model_id, model_version),
-                        ).fetchone()
-                    else:
-                        exists = conn.execute(
-                            "SELECT 1 FROM question_bank WHERE scope='general'"
-                            " AND std_name=? AND category=? AND difficulty=?"
-                            " AND model_id=? AND model_version=? AND status='active' LIMIT 1",
-                            (item["std_name"], item["category"], difficulty, model_id, model_version),
-                        ).fetchone()
+                # medium），不再整 item 跳过导致残缺链条永不补齐
+                exists = conn.execute(
+                    "SELECT 1 FROM question_bank WHERE scope='position'"
+                    " AND model_id=? AND model_version=?"
+                    " AND std_name=? AND category=? AND difficulty=?"
+                    " AND status='active' LIMIT 1",
+                    (model_id, model_version, item["std_name"], item["category"], difficulty),
+                ).fetchone()
                 if exists:
                     continue
                 result = call_llm_json(
@@ -177,8 +156,8 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                         if not (q.get("rubric") or "").strip():
                             q["rubric"] = f"能结合实例说明{item['std_name']}的应用；思路清晰；有结果数据"
                     _insert_question(
-                        conn, scope=scope,
-                        position_id=position_id if scope == "position" else None,
+                        conn, scope="position",
+                        position_id=position_id,
                         item=item, difficulty=difficulty, qtype=q_qtype,
                         stem=q["stem"], answer_key=q_answer_key, rubric=q.get("rubric"),
                         chain_key=chain_key, chain_seq=seq if chain_key else None,

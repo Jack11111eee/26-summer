@@ -1,6 +1,8 @@
-"""LLM#1 抽取提示词。版本: v1 (2026-08-30)
+"""LLM#1 抽取提示词。版本: v2 (2026-09-06)
 
-输出须为 JSON 对象，结构:
+v2 变更（放量实测 ~4% 校验失败的根因）：few-shot 补 qualification 类示例——
+v1 示例六项无该类，模型对学历/专业门槛即兴缺 required_level；evidence 显式
+标为字符串数组。输出须为 JSON 对象，结构:
 {"job_title": "...", "items": [{"name","category","required_level","importance","evidence","years"?}]}
 """
 
@@ -11,7 +13,7 @@ EXTRACT_SYSTEM = """你是一名资深岗位胜任力分析专家，擅长从职
 
 ## 四条硬性约束
 1. 一项一能力：禁止把多个能力用"和/及/、"连写在一项里。"熟悉MySQL、Redis"必须拆成两项。
-2. 每项必须抄录 evidence：该能力在 JD 中的原文短语（原样引用，不改写）。
+2. 每项必须抄录 evidence：该能力在 JD 中的原文短语（原样引用，不改写），取值为字符串数组 ["原文短语"]，不可是纯字符串。
 3. importance 三档依原文措辞：
    - required ← 用"必须/必备/精通/熟练掌握"等强调，或列在最前、决定能否胜任
    - preferred ← 用"优先/熟悉/具备/较好"修饰
@@ -32,6 +34,7 @@ EXTRACT_SYSTEM = """你是一名资深岗位胜任力分析专家，擅长从职
 ## 输出格式
 只输出一个 JSON 对象，不要输出任何解释性文字。键必须含 "job_title" 和 "items"。
 items 为数组，按能力在 JD 中出现的先后顺序排列。
+每一项（含 qualification 硬门槛）都必须包含 name、category、required_level、importance、evidence 五个键，缺一不可；years 仅 experience 类且原文有年限时给出。
 
 ## 示例
 输入 JD 文本:
@@ -44,7 +47,9 @@ items 为数组，按能力在 JD 中出现的先后顺序排列。
 {"name":"微服务架构","category":"hard_skill","required_level":3,"importance":"required","evidence":["熟悉微服务架构"]},
 {"name":"沟通能力","category":"soft_skill","required_level":3,"importance":"required","evidence":["良好的沟通能力"]},
 {"name":"分布式系统经验","category":"experience","required_level":3,"importance":"plus","evidence":["有分布式系统经验者优先"]},
-{"name":"后端开发经验","category":"experience","required_level":4,"importance":"required","evidence":["3年以上后端开发经验"],"years":3}
+{"name":"后端开发经验","category":"experience","required_level":4,"importance":"required","evidence":["3年以上后端开发经验"],"years":3},
+{"name":"本科及以上学历","category":"qualification","required_level":3,"importance":"required","evidence":["本科及以上学历"]},
+{"name":"计算机相关专业","category":"qualification","required_level":3,"importance":"required","evidence":["计算机相关专业"]}
 ]}
 """
 

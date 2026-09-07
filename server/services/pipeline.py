@@ -98,11 +98,13 @@ def assign_position(job_title: str) -> tuple[str | None, str]:
 
     conn = get_conn()
     norm = normalize_title(job_title)
-    row = conn.execute("SELECT position_id, status FROM position WHERE name=?", (norm,)).fetchone()
+    row = conn.execute(
+        "SELECT position_id, status FROM position WHERE name=? COLLATE NOCASE", (norm,)
+    ).fetchone()
     if row:
         return row["position_id"], "matched"
     row = conn.execute(
-        "SELECT position_id FROM position_alias WHERE alias=?", (norm,)
+        "SELECT position_id FROM position_alias WHERE alias=? COLLATE NOCASE", (norm,)
     ).fetchone()
     if row:
         return row["position_id"], "alias"
@@ -212,7 +214,9 @@ def run_parse_pipeline(jd_id: str) -> None:
     """imported → parsing → parsed / failed。产物逐工序落库。"""
     conn = get_conn()
     auto_aggregate: str | None = None
-    row = conn.execute("SELECT raw_text FROM jd_record WHERE jd_id=?", (jd_id,)).fetchone()
+    row = conn.execute(
+        "SELECT raw_text, job_title FROM jd_record WHERE jd_id=?", (jd_id,)
+    ).fetchone()
     if row is None:
         return
     conn.execute("UPDATE jd_record SET status='parsing' WHERE jd_id=?", (jd_id,))
@@ -226,13 +230,17 @@ def run_parse_pipeline(jd_id: str) -> None:
         conn.commit()
 
         extracted = extract_items(jd_id, cleaned)
+        # 源标题优先（SSOT §8 2026-09-07）：库内标题非空不覆写（reparse 同语义），
+        # 仅缺失时以 LLM#1 抽取名兜底（抽取名仍留 llm_trace 供审计）。
+        source_title = (row["job_title"] or "").strip()
+        title = source_title or (extracted["job_title"] or "").strip()
         conn.execute(
             "UPDATE jd_record SET raw_items_json=?, job_title=? WHERE jd_id=?",
-            (json.dumps(extracted["items"], ensure_ascii=False), extracted["job_title"], jd_id),
+            (json.dumps(extracted["items"], ensure_ascii=False), title, jd_id),
         )
         conn.commit()
 
-        position_id, _ = assign_position(extracted["job_title"])
+        position_id, _ = assign_position(title)
         conn.execute("UPDATE jd_record SET position_id=? WHERE jd_id=?", (position_id, jd_id))
         conn.commit()
 

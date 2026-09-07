@@ -9,7 +9,7 @@ def normalize_title(title: str) -> str:
     """去空格/大小写/常见后缀，用于岗位名与别名的稳定匹配。"""
     if not title:
         return ""
-    t = re.sub(r"\s+", "", title.strip())
+    t = re.sub(r"\s+", "", title.strip()).lower()
     for suf in _SUFFIXES:
         if t.endswith(suf) and len(t) > len(suf):
             # 仅当去掉后缀后仍非空才去除（避免"工程师"本身被清空）

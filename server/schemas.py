@@ -41,6 +41,13 @@ class ExtractItem(BaseModel):
     evidence: list[str]
     years: Optional[float] = None
 
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _evidence_str_to_list(cls, v):
+        # 放量实测（2026-09-06）：deepseek 对 qualification/experience 类偶发
+        # 返回纯字符串（"本科以上学历"）。无损单向收窄 str→[str]，正确输出不受影响。
+        return [v] if isinstance(v, str) else v
+
 
 class ExtractResult(BaseModel):
     job_title: str

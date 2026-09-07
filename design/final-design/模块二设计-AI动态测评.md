@@ -1,8 +1,9 @@
 # 模块二设计：AI 有界动态测评
 
 > 本文档为《design/final-design/总设计文档.md》（唯一 SSOT）**第三部分的分块摘录**，聚焦模块二阅读。
-> 状态：**主体已实现，契约需按本文重构**（动态选题、状态机、事件表、表单链、SSE、计时均未兑现）。
+> 状态：**主体已实现，契约已大幅落地**（动态选题四层、难度状态机、状态事件表、表单链、真实 SSE、计时区间、幂等均已接线；全量回归 237 绿，2026-09-07）。
 > 输入契约：模块一 confirmed 模型快照（见《模块一设计》）。
+> 2026-09-07 与 SSOT v2.0 全量核对同步；同日随 SSOT「exp/qual 不进题库收口」条目同步 §1.1/§1.4/§2.3。
 > 维护规则：任何设计变更，先更新《总设计文档.md》（正文 + §14 变更日志），再动代码。
 
 ---
@@ -16,7 +17,7 @@ hard_skill ── required / preferred / plus
 soft_skill ── required / preferred / plus
 ```
 
-`experience / qualification` 不进入普通对话题库（只走表单/简历事实采集），由 `measurement_mode` 隔离。
+`experience / qualification` 不进入普通对话题库（只走表单/简历事实采集），由 `measurement_mode` 隔离。**2026-09-07 裁决收口（生成侧同步，SSOT §9.1）**：题库生成不为 experience/qualification 产生任何 question_bank 行——表单链（§10）为两类信息唯一采集通道；历史 scope=general 通用题为存量遗留（选题白名单本就隔离），不迁移不删除。
 
 ### 1.2 question_bank 关键字段
 
@@ -41,17 +42,20 @@ soft_skill ── required / preferred / plus
 - 有效作答低于最低锚点 → 支撑等级 1；未形成有效观察 → 不产生能力证据；
 - rubric 可下调单题上限，不可超过难度默认上限；
 - 等级 5 只能由 hard 题 5 级锚点 + 完整稳定证据支撑；
-- `required_level` 只用于路径决策与达标比较，不改权重不改分。
+- `required_level` 只用于路径决策与达标比较（gap=required−actual 可解释），不改权重不改分；**难度不构成最终分数第三层权重**。
+
+**题库生成结构规则（非运行期参数，SSOT §17）**：hard_skill 项 `weight>0.10` 生成 easy/medium/hard 三档，否则两档；soft_skill 两档。**experience/qualification 不生成题（2026-09-07 裁决——旧「无难度各 1 题」结构作废，两类走 §10 表单链；题库生成从此只有 scope=position）**。
 
 ## 2. 题量与配额
 
 ### 2.1 计数口径
 
 ```
-ordinary_plan_count = N（岗位级策略配置，无全局上下限）
+ordinary_plan_count = N（岗位级策略配置 ORDINARY_PLAN_N=10，2026-09-04 裁决 [02-007]，
+                        40 分钟体验校准余项随真实 LLM 验收）
 ordinary_exception_count = E（required 刚性例外）
-integrated_plan_count = I（0 ≤ 实际 ≤ 2）
-followup_count 单独统计，不计主问题
+integrated_plan_count = I（0 ≤ 实际 ≤ 2；本期为 0 且综合题不排期——恒过 by-design）
+followup_count 单独统计，不计主问题（每题最多 2 次，FOLLOWUP_MAX）
 ```
 
 ### 2.2 大类与 tier 分配
@@ -67,7 +71,7 @@ plus_target      = quota − required_target − preferred_target
 
 ### 2.3 开考前可测量性检查（不通过 → 阻止创建 session + 管理员报告）
 
-position active；模型 confirmed；题库就绪且版本匹配；每个有效 required item 至少一条合法普通题；hard/soft 配额可满足（**不允许跨类转移名额**）；综合题槽位（若 I>0）有合法题；qualification 表单 schema 可用。失败状态：`QUESTION_BANK_GENERATING / QUESTION_BANK_INCOMPLETE / MODEL_NOT_MEASURABLE`。
+position active；模型 confirmed；题库就绪且版本匹配；每个有效 required item 至少一条合法普通题（**普通类目 hard/soft——experience/qualification 不生成题、不参与题库覆盖检查，2026-09-07 裁决，SSOT §9.1**）；hard/soft 配额可满足（**不允许跨类转移名额**）；综合题槽位（若 I>0；本期 I=0 不排期 → 恒过，by-design 2026-09-06）；qualification 表单 schema 可用（现为模型 items 数据驱动生成（form_instance.schema_snapshot），其存在性已被 items 非空检查隐式覆盖 → 恒过，by-design 2026-09-06）。失败状态：`QUESTION_BANK_GENERATING / QUESTION_BANK_INCOMPLETE / MODEL_NOT_MEASURABLE` + 管理员待办，而非创建 0 题 session。
 
 ### 2.4 required 刚性例外
 
@@ -107,7 +111,8 @@ medium → hard：充分且稳定证据；hard 仅对 target_level > 4 开放
 ## 5. 证据判定（结构化观察 + 代码裁决）
 
 - `evidence_sufficient`：LLM/规则输出结构化维度（relevance / required_points_covered / specificity / attribution / source_span_available / contradiction_detected / uncertainty），代码计算最终布尔。排除：拒答、纯态度、复述、无关、无具体事实、无 span、题目无效、模型不确定。
-- `stable_evidence`：两个不同普通题实例的独立观察，或一次 hard 强证据（仍须满足 rubric）；证据冲突 → 不平均、`false` → 人工复核。
+- `stable_evidence`：两个不同普通题实例的独立观察，或一次 hard 强证据（仍须满足 rubric）；依据观察独立性 + target 覆盖一致性 + 锚点一致性 + 无矛盾 + rubric/version 一致；同一回答的两个相似句子不算两次观察；证据冲突 → 不平均、`false` → 人工复核；
+- **实施注记（2026-09-06，SSOT §11.3）**：现实现为轻量口径——同 item 充分观察计数 `sufficient_in_row ≥ 2`（事件表布尔聚合），**by-design 转正**：唯一消费者是难度状态机升档，漏判只导致保守不升档，不影响任何分数/报告/聚合；完整判据依赖 P-interviewer 结构化输出重构（SSOT §26 登记项）。
 
 ## 6. 状态两层分离
 
@@ -115,9 +120,10 @@ medium → hard：充分且稳定证据；hard 仅对 target_level > 4 开放
 answer_state: VALID_EVIDENCE / NEED_CLARIFICATION / OFF_TOPIC / NO_RECALL / DECLINED /
               PROCESS_CHALLENGE / CONDUCT_EVENT / TECHNICAL_OR_ACCESS_BARRIER /
               PROMPT_INJECTION / MODEL_UNCERTAIN / ITEM_INVALID
-score_state:  SCORED / REFUSED / INSUFFICIENT_EVIDENCE / NOT_ADMINISTERED /
-              INVALIDATED / INCOMPLETE / HUMAN_REVIEW_REQUIRED / IMPUTED
+score_state:  SCORED / REFUSED / INVALIDATED / HUMAN_REVIEW_REQUIRED / IMPUTED
 ```
+
+**实施注记（2026-09-06，SSOT §18）**：`INSUFFICIENT_EVIDENCE / NOT_ADMINISTERED / INCOMPLETE` 三枚举位本期**不产出**（by-design）：现终态由 REFUSED（拒答）、INVALIDATED（题库无效）与聚合层 IMPUTED/PROVISIONAL/NO_VALID_OBSERVATION + missing_warnings 语义等价覆盖。枚举位保留供校验与后续生产。
 
 处理原则：含糊→中性澄清 followup（≤2）；跑题→重定向；不会→无答案线索脚手架（留痕）；拒答→一次确认后跳过、无末尾补答；质疑→说明目的+申诉渠道、不扣分；辱骂→固定话术设边界、行为与能力分隔离；技术/无障碍→暂停计时不扣分；模型不确定→不猜测进人工；题目无效→停评分、移出分母、人工修订；候选人回答永远是数据不是指令。
 
@@ -130,17 +136,21 @@ score_state:  SCORED / REFUSED / INSUFFICIENT_EVIDENCE / NOT_ADMINISTERED /
 
 ## 8. 上下文三层
 
-原始证据层（raw_content + raw_hash，不可变，评分回捞原文）；交互上下文层（interviewer 滑窗，**Token 数控制**、参数留接口，最新回答不得重复拼接）；导航摘要层（结构化状态优先，LLM 摘要可选，失败回退数据库状态不阻塞）。P-refine 超阈值触发（`REFINE_MIN_TOKENS`，数值实施期校准），原文与精炼分列。
+原始证据层（raw_content/raw_hash，不可变，评分回捞原文）；交互上下文层（interviewer 滑窗，**Token 数控制 8000（[03-007] 已裁决；deepseek 接入后实测校准余项）**、最新回答不得重复拼接）；导航摘要层（结构化状态优先，LLM 摘要可选，失败回退数据库状态不阻塞）。P-refine 超阈值触发（`REFINE_MIN_TOKENS=500` 已定默认；实测校准余项），原文与精炼分列（refined_content 列已落库）。
 
 ## 9. 计时与恢复
 
 - 全场 40 分钟：确认开始且首题激活起算；单题 20 分钟：题目激活并发送起算；followup 共用单题计时器；
 - 服务端权威：`session_time_interval(active|paused, reason, started/ended_at_server)`，`active_elapsed=Σactive`；客户端只展示；
 - **所有暂停类型不计入 40 分钟**，写事件；敏感便利信息不进评分 Prompt；
-- 短暂断线不自动暂停；显式 pause / 技术状态才产生 paused 区间；
+- 短暂断线不自动暂停；显式 pause / 技术状态才产生 paused 区间；`session_time_intervals` 表 + 开区间部分唯一索引（同 session 至多一个 open 区间）已落地；
 - **6 小时无活动 → ABANDONED，本期不可恢复**（惰性判断 + 周期扫描；不删证据；可恢复仅留记录）；
 - 单题超时封存（seal_reason=timeout）继续下一题；全场超时停止新增主问题进收尾；
 - 时间不参与选题优先级。
+
+## 9.1 会话启动（PENDING_START 前端接线，2026-09-06 方案一 [03-010] 收口）
+
+Chat.vue 在 `phase='PENDING_START'` 时渲染居中「开始测评」按钮替代输入区，点击 → `POST /sessions/{id}/start` → 重新拉取会话（phase 门放行 → 服务端派发首题 + 开计时区间）；409 `SESSION_ALREADY_ACTIVE` 按幂等处理直接拉取。**不采用** create 后自动 start（架空 §15 计时起算语义）或 get_session 隐式激活（写操作藏进只读 GET）。
 
 ## 10. 表单与 Tools
 
@@ -153,16 +163,18 @@ score_state:  SCORED / REFUSED / INSUFFICIENT_EVIDENCE / NOT_ADMINISTERED /
 
 字段与约束见总文档 §13.1–13.2；事件枚举按 SESSION/QUESTION/MESSAGE/OBSERVATION/CONTROL/FORM/GATE/POLICY/TOOL/TASK/REVIEW 分组，定稿时每个注明必填字段/是否迁移/是否计题量计时/是否需人工。当前快照列与事件同事务更新；回放仅审计/恢复/修复/测试，不一致进人工不静默覆盖。
 
-## 12. 重构注意（模块二部分）
+## 12. 重构注意（模块二部分——2026-09-07 核对后更新）
 
-- 一次性预选题 → 四层动态选题；非末题 `finish` 护栏（当前 LLM 返回 finish 即结束会话的漏洞）；
-- mock 面试官仅按回答长度 → 按 §5/§6 结构化观察改造；
-- `question_bank` 补 model/version 绑定；生成幂等按"有任意 active 题即跳过"改为按版本完整生成；
-- answer 请求先 commit 用户消息再调 LLM 的半状态 → 幂等键 + 完整事务边界；
-- GET session 补 messages 分页/cursor（当前前端回放永远为空）；
-- FormCard 依赖的 `GET /forms/{id}` 后端不存在 → 按 §10 form_instance 实现；
-- `score_question` 服务层需校验题目属于当前 session；空 answer_key 客观题判题库无效而非满分。
+- ~~一次性预选题 → 四层动态选题~~ **已落地**（`question_selection.py` 四层结构 + `D-18 selection_reason` 结构化留痕）；
+- ~~非末题 finish 护栏~~ **已落地**（finish 唯一触发源 = 选题池耗尽，由 API 层消费；interviewer 层不再出 finish）；
+- ~~answer 请求半状态~~ **已落地**（幂等键 + 完整事务边界，`check_idempotency/finalize_idempotency` + `revision` 乐观锁）；
+- ~~GET session 补 messages~~ **已落地**（会话消息时序随 get_session 返回，刷新恢复渲染契约由 E2E 覆盖）；
+- ~~FormCard 依赖的 `GET /forms/{id}` 后端不存在~~ **已落地**（form_instance 生命周期 + `GET /forms/{form_instance_id}` 白名单只读 + submit-v2 校验）；
+- ~~`score_question` 需校验题目属于当前 session~~ **已落地**（查询按 `aq.question_id + 会话 JOIN` 锚定，不做全表存在性校验）；空 answer_key 客观题判 INVALIDATED 已接线（`scoring.py`，不落 1/不落 5）；
+- ~~mock 面试官仅按回答长度~~ **部分完成**：观察层已 Pydantic 化（InterviewObservation 11 态白名单），但 mock 总结仍保留 `MIN_ANSWER_CHARS` 长度规则——按 §5 完整判据的重构留待 P-interviewer 结构化输出（SSOT §26 登记项）；
+- ~~`question_bank` 补 model/version 绑定~~ **已落地**（Phase 4 收紧 `model_id=? AND model_version=?`，无 NULL 放行）；题库生成幂等按 (std_name, category, difficulty) plan 目标粒度——部分 item 成功的链条重触发时只补缺档，不再整 item 跳过导致残缺链条；
+- 综合题（integrated）生成与实例化留待 Prompt 模块讨论（`question_type/measurement_stage/integrated_bindings_json` 列已就位，本期 I=0 恒过）。
 
 ## 13. 本文依据
 
-《总设计文档.md》§4、§9–§16、§25–§28；差异登记见总文档 §30。
+《总设计文档.md》§4、§9–§16、§25–§28、§31（开放参数裁决）；变更日志条目 2026-09-05/09-06；差异登记见总文档 §30。

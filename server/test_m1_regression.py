@@ -4,7 +4,8 @@
   1) 清洗边界 clean_jd（空 JD / 纯标点 / 超长 JD 不抛异常，返回可处理结构）
   2) 抽取异常 normalize_title（无标题 / 纯数字标题不抛异常）
   3) 消歧 disambiguate_items（词典为空跳过 LLM#2 → 降级代码去重，mock 下确定性；
-     非空 merges 属性访问 from_/to —— 回归锁 f8accb4 下标 TypeError）
+     非空 merges 属性访问 from_/to —— 回归锁 f8accb4 下标 TypeError；
+     3c) 抽取 evidence str→list 无损兜底，required_level 缺失仍拒绝）
   4) 权重尾差 Σ=1 _compute_weights（生成器路径精确 ==1.0，尾差由权重最大项吸收；
      编辑器路径 ±0.005 容差——语义见 CONCERNS，勿混用两口径）
   5) 等级冲突 adjudicate（极差 ≥ ADJUDICATE_CONFLICT_THRESHOLD=2 → 取低 + human_review）
@@ -99,6 +100,33 @@ def test_disambiguate_nonempty_merges():
     finally:
         pipeline._mock_disambiguate = original
     assert out[0]["name"] == "Python 开发"
+
+
+def test_extract_evidence_str_tolerant():
+    """3c) 抽取 evidence 兜底：LLM 偶发返回纯字符串 → mode=before 收窄为 [str]（2026-09-06 放量实测）。
+
+    evidence 是原文短语抄录，str→[str] 无损单向；required_level 缺失不做兜底
+    （语义缺失静默补默认值会掩盖坏输出——该族靠 prompt 根因修复：few-shot
+    补 qualification 示例，见 prompts/extract.py v2）。
+    """
+    from server.schemas import ExtractItem
+
+    # 纯字符串 evidence（B 族失效形态）→ 单元素列表，不抛异常
+    it = ExtractItem(name="本科以上学历", category="qualification", required_level=3,
+                     importance="required", evidence="本科以上学历")
+    assert it.evidence == ["本科以上学历"]
+
+    # 正常 list 输入不受影响
+    it2 = ExtractItem(name="Python", category="hard_skill", required_level=4,
+                      importance="required", evidence=["精通Python"])
+    assert it2.evidence == ["精通Python"]
+
+    # required_level 缺失仍必须被拒（回归锁：不静默兜底语义缺失）
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ExtractItem(name="计算机相关专业", category="qualification",
+                   importance="required", evidence=["计算机相关专业"])
 
 
 def test_compute_weights_sum_one():
