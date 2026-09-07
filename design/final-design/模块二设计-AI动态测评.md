@@ -3,7 +3,7 @@
 > 本文档为《design/final-design/总设计文档.md》（唯一 SSOT）**第三部分的分块摘录**，聚焦模块二阅读。
 > 状态：**主体已实现，契约已大幅落地**（动态选题四层、难度状态机、状态事件表、表单链、真实 SSE、计时区间、幂等均已接线；全量回归 237 绿，2026-09-07）。
 > 输入契约：模块一 confirmed 模型快照（见《模块一设计》）。
-> 2026-09-07 与 SSOT v2.0（含 §14 变更日志至 2026-09-06）全量核对同步。
+> 2026-09-07 与 SSOT v2.0 全量核对同步；同日随 SSOT「exp/qual 不进题库收口」条目同步 §1.1/§1.4/§2.3。
 > 维护规则：任何设计变更，先更新《总设计文档.md》（正文 + §14 变更日志），再动代码。
 
 ---
@@ -17,7 +17,7 @@ hard_skill ── required / preferred / plus
 soft_skill ── required / preferred / plus
 ```
 
-`experience / qualification` 不进入普通对话题库（只走表单/简历事实采集），由 `measurement_mode` 隔离。
+`experience / qualification` 不进入普通对话题库（只走表单/简历事实采集），由 `measurement_mode` 隔离。**2026-09-07 裁决收口（生成侧同步，SSOT §9.1）**：题库生成不为 experience/qualification 产生任何 question_bank 行——表单链（§10）为两类信息唯一采集通道；历史 scope=general 通用题为存量遗留（选题白名单本就隔离），不迁移不删除。
 
 ### 1.2 question_bank 关键字段
 
@@ -44,7 +44,7 @@ soft_skill ── required / preferred / plus
 - 等级 5 只能由 hard 题 5 级锚点 + 完整稳定证据支撑；
 - `required_level` 只用于路径决策与达标比较（gap=required−actual 可解释），不改权重不改分；**难度不构成最终分数第三层权重**。
 
-**题库生成结构规则（非运行期参数，SSOT §17）**：hard_skill 项 `weight>0.10` 生成 easy/medium/hard 三档，否则两档；soft_skill 两档；experience/qualification 无难度各 1 题（历史结构沿用；运行期选题仍按 §1.1 白名单隔离普通对话池）。
+**题库生成结构规则（非运行期参数，SSOT §17）**：hard_skill 项 `weight>0.10` 生成 easy/medium/hard 三档，否则两档；soft_skill 两档。**experience/qualification 不生成题（2026-09-07 裁决——旧「无难度各 1 题」结构作废，两类走 §10 表单链；题库生成从此只有 scope=position）**。
 
 ## 2. 题量与配额
 
@@ -71,7 +71,7 @@ plus_target      = quota − required_target − preferred_target
 
 ### 2.3 开考前可测量性检查（不通过 → 阻止创建 session + 管理员报告）
 
-position active；模型 confirmed；题库就绪且版本匹配；每个有效 required item 至少一条合法普通题；hard/soft 配额可满足（**不允许跨类转移名额**）；综合题槽位（若 I>0；本期 I=0 不排期 → 恒过，by-design 2026-09-06）；qualification 表单 schema 可用（现为模型 items 数据驱动生成（form_instance.schema_snapshot），其存在性已被 items 非空检查隐式覆盖 → 恒过，by-design 2026-09-06）。失败状态：`QUESTION_BANK_GENERATING / QUESTION_BANK_INCOMPLETE / MODEL_NOT_MEASURABLE` + 管理员待办，而非创建 0 题 session。
+position active；模型 confirmed；题库就绪且版本匹配；每个有效 required item 至少一条合法普通题（**普通类目 hard/soft——experience/qualification 不生成题、不参与题库覆盖检查，2026-09-07 裁决，SSOT §9.1**）；hard/soft 配额可满足（**不允许跨类转移名额**）；综合题槽位（若 I>0；本期 I=0 不排期 → 恒过，by-design 2026-09-06）；qualification 表单 schema 可用（现为模型 items 数据驱动生成（form_instance.schema_snapshot），其存在性已被 items 非空检查隐式覆盖 → 恒过，by-design 2026-09-06）。失败状态：`QUESTION_BANK_GENERATING / QUESTION_BANK_INCOMPLETE / MODEL_NOT_MEASURABLE` + 管理员待办，而非创建 0 题 session。
 
 ### 2.4 required 刚性例外
 
