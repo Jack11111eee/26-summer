@@ -121,7 +121,12 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
             # 历史通用题不迁移不删除；scope=general 生成路径已随之移除。
             if item["category"] not in ("hard_skill", "soft_skill"):
                 continue
-            item["evidence"] = json.loads(item.pop("evidence_json") or "[]")
+            # §8.5 防御过滤：正常链路落库证据不含 excluded 条目（PUT 剥离/聚合滤除），
+            # 此处兜底旧版本快照或手工改库——question_gen 岗位背景取第一条未排除证据
+            item["evidence"] = [
+                ev for ev in json.loads(item.pop("evidence_json") or "[]")
+                if not (isinstance(ev, dict) and ev.get("excluded"))
+            ]
 
             plan = _question_plan(item)
             chain_key = item["item_id"] if len(plan) > 1 else None

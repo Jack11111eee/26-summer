@@ -475,6 +475,27 @@ CREATE TABLE IF NOT EXISTS aggregate_task (
   started_at     TEXT,
   finished_at    TEXT
 );
+
+-- ============ 证据排除表（SSOT §8.5——证据可标记排除/留痕/重聚合同再生效，2026-09-07）============
+-- 语句粒度软排除：主键 (position_id, jd_id, std_name, category, text)——排除的是
+-- 「某条 JD 对某能力项的一条证据摘录」；岗位维度持久、不随聚合重建（穿越重聚合）。
+-- 解除不删行（status active→lifted 留 lifted_by/lifted_at 审计）；再标记复活 active。
+-- status 枚举代码校验、无 DB CHECK（N11 口径）。生效规则见 SSOT §8.5 三级：
+-- 证据级滤除 / 全排除的 JD-项不计 r/req 分子 / 消项级权重重算。
+CREATE TABLE IF NOT EXISTS evidence_exclusion (
+  position_id  TEXT NOT NULL REFERENCES position,
+  jd_id        TEXT NOT NULL REFERENCES jd_record,
+  std_name     TEXT NOT NULL,
+  category     TEXT NOT NULL,
+  text         TEXT NOT NULL,
+  reason       TEXT,
+  excluded_by  TEXT NOT NULL REFERENCES user,
+  excluded_at  TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'active',
+  lifted_by    TEXT REFERENCES user,
+  lifted_at    TEXT,
+  PRIMARY KEY(position_id, jd_id, std_name, category, text)
+);
 """
 
 
@@ -972,6 +993,30 @@ def _migrate_aggregate_task(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_evidence_exclusion(conn: sqlite3.Connection) -> None:
+    """SSOT §8.5（2026-09-07）：建 evidence_exclusion 证据排除表。
+
+    新表无存量迁移语义（无历史排除可回填），CREATE TABLE IF NOT EXISTS 幂等；
+    新库由尾部 _DDL 直接建表，本迁移对纯新库是 no-op 嗅探跳过（同 idempotent 语义）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS evidence_exclusion (
+      position_id  TEXT NOT NULL REFERENCES position,
+      jd_id        TEXT NOT NULL REFERENCES jd_record,
+      std_name     TEXT NOT NULL,
+      category     TEXT NOT NULL,
+      text         TEXT NOT NULL,
+      reason       TEXT,
+      excluded_by  TEXT NOT NULL REFERENCES user,
+      excluded_at  TEXT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'active',
+      lifted_by    TEXT REFERENCES user,
+      lifted_at    TEXT,
+      PRIMARY KEY(position_id, jd_id, std_name, category, text)
+    );
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -988,6 +1033,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (13, "feedback_phase5", _migrate_feedback_phase5),
     (14, "position_inactive", _migrate_position_inactive),
     (15, "aggregate_task", _migrate_aggregate_task),
+    (16, "evidence_exclusion", _migrate_evidence_exclusion),
 ]
 
 
