@@ -53,7 +53,8 @@ def check_session_readiness(position_id: str, model=None) -> dict | None:
        复用为"岗位不可开测"语义载体，不新增第 4 个状态名）
     2) 模型 confirmed + items 非空（items 空 → MODEL_NOT_MEASURABLE，REF-8.5）
     3) 题库 readiness（question_bank_task 驱动 → GENERATING / INCOMPLETE）
-    4) required item 至少一题覆盖（缺 → INCOMPLETE）
+    4) required item 至少一题覆盖（普通类目 hard/soft；exp/qual 不生成题不参与——
+       SSOT §9.1 2026-09-07；缺 → INCOMPLETE）
     5) 配额可行（§10.1-10.3 N + 7:3 + tier 目标比对题库实际量；不足 → INCOMPLETE）
     6) 综合题槽位：本期综合题不排期（I=0）→ 恒过（by-design，SSOT §10.4 2026-09-06 注记）
     7) qualification 表单 schema：由会话模型 gate=1 items 动态展开生成
@@ -117,9 +118,11 @@ def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict 
     # 4)+5) required 覆盖 + 配额可行（按实际题量判定）
     counts = _question_count_by_category(conn, position_id, model["model_id"], model["version"])
     covered = _covered_std_names(conn, position_id, model["model_id"], model["version"])
+    # SSOT §9.1（2026-09-07）：exp/qual 不生成题、不参与题库覆盖检查——带 required
+    # 的无年限 experience（gate=0）若不豁免，停生成后会被误判缺题阻断开考
     required_items = conn.execute(
         "SELECT std_name FROM competency_item WHERE model_id=? AND importance='required'"
-        " AND gate=0",
+        " AND gate=0 AND category IN ('hard_skill','soft_skill')",
         (model["model_id"],),
     ).fetchall()
     missing_required = [r["std_name"] for r in required_items if r["std_name"] not in covered]

@@ -73,7 +73,7 @@ def check_generation(pid: str, mid: str) -> None:
     generate_question_bank(pid, mid)
     conn = get_conn()
     rows = conn.execute("SELECT * FROM question_bank").fetchall()
-    check("生成题量=9（3+2+2+1+1）", len(rows) == 9, f"实际 {len(rows)}")
+    check("生成题量=5（3+2，exp/qual 不生成——SSOT §9.1）", len(rows) == 5, f"实际 {len(rows)}")
 
     by = {}
     for r in rows:
@@ -98,20 +98,19 @@ def check_generation(pid: str, mid: str) -> None:
           [q["difficulty"] for q in soft] == ["easy", "hard"])
 
     exp = by.get(("后端开发经验", "experience"), [])
-    check("经验题为通用题库(scope=general)且无难度",
-          len(exp) == 1 and exp[0]["scope"] == "general"
-          and exp[0]["difficulty"] is None and exp[0]["position_id"] is None)
+    check("经验项不生成题（SSOT §9.1 2026-09-07）", len(exp) == 0)
 
     qual = by.get(("本科学历", "qualification"), [])
-    check("门槛题为通用题库(scope=general)", len(qual) == 1 and qual[0]["scope"] == "general")
+    check("门槛项不生成题（SSOT §9.1 2026-09-07）", len(qual) == 0)
 
     pos_qs = [r for r in rows if r["scope"] == "position"]
     check("岗位题均绑定 position_id", all(r["position_id"] == pid for r in pos_qs))
+    check("全部题为岗位题（无 scope=general 新行）", len(pos_qs) == len(rows))
     check("四要素齐全(std_name/category/qtype/scope)",
           all(r["std_name"] and r["category"] and r["qtype"] and r["scope"] for r in rows))
 
     traces = conn.execute("SELECT COUNT(*) c FROM llm_trace WHERE call_type='question_gen'").fetchone()
-    check("question_gen 调用落 llm_trace", traces["c"] == 9, f"实际 {traces['c']}")
+    check("question_gen 调用落 llm_trace", traces["c"] == 5, f"实际 {traces['c']}")
 
 
 def check_idempotent(pid: str, mid: str) -> None:
@@ -119,7 +118,7 @@ def check_idempotent(pid: str, mid: str) -> None:
     generate_question_bank(pid, mid)
     conn = get_conn()
     n = conn.execute("SELECT COUNT(*) c FROM question_bank").fetchone()["c"]
-    check("题量不变仍为 9", n == 9, f"实际 {n}")
+    check("题量不变仍为 5", n == 5, f"实际 {n}")
 
 
 def check_selection(pid: str, mid: str, model: dict) -> None:

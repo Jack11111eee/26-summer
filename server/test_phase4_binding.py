@@ -64,7 +64,8 @@ def _seed_position() -> str:
 def _seed_model(pid: str, version: int) -> tuple[str, dict]:
     """建 confirmed competency_model + competency_item，返回 (mid, {(std_name,category): item_id})。
 
-    Python(weight>10% → 3 题) + 沟通能力(2 题) + 后端开发经验(scope=general 1 题) = 6 题。
+    Python(weight>10% → 3 题) + 沟通能力(2 题) = 5 题；后端开发经验(experience) 不生成
+    题（SSOT §9.1 2026-09-07——exp/qual 只走表单链），保留在模型中验证跳过行为。
     """
     conn = get_conn()
     mid = new_id("cm")
@@ -101,7 +102,9 @@ def test_generate_writes_binding_columns():
     generate_question_bank(pid, mid)
 
     rows = _q("SELECT * FROM question_bank")
-    assert len(rows) == 6, f"期望 6 题（3+2+1），实得 {len(rows)}"
+    assert len(rows) == 5, f"期望 5 题（3+2，exp/qual 不生成——SSOT §9.1），实得 {len(rows)}"
+    assert not any(r["category"] in ("experience", "qualification") for r in rows), \
+        "exp/qual 不应生成题（SSOT §9.1 2026-09-07）"
     for r in rows:
         assert r["model_id"] == mid, f"model_id 未绑定: {r['std_name']}"
         assert r["model_version"] == 1, f"model_version 未绑定: {r['std_name']}"
@@ -119,12 +122,12 @@ def test_v2_generation_not_skipped_by_v1():
     mid1, _ = _seed_model(pid, 1)
     generate_question_bank(pid, mid1)
     v1_count = _q("SELECT COUNT(*) c FROM question_bank WHERE model_id=?", (mid1,))[0]["c"]
-    assert v1_count == 6, f"v1 应生成 6 题，实得 {v1_count}"
+    assert v1_count == 5, f"v1 应生成 5 题，实得 {v1_count}"
 
     mid2, _ = _seed_model(pid, 2)
     generate_question_bank(pid, mid2)
     v2_rows = _q("SELECT * FROM question_bank WHERE model_id=?", (mid2,))
-    assert len(v2_rows) == 6, f"v2 应生成 6 题（不因 v1 active 行跳过），实得 {len(v2_rows)}"
+    assert len(v2_rows) == 5, f"v2 应生成 5 题（不因 v1 active 行跳过），实得 {len(v2_rows)}"
     assert all(r["model_version"] == 2 for r in v2_rows)
 
 
