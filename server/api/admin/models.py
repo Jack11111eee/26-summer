@@ -44,8 +44,29 @@ def trigger_aggregate(position_id: str, background: BackgroundTasks) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "岗位不存在")
     if pos["status"] != "active":
         raise HTTPException(status.HTTP_409_CONFLICT, "仅上架岗位可触发聚合")
-    background.add_task(run_aggregate, position_id)
+    background.add_task(run_aggregate, position_id, "manual")
     return {"position_id": position_id, "aggregating": True}
+
+
+@router.get("/positions/{position_id}/aggregate/progress")
+def get_aggregate_progress(position_id: str) -> dict:
+    """聚合任务进度（SSOT §8.4）：按岗位查最新一条 aggregate_task 行，无记录 404。
+
+    前端轮询本端点（取代模型 404→200 二态轮询）；刚触发后头几轮 BackgroundTasks
+    可能尚未起跑插行 → 404，前端视为「启动中」继续轮询。任务生命周期与页面组件
+    解耦：离开页面不中断，重进页面认领 RUNNING 行即恢复展示。
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT task_id, position_id, status, trigger_source, total, done, llm_total,"
+        " llm_done, current_item, model_id, error, created_at, started_at, finished_at"
+        " FROM aggregate_task WHERE position_id=?"
+        " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (position_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无聚合任务记录")
+    return dict(row)
 
 
 @router.get("/positions/{position_id}/model")
@@ -213,7 +234,7 @@ def retry_level(position_id: str, body: dict, background: BackgroundTasks) -> di
         conn.execute("DELETE FROM competency_item WHERE model_id=?", (row["model_id"],))
         conn.execute("DELETE FROM competency_model WHERE model_id=?", (row["model_id"],))
         conn.commit()
-        background.add_task(run_aggregate, position_id)
+        background.add_task(run_aggregate, position_id, "retry")
         return {"position_id": position_id, "retrying": True}
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "action 仅支持 retry（手动定级请用 PUT /models/{id}）")
 
