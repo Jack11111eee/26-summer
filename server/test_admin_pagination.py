@@ -159,3 +159,23 @@ def test_users_pagination() -> None:
     assert len(d["items"]) == 20
     d2 = client.get("/api/admin/users?page=2", headers=h).json()
     assert len(d2["items"]) == 6
+
+
+def test_positions_jd_count_uses_index() -> None:
+    """回归：jd_count 相关子查询必须走 idx_jd_position（防 schema 改动悄悄丢索引，
+    列表页退回全表 SCAN ~0.7-1s/请求而无感知——迁移 #16 的守护测试）。"""
+    _seed(3)
+    conn = get_conn()
+    try:
+        plans = conn.execute(
+            "EXPLAIN QUERY PLAN SELECT p.position_id, p.name, p.status,"
+            " (SELECT COUNT(*) FROM jd_record j WHERE j.position_id=p.position_id)"
+            " AS jd_count FROM position p ORDER BY p.created_at DESC"
+        ).fetchall()
+    finally:
+        conn.close()
+    detail = " | ".join(str(tuple(r)[3]) if len(tuple(r)) > 3 else str(tuple(r)) for r in plans)
+    # 子查询不允许再出现全表 SCAN j（应 SEARCH ... USING INDEX idx_jd_position）
+    has_scan = any("SCAN j" in str(tuple(r)) for r in plans)
+    assert not has_scan, f"jd_count 子查询退回全表 SCAN: {detail}"
+    assert any("idx_jd_position" in str(tuple(r)) for r in plans), detail

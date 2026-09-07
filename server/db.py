@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS jd_record (
   error_msg      TEXT,
   created_at     TEXT NOT NULL
 );
+-- 管理端岗位列表 jd_count 相关子查询 / 孤儿计数 / 详情页 JD 清单 / 聚合 parsed 计数
+-- 均按 position_id 查 jd_record，无索引时全表 SCAN（迁移 #16，2026-09-07）
+CREATE INDEX IF NOT EXISTS idx_jd_position ON jd_record(position_id);
 
 CREATE TABLE IF NOT EXISTS competency_model (
   model_id     TEXT PRIMARY KEY,
@@ -972,6 +975,22 @@ def _migrate_aggregate_task(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_jd_position_index(conn: sqlite3.Connection) -> None:
+    """jd_record.position_id 补索引（2026-09-07）：管理端列表 jd_count 相关子查询等
+    按 position_id 查 jd_record 的路径此前后全表 SCAN（每请求 ~0.7-1s）。
+
+    CREATE INDEX IF NOT EXISTS 幂等；全新库 jd_record 由尾部 _DDL 建表并带索引，
+    本迁移嗅探表不存在即跳过（迁移先于 _DDL 执行——init_db 顺序，同 no-op 语义）。
+    """
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jd_record'"
+    ).fetchone()
+    if has_table is None:
+        return
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jd_position ON jd_record(position_id)")
+    conn.commit()
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -988,6 +1007,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (13, "feedback_phase5", _migrate_feedback_phase5),
     (14, "position_inactive", _migrate_position_inactive),
     (15, "aggregate_task", _migrate_aggregate_task),
+    (16, "jd_position_index", _migrate_jd_position_index),
 ]
 
 

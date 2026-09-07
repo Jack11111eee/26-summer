@@ -29,7 +29,7 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 def test_fresh_replay():
     init_db()
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 16))
+    assert [r["version"] for r in rows] == list(range(1, 17))
     # REF-2.1 parity：用户表名集合 == 从 _DDL 动态提取的 CREATE TABLE 集合（不硬编码数量）
     ddl_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _DDL))
     actual = {
@@ -47,7 +47,7 @@ def test_idempotent():
     init_db()
     init_db()  # 二次 init_db 应 no-op：登记簿行数不变
     rows = _q("SELECT COUNT(*) c FROM schema_version")
-    assert rows[0]["c"] == 15
+    assert rows[0]["c"] == 16
 
 
 def test_old_db_migration():
@@ -87,7 +87,7 @@ def test_old_db_migration():
     qb_cols = {r["name"] for r in _q("PRAGMA table_info(question_bank)")}
     assert {"model_id", "model_version"} <= qb_cols
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 16))
+    assert [r["version"] for r in rows] == list(range(1, 17))
 
 
 def test_position_inactive_migration():
@@ -155,7 +155,46 @@ def test_aggregate_task_migration():
         "created_at", "started_at", "finished_at",
     }
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 16))
+    assert [r["version"] for r in rows] == list(range(1, 17))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
     assert len(_q("PRAGMA table_info(aggregate_task)")) == 14
+
+
+def test_jd_position_index():
+    """migration 16：存量库自动补建 idx_jd_position（无索引旧库 → 迁移后出现）。"""
+    conn = get_conn()
+    try:
+        # 手造旧 schema（无 position_id 索引）+ 存量行
+        conn.execute(
+            "CREATE TABLE jd_record(jd_id TEXT PRIMARY KEY,"
+            " position_id TEXT REFERENCES position, job_title TEXT, company TEXT,"
+            " source_type TEXT NOT NULL, raw_text TEXT NOT NULL, cleaned_text TEXT,"
+            " raw_items_json TEXT, std_items_json TEXT, low_confidence INTEGER NOT NULL DEFAULT 0,"
+            " status TEXT NOT NULL, error_msg TEXT, created_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "CREATE TABLE position(position_id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+            " status TEXT NOT NULL, created_at TEXT NOT NULL)"
+        )
+        conn.execute("INSERT INTO position VALUES('pos_1', '算法', 'active', '2026-01-01')")
+        conn.execute(
+            "INSERT INTO jd_record VALUES('jd_1', 'pos_1', 't', 'c', 'paste', 'raw',"
+            " NULL, NULL, NULL, 0, 'parsed', NULL, '2026-01-02')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    idx = _q(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_jd_position'"
+    )
+    assert idx and idx[0]["name"] == "idx_jd_position"
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    assert [r["version"] for r in rows] == list(range(1, 17))
+
+    init_db()  # 二次 init：幂等，索引已存在不重复建
+    assert len(_q("SELECT name FROM sqlite_master WHERE type='index' AND"
+                " name='idx_jd_position'")) == 1
