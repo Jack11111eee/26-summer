@@ -300,7 +300,12 @@ const selectedEvidence = computed(() => {
 function occText(it) {
   const o = it.occurrence || {}
   if (o.r == null && o.req == null) return ''
-  return `${Math.round((o.r || 0) * 100)}% 岗位出现 / 共 ${o.req ?? 0} 条证据`
+  const rate = `${Math.round((o.r || 0) * 100)}% 岗位出现`
+  // 条件 req 三组成数（SSOT §8.1）：required JD 数 = round(req × occ) / 出现 JD 数 = occ / 岗位 JD 总数 = 模型 jd_count；
+  // 旧模型 occurrence 无 occ 键 → 降级只显示出现率（不出 NaN/undefined）
+  if (o.occ == null) return rate
+  const jdTotal = meta.value?.model?.jd_count
+  return `${rate} · 必备 ${Math.round((o.req ?? 0) * o.occ)} / 出现 ${o.occ} / 岗位 ${jdTotal == null ? '—' : jdTotal}`
 }
 
 // ---- 数据 ----
