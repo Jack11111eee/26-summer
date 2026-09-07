@@ -82,6 +82,11 @@
             <div class="occ">
               <el-tag size="small" effect="plain">出现率 r={{ pct(selected.occurrence?.r) }}%</el-tag>
               <el-tag size="small" effect="plain" class="ml8">必备率 req={{ pct(selected.occurrence?.req) }}%</el-tag>
+              <!-- 条件 req 三组成数（SSOT §8.1 2026-09-07）：required JD 数 / 出现 JD 数 / 岗位 JD 总数；
+                   旧模型无 occ 键时不显示（防御性处理） -->
+              <el-tag v-if="selected.occurrence?.occ != null" size="small" effect="plain" class="ml8">
+                必备/出现/总数 {{ Math.round((selected.occurrence?.req ?? 0) * (selected.occurrence?.occ ?? 0)) }}/{{ selected.occurrence.occ }}/{{ model?.jd_count ?? '—' }}
+              </el-tag>
             </div>
             <div v-if="selected.level_reason" class="reason">
               <div class="reason-label">LLM 定级理由</div>

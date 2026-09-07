@@ -52,9 +52,19 @@ def _collect_items(position_id: str) -> dict[tuple[str, str], dict]:
     return groups
 
 
-def _map_importance(r: float, req: float) -> str:
-    """双比率阈值映射（04 §2.3 Step2，阈值为配置项）。"""
-    if req >= config.REQ_THRESHOLD:
+def _map_importance(r: float, cond_req: float, occ: int, category: str) -> str:
+    """importance 三档混合口径映射（SSOT §8.1 工序⑤，2026-09-07 裁决）。
+
+    required 三重判据：条件 req（req_jds/出现 jds）≥ REQ_THRESHOLD、
+    r ≥ REQ_MIN_OCCURRENCE_RATIO、出现 JD 数 ≥ REQ_MIN_OCCURRENCE，
+    且仅 hard_skill 可判 required（soft_skill 上限 preferred）；
+    preferred ⇔ 未达 required 且 r ≥ R_THRESHOLD；否则 plus。
+    gate 类（experience/qualification）在调用侧不参与本分档。
+    """
+    if (category == "hard_skill"
+            and cond_req >= config.REQ_THRESHOLD
+            and r >= config.REQ_MIN_OCCURRENCE_RATIO
+            and occ >= config.REQ_MIN_OCCURRENCE):
         return "required"
     if r >= config.R_THRESHOLD:
         return "preferred"
@@ -191,10 +201,12 @@ def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
     try:
         for (std_name, category), g in groups.items():
             _advance(done, llm_done, f"{std_name} ({category})")
-            n_jds = len(g["jds"])
+            n_jds = len(g["jds"])  # 出现 JD 数（occ，非岗位 JD 总数）
             r = n_jds / total_jds
-            req = len(g["req_jds"]) / total_jds
-            importance = _map_importance(r, req)
+            # 条件口径（2026-09-07 裁决）：标 required 的 JD 数 ÷ 该能力出现的 JD 数；
+            # 绝对口径（÷ total_jds）废弃。occ=0 时 n_jds=0，组不存在，不会进循环。
+            req = len(g["req_jds"]) / n_jds
+            importance = _map_importance(r, req, n_jds, category)
 
             is_gate = category == "qualification" or (category == "experience" and bool(g.get("years_list")))
             if is_gate:
@@ -218,7 +230,9 @@ def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
                 "years": years,
                 "gate": int(is_gate),
                 "level_reason": reason,
-                "occurrence": {"r": round(r, 4), "req": round(req, 4)},
+                # req 存条件口径值（语义 2026-09-07 变更）；occ=出现 JD 数（新增键，
+                # 存量模型无此键不受影响）
+                "occurrence": {"r": round(r, 4), "req": round(req, 4), "occ": n_jds},
                 "evidence": g["evidences"],
             })
             done += 1
