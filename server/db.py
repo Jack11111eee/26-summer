@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS user (
 CREATE TABLE IF NOT EXISTS position (
   position_id TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
-  status      TEXT NOT NULL CHECK(status IN ('pending_review','active')),
+  -- 2026-09-07 岗位审核轮：加 'inactive'（空巢 active 岗批量下架，migration 14 重建放宽）
+  status      TEXT NOT NULL CHECK(status IN ('pending_review','active','inactive')),
   created_at  TEXT NOT NULL
 );
 
@@ -895,6 +896,33 @@ def _migrate_feedback_phase5(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE feedback ADD COLUMN {name} {decl}")
 
 
+def _migrate_position_inactive(conn: sqlite3.Connection) -> None:
+    """岗位审核轮（2026-09-07）：position.status CHECK 加 'inactive'（空巢 active 批量下架）。
+
+    - 重建表放宽 CHECK（同 llm_trace/feedback 迁移思路——SQLite CHECK 无法 ALTER）。
+    - 只加枚举位，不改现有行状态（353 空巢岗的 status 翻转由本轮运维 SQL 单独执行）。
+    - 存量库才有此迁移；新库 _DDL 已含 'inactive'，嗅探跳过（幂等）。
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='position'"
+    ).fetchone()
+    if row is None or "'inactive'" in (row[0] or ""):
+        return  # 表不存在（新建走 _DDL）或已是含 inactive 的约束
+    conn.executescript("""
+    BEGIN;
+    CREATE TABLE position_new (
+      position_id TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      status      TEXT NOT NULL CHECK(status IN ('pending_review','active','inactive')),
+      created_at  TEXT NOT NULL
+    );
+    INSERT INTO position_new SELECT * FROM position;
+    DROP TABLE position;
+    ALTER TABLE position_new RENAME TO position;
+    COMMIT;
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -909,6 +937,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (11, "question_score_phase5", _migrate_question_score_phase5),
     (12, "report_phase5", _migrate_report_phase5),
     (13, "feedback_phase5", _migrate_feedback_phase5),
+    (14, "position_inactive", _migrate_position_inactive),
 ]
 
 

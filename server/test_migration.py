@@ -29,7 +29,7 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 def test_fresh_replay():
     init_db()
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 14))
+    assert [r["version"] for r in rows] == list(range(1, 15))
     # REF-2.1 parity：用户表名集合 == 从 _DDL 动态提取的 CREATE TABLE 集合（不硬编码数量）
     ddl_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _DDL))
     actual = {
@@ -47,7 +47,7 @@ def test_idempotent():
     init_db()
     init_db()  # 二次 init_db 应 no-op：登记簿行数不变
     rows = _q("SELECT COUNT(*) c FROM schema_version")
-    assert rows[0]["c"] == 13
+    assert rows[0]["c"] == 14
 
 
 def test_old_db_migration():
@@ -87,4 +87,43 @@ def test_old_db_migration():
     qb_cols = {r["name"] for r in _q("PRAGMA table_info(question_bank)")}
     assert {"model_id", "model_version"} <= qb_cols
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 14))
+    assert [r["version"] for r in rows] == list(range(1, 15))
+
+
+def test_position_inactive_migration():
+    """migration 14 岗位审核轮：老 position CHECK 无 'inactive' 时重建放宽，存量行原样保留。"""
+    conn = get_conn()
+    try:
+        # 手造旧 schema（两态 CHECK）+ 双岗存量行
+        conn.execute(
+            "CREATE TABLE position(position_id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+            " status TEXT NOT NULL CHECK(status IN ('pending_review','active')),"
+            " created_at TEXT NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO position VALUES(?,?,?,?)",
+            [("pos_a1", "算法", "active", "2026-01-01"),
+             ("pos_p1", "算法专家", "pending_review", "2026-01-02")],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    pos_sql = _q("SELECT sql FROM sqlite_master WHERE name='position'")[0]["sql"]
+    assert "'inactive'" in pos_sql
+    # 存量行的 status 与 PK 迁移后原样保留
+    rows = _q("SELECT position_id, name, status FROM position ORDER BY position_id")
+    assert rows == [
+        {"position_id": "pos_a1", "name": "算法", "status": "active"},
+        {"position_id": "pos_p1", "name": "算法专家", "status": "pending_review"},
+    ]
+    # 放宽后 inactive 可写（下架语义载体）
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE position SET status='inactive' WHERE position_id='pos_a1'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert _q("SELECT status FROM position WHERE position_id='pos_a1'")[0]["status"] == "inactive"
