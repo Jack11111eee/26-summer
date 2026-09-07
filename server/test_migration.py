@@ -29,7 +29,7 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 def test_fresh_replay():
     init_db()
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 16))
+    assert [r["version"] for r in rows] == list(range(1, 17))
     # REF-2.1 parity：用户表名集合 == 从 _DDL 动态提取的 CREATE TABLE 集合（不硬编码数量）
     ddl_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _DDL))
     actual = {
@@ -47,7 +47,7 @@ def test_idempotent():
     init_db()
     init_db()  # 二次 init_db 应 no-op：登记簿行数不变
     rows = _q("SELECT COUNT(*) c FROM schema_version")
-    assert rows[0]["c"] == 15
+    assert rows[0]["c"] == 16
 
 
 def test_old_db_migration():
@@ -87,7 +87,7 @@ def test_old_db_migration():
     qb_cols = {r["name"] for r in _q("PRAGMA table_info(question_bank)")}
     assert {"model_id", "model_version"} <= qb_cols
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 16))
+    assert [r["version"] for r in rows] == list(range(1, 17))
 
 
 def test_position_inactive_migration():
@@ -155,7 +155,39 @@ def test_aggregate_task_migration():
         "created_at", "started_at", "finished_at",
     }
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 16))
+    # 回拨到 14 后重放会连 16（evidence_exclusion）一并补齐（登记簿始终到最新）
+    assert [r["version"] for r in rows] == list(range(1, 17))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
     assert len(_q("PRAGMA table_info(aggregate_task)")) == 14
+
+
+def test_evidence_exclusion_migration():
+    """migration 16（SSOT §8.5）：证据排除表。存量库迁移建表 + 新库 _DDL 直接含表，
+    两路径表结构一致、二次 init 幂等。"""
+    from server.db import _DDL  # 旁证：新库路径 _DDL 直接含 evidence_exclusion
+
+    assert "CREATE TABLE IF NOT EXISTS evidence_exclusion" in _DDL
+
+    # 存量库路径：先建到最新（含登记簿 16 行），再把登记簿回拨到 15 模拟「migration 16
+    # 之前的存量库」（表由尾部 _DDL IF NOT EXISTS 建过也无妨——迁移幂等）
+    init_db()
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM schema_version WHERE version >= 16")
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    cols = {r["name"] for r in _q("PRAGMA table_info(evidence_exclusion)")}
+    assert cols == {
+        "position_id", "jd_id", "std_name", "category", "text", "reason",
+        "excluded_by", "excluded_at", "status", "lifted_by", "lifted_at",
+    }
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    assert [r["version"] for r in rows] == list(range(1, 17))
+
+    init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
+    assert len(_q("PRAGMA table_info(evidence_exclusion)")) == 11
