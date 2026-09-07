@@ -13,13 +13,27 @@
           </h2>
         </div>
         <div>
-          <el-button :loading="aggregating" @click="onAggregate">重新聚合</el-button>
+          <el-button :loading="aggregating" @click="onAggregate">{{ aggregateLabel }}</el-button>
           <template v-if="editable">
             <el-button type="primary" :loading="saving" @click="onSave">保存草稿</el-button>
             <el-button type="success" :disabled="status === 'stalled'" :loading="confirming" @click="onConfirm">
               确认模型
             </el-button>
           </template>
+        </div>
+      </div>
+
+      <!-- 聚合进度（SSOT §8.4：进度条+双计数+当前项，任务生命周期与页面解耦） -->
+      <div v-if="aggregating" class="agg-progress">
+        <el-progress
+          :percentage="aggPercent"
+          :stroke-width="10"
+          :status="aggStalled ? 'warning' : undefined"
+        />
+        <div class="agg-line">
+          {{ progress.done ?? 0 }}/{{ progress.total ?? 0 }} 项 · 冲突裁决
+          {{ progress.llm_done ?? 0 }}/{{ progress.llm_total ?? 0 }}
+          <template v-if="progress.current_item"> · 当前：{{ progress.current_item }}</template>
         </div>
       </div>
 
@@ -42,8 +56,21 @@
       <div v-if="loading" v-loading="true" class="empty-box" />
       <template v-else-if="!model">
         <el-empty description="该岗位暂无聚合模型">
-          <el-button type="primary" :loading="aggregating" @click="onAggregate">重新聚合</el-button>
+          <el-button type="primary" :loading="aggregating" @click="onAggregate">{{ aggregateLabel }}</el-button>
         </el-empty>
+        <!-- 聚合进行中空态也展示进度（首聚合往往从空态触发） -->
+        <div v-if="aggregating" class="agg-progress">
+          <el-progress
+            :percentage="aggPercent"
+            :stroke-width="10"
+            :status="aggStalled ? 'warning' : undefined"
+          />
+          <div class="agg-line">
+            {{ progress.done ?? 0 }}/{{ progress.total ?? 0 }} 项 · 冲突裁决
+            {{ progress.llm_done ?? 0 }}/{{ progress.llm_total ?? 0 }}
+            <template v-if="progress.current_item"> · 当前：{{ progress.current_item }}</template>
+          </div>
+        </div>
       </template>
 
       <!-- 主体：左右双栏 -->
@@ -55,6 +82,11 @@
             <div class="occ">
               <el-tag size="small" effect="plain">出现率 r={{ pct(selected.occurrence?.r) }}%</el-tag>
               <el-tag size="small" effect="plain" class="ml8">必备率 req={{ pct(selected.occurrence?.req) }}%</el-tag>
+              <!-- 条件 req 三组成数（SSOT §8.1 2026-09-07）：required JD 数 / 出现 JD 数 / 岗位 JD 总数；
+                   旧模型无 occ 键时不显示（防御性处理） -->
+              <el-tag v-if="selected.occurrence?.occ != null" size="small" effect="plain" class="ml8">
+                必备/出现/总数 {{ Math.round((selected.occurrence?.req ?? 0) * (selected.occurrence?.occ ?? 0)) }}/{{ selected.occurrence.occ }}/{{ model?.jd_count ?? '—' }}
+              </el-tag>
             </div>
             <div v-if="selected.level_reason" class="reason">
               <div class="reason-label">LLM 定级理由</div>
@@ -87,7 +119,7 @@
             <template v-if="groups[cat]?.length">
               <div class="cat-head">{{ categoryLabel(cat) }}（{{ groups[cat].length }}）</div>
               <div
-                v-for="item in groups[cat]"
+                v-for="item in pagedItems(cat)"
                 :key="item._key"
                 class="item-card"
                 :class="{ active: selected === item }"
@@ -152,6 +184,15 @@
                   </template>
                 </div>
               </div>
+              <el-pagination
+                class="pager"
+                v-model:current-page="catPages[cat]"
+                v-model:page-size="catPageSize"
+                :total="groups[cat].length"
+                :page-sizes="[10, 20, 50, 100]"
+                layout="total, sizes, prev, pager, next, jumper"
+                @size-change="onSizeChange"
+              />
             </template>
           </div>
 
@@ -197,7 +238,7 @@
 
 <script setup>
 import AdminNav from '../../components/AdminNav.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../../api'
@@ -222,8 +263,28 @@ const addForm = reactive({ std_name: '', category: 'hard_skill', required_level:
 
 const categoryOrder = ['hard_skill', 'soft_skill', 'experience', 'qualification']
 
+// 分块分页：各类目独立页码，共用一个 page size（纯前端切片，数据仍整份本地编辑）
+const catPages = reactive({ hard_skill: 1, soft_skill: 1, experience: 1, qualification: 1 })
+const catPageSize = ref(20)
+
 let pollTimer = null
-let pollCount = 0
+// 心跳判停（SSOT §8.4）：记录上次进度签名，连续 ~100 轮（约 5 分钟）不变报停滞
+// 但继续轮询（替换旧 3 分钟硬超时停轮询+误报「聚合超时」）
+let lastHeartbeat = ''
+let sameBeatRounds = 0
+const HEARTBEAT_STALL_ROUNDS = 100
+
+// 聚合任务进度行（SSOT §8.4 progress 端点）
+const progress = ref({})
+const aggStalled = ref(false)
+
+// 进度条百分比（total=0 防除零 → 0%）
+const aggPercent = computed(() => {
+  const total = Number(progress.value?.total) || 0
+  const done = Number(progress.value?.done) || 0
+  if (total <= 0) return 0
+  return Math.min(100, Math.round((done / total) * 100))
+})
 
 const readonly = computed(() => status.value === 'confirmed')
 const editable = computed(() => status.value === 'draft' || status.value === 'stalled')
@@ -238,6 +299,30 @@ const groups = computed(() => {
   return g
 })
 
+// 当前页切片（页码超界时收敛到最大页，仅取值不改状态）
+function pagedItems(cat) {
+  const list = groups.value[cat] || []
+  const maxPage = Math.max(1, Math.ceil(list.length / catPageSize.value))
+  const page = Math.min(catPages[cat], maxPage)
+  return list.slice((page - 1) * catPageSize.value, page * catPageSize.value)
+}
+
+// size 变化时各类目页码重置为 1
+function onSizeChange() {
+  for (const c of categoryOrder) catPages[c] = 1
+}
+
+// 列表收缩（删除/重载）导致页码超界时收敛到最大页
+watch(
+  () => groups.value,
+  (g) => {
+    for (const c of categoryOrder) {
+      const maxPage = Math.max(1, Math.ceil((g[c]?.length || 0) / catPageSize.value))
+      if (catPages[c] > maxPage) catPages[c] = maxPage
+    }
+  }
+)
+
 // Σ 实时合计（百分比）
 const sigmaPct = computed(() => {
   const sum = (model.value?.items || []).reduce((acc, it) => acc + (Number(it._weightPct) || 0), 0)
@@ -247,6 +332,8 @@ const sigmaOk = computed(() => Math.abs(Number(sigmaPct.value) - 100) <= 0.5)
 
 const statusLabel = computed(() => ({ draft: '草稿', stalled: '裁决滞留', confirmed: '已确认' }[status.value] || status.value))
 const statusType = computed(() => ({ draft: 'info', stalled: 'danger', confirmed: 'success' }[status.value] || 'info'))
+// 未聚合过（404 空态）→「开始聚合」；已有模型 →「重新聚合」
+const aggregateLabel = computed(() => (model.value ? '重新聚合' : '开始聚合'))
 
 function categoryLabel(c) {
   return { hard_skill: '硬技能', soft_skill: '软技能', experience: '经验', qualification: '门槛' }[c] || c
@@ -309,24 +396,70 @@ async function loadModel({ silent = false } = {}) {
   }
 }
 
-// 轮询直到拿到模型（draft/stalled/confirmed 均可）
+// 轮询 progress 端点（SSOT §8.4：取代模型 404→200 二态轮询）。
+// 404 = BackgroundTasks 尚未起跑插行（「启动中」）→ 继续轮询不报错；
+// SUCCEEDED → 停轮询拉模型；FAILED → 停轮询报 error 并拉模型（stalled 模型
+// 200，页面照常展示 stalled 态与恢复入口）；心跳停滞报疑似但继续轮询。
 function startPoll() {
   stopPoll()
-  pollCount = 0
+  lastHeartbeat = ''
+  sameBeatRounds = 0
   pollTimer = setInterval(async () => {
-    pollCount += 1
-    const got = await loadModel({ silent: true })
-    if (got || pollCount >= 60) {
+    let task
+    try {
+      const { data } = await api.get(`/admin/positions/${positionId}/aggregate/progress`)
+      task = data
+    } catch (e) {
+      if (e.response?.status === 404) return // 启动中：行还没插，下一轮再看
+      return // 瞬时网络错误：不中断轮询（下一轮再试）
+    }
+    progress.value = task
+
+    // 心跳判停：(done, llm_done, current_item) 签名连续 N 轮不变 → 疑似停滞
+    const beat = `${task.done}|${task.llm_done}|${task.current_item}`
+    if (beat === lastHeartbeat) {
+      sameBeatRounds += 1
+    } else {
+      sameBeatRounds = 0
+      lastHeartbeat = beat
+    }
+    aggStalled.value = sameBeatRounds >= HEARTBEAT_STALL_ROUNDS
+    if (aggStalled.value && sameBeatRounds === HEARTBEAT_STALL_ROUNDS) {
+      ElMessage.warning('聚合进度疑似停滞（约 5 分钟无变化），继续等待中…')
+    }
+
+    if (task.status === 'SUCCEEDED') {
       stopPoll()
       aggregating.value = false
       retrying.value = false
-      if (!got) ElMessage.warning('聚合超时，请稍后手动刷新')
+      await loadModel({ silent: true })
+    } else if (task.status === 'FAILED') {
+      stopPoll()
+      aggregating.value = false
+      retrying.value = false
+      ElMessage.error(task.error || '聚合失败')
+      await loadModel({ silent: true }) // stalled 模型 200，展示恢复入口
     }
   }, 3000)
 }
 function stopPoll() {
   if (pollTimer) clearInterval(pollTimer)
   pollTimer = null
+}
+
+async function checkAndClaim() {
+  // 进页面先查一次 progress：仅最新行为 RUNNING 才认领（任务生命周期与页面
+  // 组件解耦——离开页面不中断不报错，重进来接着看）；SUCCEEDED/FAILED/404
+  // 都不认领、不弹旧失败 toast（旧失败弹 toast 是本工单要修的误报之二）
+  try {
+    const { data } = await api.get(`/admin/positions/${positionId}/aggregate/progress`)
+    if (data.status === 'RUNNING') {
+      aggregating.value = true
+      startPoll()
+    }
+  } catch {
+    // 404（无记录）或瞬时错误：不认领
+  }
 }
 
 async function onAggregate() {
@@ -346,6 +479,7 @@ async function onRetry() {
   try {
     await api.post(`/admin/positions/${positionId}/retry-level`, { action: 'retry' })
     ElMessage.info('已重试 LLM 定级；亦可手动编辑等级后保存草稿')
+    aggregating.value = true // retry 路径走同一套 progress 轮询
     startPoll()
   } catch (e) {
     retrying.value = false
@@ -438,12 +572,19 @@ function onAdd() {
   }
   model.value.items.push(item)
   selected.value = item
+  // 跳到新 item 所在页（push 到类目末尾，即最后一页），保证用户能立刻看到
+  catPages[item.category] = Math.max(1, Math.ceil((groups.value[item.category] || []).length / catPageSize.value))
   addVisible.value = false
   addForm.std_name = ''
   addForm.weightPct = 0
 }
 
-onMounted(() => loadModel())
+onMounted(() => {
+  ;(async () => {
+    await loadModel()
+    await checkAndClaim()
+  })()
+})
 onBeforeUnmount(stopPoll)
 </script>
 
@@ -480,6 +621,14 @@ onBeforeUnmount(stopPoll)
 .tip-text {
   font-size: 12px;
   color: #909399;
+}
+.agg-progress {
+  margin-bottom: 12px;
+}
+.agg-line {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #606266;
 }
 .empty-box {
   height: 200px;
@@ -611,6 +760,10 @@ onBeforeUnmount(stopPoll)
   width: 100%;
   margin-top: 8px;
   border-style: dashed;
+}
+.pager {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 .full {
   width: 100%;

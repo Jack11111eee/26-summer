@@ -266,6 +266,6 @@ def run_parse_pipeline(jd_id: str) -> None:
         if pos and pos["status"] == "active":
             try:
                 from .aggregate import run_aggregate
-                run_aggregate(auto_aggregate)
+                run_aggregate(auto_aggregate, "auto:jd-parse")
             except Exception:  # noqa: BLE001 - 聚合失败静默（管理员可手动重新聚合）
                 pass
