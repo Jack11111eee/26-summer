@@ -2,7 +2,7 @@
 
 > 本文档为《design/final-design/总设计文档.md》（唯一 SSOT）**第二部分的分块摘录**，聚焦模块一阅读。
 > 状态：**已实现（M1~M3）**；§8 M1 回归已落地为 `server/test_m1_regression.py`（八项脆弱点回归锁）。
-> 2026-09-07 与 SSOT v2.0（含 §14 变更日志至 2026-09-06）全量核对同步。
+> 2026-09-07 与 SSOT v2.0（含 §14 变更日志至 2026-09-06）全量核对同步；同日随 SSOT 2026-09-07「源标题优先归岗」条目同步本文件 §2/§3/§9。
 > 维护规则：任何设计变更，先更新《总设计文档.md》（正文 + §14 变更日志），再动代码。
 
 ---
@@ -20,7 +20,8 @@
 
 - `imported → parsing → parsed / failed → aggregating → draft / stalled → confirmed`；
 - confirmed 后新增 JD / 重解析 → 产出新 draft → **diff 审阅流**（逐项三选一：保留人工值/采用新值/再编辑）升 v{n+1}；
-- 归岗：job_title 规范化（去空格/大小写/常见后缀）→ position 精确匹配 → 别名表 → 未命中建 `pending_review` 岗位（人工审核激活；不聚合、不对测评端可见）；
+- 标题源优先：JSONL 行内 `job_title`（兼容 `position` 键名）入库即存 `jd_record.job_title`；pipeline 与 reparse 不覆写已存标题，仅库内标题为空时以 LLM#1 抽取兜底；
+- 归岗：取标题（上述源标题优先）→ 规范化（去空格/大小写/常见后缀）→ position 精确匹配（`COLLATE NOCASE`，大小写不敏感；存量岗位名不迁移）→ 别名表 → 未命中建 `pending_review` 岗位（人工审核激活；不聚合、不对测评端可见）；
 - 异步：导入/聚合不在请求内同步执行；前端列表轮询（5s）；聚合自动触发钩子独立于解析异常处理（聚合自身异常不连累 JD 状态）。
 
 ## 3. 工序实现约束
@@ -28,7 +29,7 @@
 | 工序 | 要点 |
 |---|---|
 | ② 清洗 | 纯规则按标题词切段，职责块/要求块分离；要求块空或 <30 字 → `low_confidence=1` 但**继续流程**；无 LLM 兜底；header 与内容同行时保留内容段 |
-| ③ 抽取 | LLM#1，JSON 模式 + 强 Schema（items[]：name/category/required_level/importance/evidence/years?/job_title）；校验失败带错误重试 ×2 → `failed`；四条硬约束（原子化/抄录证据/三档措辞映射/1–5 级措辞映射）写入 prompt |
+| ③ 抽取 | LLM#1，JSON 模式 + 强 Schema（items[]：name/category/required_level/importance/evidence/years?/job_title）；校验失败带错误重试 ×2 → `failed`；四条硬约束（原子化/抄录证据/三档措辞映射/1–5 级措辞映射）写入 prompt；job_title 仅当库内标题为空时兜底（源标题优先——见 §2，导入行内 job_title 直接入库） |
 | ④ 消歧 | 词典候选 = 同 category 相似度过滤（difflib 编辑距离 ratio + 子串包含，归一化 lowercase/strip，阈值 `DICT_MATCH_THRESHOLD=0.5`）取 top10 → LLM#2 裁决同义/包含/重合；失败重试 ×2 → 降级代码精确去重；新标准名写词典 `llm_pending`；词典为空跳过 LLM#2。拼音匹配未启用（干净语料收益低，避免 pypinyin 依赖——§31-4 裁决） |
 | ⑤ 聚合 | 纯代码频次（r、req）→ importance 阈值映射（配置项）→ level 冲突交 LLM#3（**无自动取众数后门**）→ 权重纯代码；LLM#3 重试 ×2 仍败 → 模型 `stalled`（管理员 P1 待办） |
 | ⑥ 人审 | PUT 编辑草稿 → confirm 升版本；编辑 stalled 模型后自动转 draft 并清 stall_reason（与"重试 LLM"并列的手动定级恢复路径） |
@@ -88,9 +89,10 @@ SSOT §8.1 八项脆弱点回归锁已实现为 `server/test_m1_regression.py`�
 
 - ~~`/jds/orphan` 静态路由必须注册在 `/jds/{jd_id}` 参数路由之前~~ **已修复**（现路由顺序正确，注释标明置于参数路由前，并有 `test_phase4_orphan.py` 覆盖）；
 - JD 文件导入：解析校验在前、逐行 `_insert_jd` 各自 commit（行级独立，坏行校验时抛 400 回滚该次插入，不留半成品行；跨行非原子为 by-design——多 JD 相互独立）；
+- JSONL 行内 `job_title`（兼容 `position` 键）透传入库；pipeline/reparse 不覆写已存标题；存量漂移标题（修复前已被 LLM 覆写的行）的修正走 `scripts/backfill_jd_source_title.py`（raw_text 全文配对源 jsonl，dry-run 默认，须用户审阅后手动 `--apply`），reparse 不是修正漂移的手段；
 - 输入限额已接线：JD 长度 10000、文件行数 500（`server/services/input_limits.py` 纯函数 + 接口层调用）；
 - 模型编辑 PUT 字段校验已接线：Pydantic 强类型 + `allow_inf_nan=False`（NaN/Inf 拒绝）、weight 0–1 边界、同 category 内 std_name 重复拒绝（判重键 `(std_name, category)` 与 diff 对齐键一致）。
 
 ## 10. 本文依据
 
-《总设计文档.md》§8–§8.3、§27、§28、§31（开放参数裁决）；变更日志条目 2026-09-06（词典阈值/管理员分页）；差异登记见总文档 §30。
+《总设计文档.md》§8–§8.3、§27、§28、§31（开放参数裁决）；变更日志条目 2026-09-06（词典阈值/管理员分页）、2026-09-07（源标题优先归岗）；差异登记见总文档 §30。
