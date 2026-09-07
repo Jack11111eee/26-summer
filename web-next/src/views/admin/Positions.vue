@@ -46,11 +46,11 @@
         </div>
         <table>
           <thead>
-            <tr><th>position_name</th><th class="num">jd_count</th><th>created_at</th><th style="text-align:right">action</th></tr>
+            <tr><th style="width: 44%">position_name</th><th class="num" style="width: 12%">jd_count</th><th style="width: 22%">created_at</th><th style="width: 22%; text-align: right">action</th></tr>
           </thead>
           <tbody>
             <tr v-for="p in pending.items" :key="p.position_id">
-              <td>
+              <td v-clip>
                 <div class="cell-main">{{ p.name }}</div>
                 <div class="cell-sub">归岗未命中 · LLM 判定为全新岗位</div>
               </td>
@@ -83,12 +83,12 @@
         </div>
         <table>
           <thead>
-            <tr><th>job_title</th><th>company</th><th>source</th><th>created_at</th><th>改归岗位</th></tr>
+            <tr><th style="width: 38%">job_title</th><th style="width: 15%">company</th><th style="width: 10%">source</th><th style="width: 13%">created_at</th><th style="width: 24%">改归岗位</th></tr>
           </thead>
           <tbody>
             <tr v-for="j in orphans.items" :key="j.jd_id">
-              <td><span class="cell-main">{{ j.job_title || '（未识别标题）' }}</span></td>
-              <td>{{ j.company || '—' }}</td>
+              <td v-clip><span class="cell-main">{{ j.job_title || '（未识别标题）' }}</span></td>
+              <td v-clip>{{ j.company || '—' }}</td>
               <td>{{ j.source_type || '—' }}</td>
               <td>{{ formatTime(j.created_at) }}</td>
               <td>
@@ -125,11 +125,11 @@
         </div>
         <table>
           <thead>
-            <tr><th>position_name</th><th>status</th><th class="num">jd_count</th><th style="text-align:right">action</th></tr>
+            <tr><th style="width: 40%">position_name</th><th style="width: 16%">status</th><th class="num" style="width: 12%">jd_count</th><th style="width: 32%; text-align: right">action</th></tr>
           </thead>
           <tbody>
             <tr v-for="p in positions.items" :key="p.position_id">
-              <td><span class="cell-main">{{ p.name }}</span></td>
+              <td v-clip><span class="cell-main">{{ p.name }}</span></td>
               <td>
                 <span v-if="p.status === 'active'" class="tag tag-solid">ACTIVE</span>
                 <span v-else-if="p.status === 'inactive'" class="tag tag-red">INACTIVE</span>
@@ -183,9 +183,9 @@ const acting = ref(false)
 const confirmState = reactive({ show: false, position: null })
 
 const todos = reactive({ pending_positions: 0, stalled_models: 0, orphan_jds: 0, question_bank_not_ready: 0, question_bank_failed: [] })
-const pending = reactive({ items: [], total: 0, page: 1, pageSize: 20 })
-const orphans = reactive({ items: [], total: 0, page: 1, pageSize: 20 })
-const positions = reactive({ items: [], total: 0, page: 1, pageSize: 20 })
+const pending = reactive({ items: [], total: 0, page: 1, pageSize: 10 })
+const orphans = reactive({ items: [], total: 0, page: 1, pageSize: 10 })
+const positions = reactive({ items: [], total: 0, page: 1, pageSize: 10 })
 const positionOptions = ref([])
 const reassignSel = reactive({})
 

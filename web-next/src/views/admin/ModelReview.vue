@@ -125,11 +125,11 @@
             <template v-else>
               <table>
                 <thead>
-                  <tr><th>std_name</th><th class="num">level</th><th>importance</th><th class="num">weight</th><th class="num">years</th></tr>
+                  <tr><th style="width: 52%">std_name</th><th class="num" style="width: 10%">level</th><th style="width: 14%">importance</th><th class="num" style="width: 12%">weight</th><th class="num" style="width: 12%">years</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="it in catItems(cat.key)" :key="it._k" style="cursor: pointer" @click="selected = selected === it ? null : it" :class="{ selrow: selected === it }">
-                    <td><span class="cell-main">{{ it.std_name }}</span> <span v-if="it.gate" class="tag tag-red">gate</span></td>
+                    <td v-clip><span class="cell-main">{{ it.std_name }}</span> <span v-if="it.gate" class="tag tag-red">gate</span></td>
                     <td class="num">{{ it.required_level ? `Lv${it.required_level}` : '—' }}</td>
                     <td>{{ importanceLabel(it.importance) }}</td>
                     <td class="num">{{ pct(it.weight) }}</td>
@@ -214,7 +214,7 @@ const route = useRoute()
 const router = useRouter()
 const positionId = route.params.id
 
-const PAGE_SIZE = 8
+const PAGE_SIZE = 10
 const CATEGORY_ORDER = [
   { key: 'hard_skill', label: '硬技能' },
   { key: 'soft_skill', label: '软技能' },

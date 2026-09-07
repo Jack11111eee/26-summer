@@ -18,11 +18,11 @@
       </div>
       <table>
         <thead>
-          <tr><th>username</th><th>role</th><th>is_active</th><th>created_at</th><th style="text-align:right">action</th></tr>
+          <tr><th style="width: 26%">username</th><th style="width: 16%">role</th><th style="width: 16%">is_active</th><th style="width: 22%">created_at</th><th style="width: 20%; text-align: right">action</th></tr>
         </thead>
         <tbody>
           <tr v-for="u in items" :key="u.user_id">
-            <td><span class="cell-main">{{ u.username }}</span></td>
+            <td v-clip><span class="cell-main">{{ u.username }}</span></td>
             <td>
               <span v-if="u.role === 'admin'" class="tag tag-solid">ADMIN</span>
               <span v-else class="tag">CANDIDATE</span>
@@ -105,7 +105,7 @@ const loading = ref(false)
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(10)
 
 const createState = reactive({ show: false, username: '', password: '', role: 'candidate', err: '' })
 const resetState = reactive({ show: false, user: null, password: '', err: '' })

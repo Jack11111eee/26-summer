@@ -21,7 +21,7 @@
           class="nav-item"
           :class="{ active: isActive(item) }"
           :href="item.path"
-          @click.prevent="go(item)"
+          @click.prevent="go($event, item)"
         >
           {{ item.label }}
           <span
@@ -89,7 +89,10 @@ function isActive(item) {
   return route.path.startsWith(item.path)
 }
 
-function go(item) {
+function go(e, item) {
+  // 鼠标点击（e.detail>0）导航后立即失焦，让侧栏回到「鼠标离开即收回」；
+  // 键盘 Enter（detail=0）保留焦点，focus-within 可达性不受影响。
+  if (e && e.detail > 0) e.currentTarget.blur()
   if (route.path !== item.path) router.push(item.path)
 }
 
