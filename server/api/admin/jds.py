@@ -43,7 +43,8 @@ def list_positions(page: int = 1, page_size: int = 20) -> dict:
     return {"items": [dict(r) for r in rows], "total": total}
 
 
-def _insert_jd(jd_text: str, company: str | None, source_type: str) -> str:
+def _insert_jd(jd_text: str, company: str | None, source_type: str,
+               job_title: str | None = None) -> str:
     if not validate_jd_length(jd_text):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "JD 文本超长")
     jd_id = new_id("jd")
@@ -51,7 +52,7 @@ def _insert_jd(jd_text: str, company: str | None, source_type: str) -> str:
     conn.execute(
         "INSERT INTO jd_record(jd_id, position_id, job_title, company, source_type,"
         " raw_text, status, created_at) VALUES(?,?,?,?,?,?,?,?)",
-        (jd_id, None, None, company, source_type, jd_text, "imported", now_iso()),
+        (jd_id, None, job_title, company, source_type, jd_text, "imported", now_iso()),
     )
     conn.commit()
     return jd_id
@@ -67,7 +68,8 @@ def import_jd(body: schemas.JdImportRequest, background: BackgroundTasks) -> dic
 
 @router.post("/jds/import-file")
 async def import_file(background: BackgroundTasks, file: UploadFile) -> dict:
-    """JSONL 批量上传：每行 {"id"?,"position"?,"company","jd_text"}。"""
+    """JSONL 批量上传：每行 {"job_title"?, "position"?(兼容同义), "company"?, "jd_text"}。
+    行内 job_title 入库 jd_record.job_title（源标题优先，pipeline 不覆写；缺失走 LLM#1 兜底）。"""
     raw = (await file.read()).decode("utf-8")
     # 行数上限（SSOT §25/REF-6.3，已裁决 500）：防误传大文件触发无上限后台解析成本
     line_count = sum(1 for line in raw.splitlines() if line.strip())
@@ -88,7 +90,9 @@ async def import_file(background: BackgroundTasks, file: UploadFile) -> dict:
         jd_text = obj.get("jd_text")
         if not jd_text:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"第 {lineno} 行缺少 jd_text")
-        jd_ids.append(_insert_jd(jd_text, obj.get("company"), "file"))
+        title = obj.get("job_title") or obj.get("position")
+        job_title = title.strip() or None if isinstance(title, str) else None
+        jd_ids.append(_insert_jd(jd_text, obj.get("company"), "file", job_title))
     for jd_id in jd_ids:
         background.add_task(run_parse_pipeline, jd_id)
     return {"imported": len(jd_ids), "jd_ids": jd_ids}
