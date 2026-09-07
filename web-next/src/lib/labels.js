@@ -55,6 +55,14 @@ export function categoryLabel(c) {
   return CATEGORY_LABELS[c] || c || '—'
 }
 
+// 四类目展示顺序（硬技能 → 软技能 → 经验 → 资格；与模型审核页一致）
+export const CATEGORY_ORDER_HELP = [
+  { key: 'hard_skill', label: '硬技能' },
+  { key: 'soft_skill', label: '软技能' },
+  { key: 'experience', label: '经验' },
+  { key: 'qualification', label: '资格' }
+]
+
 export function importanceLabel(v) {
   return IMPORTANCE_LABELS[v] || v || '—'
 }
