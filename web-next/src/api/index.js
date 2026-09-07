@@ -100,6 +100,9 @@ export const adminModels = {
   confirmModel: (modelId) => api.post(`/admin/models/${modelId}/confirm`),
   retryQuestionBankTask: (taskId) => api.post(`/admin/question-bank-tasks/${taskId}/retry`),
   retryLevel: (positionId) => api.post(`/admin/positions/${positionId}/retry-level`, { action: 'retry' }),
+  markEvidenceExclusion: (positionId, body) => api.post(`/admin/positions/${positionId}/evidence-exclusions`, body),
+  liftEvidenceExclusion: (positionId, body) => api.delete(`/admin/positions/${positionId}/evidence-exclusions`, { data: body }),
+  listEvidenceExclusions: (positionId) => api.get(`/admin/positions/${positionId}/evidence-exclusions`),
   listVersions: (positionId) => api.get(`/admin/positions/${positionId}/versions`),
   diffModels: (newId, againstId) => api.get(`/admin/models/${newId}/diff`, { params: { against: againstId } })
 }

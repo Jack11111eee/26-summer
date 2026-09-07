@@ -69,6 +69,8 @@
         <aside class="col-side block card">
           <div class="block-head" style="margin-bottom: 10px">
             <span class="block-title">证据留档</span>
+            <span class="grow"></span>
+            <button class="row-btn" @click="openExclusions">排除记录</button>
           </div>
           <template v-if="selected">
             <p class="cell-main" style="margin-bottom: 2px">{{ selected.std_name }}</p>
@@ -82,7 +84,32 @@
             <p v-if="selected.level_reason" class="cell-sub" style="margin-bottom: 12px; line-height: 1.7">
               {{ selected.level_reason }}
             </p>
-            <div v-for="(ev, i) in selectedEvidence" :key="i" class="cell-sub" style="padding: 6px 0; border-top: 1px solid rgba(38,38,42,.06); line-height: 1.65" v-html="ev"></div>
+            <template v-if="evidenceGroups.length">
+              <label v-if="selectedExcludedCount" class="field-hint ev-toggle">
+                <input v-model="showExcluded" type="checkbox" />
+                显示已排除（{{ selectedExcludedCount }}）
+              </label>
+              <div v-for="g in evidenceGroups" :key="g.jd_id" class="ev-group" :class="{ 'ev-group-excluded': g.excludedCount && g.excludedCount === g.lines.length }">
+                <div class="ev-head">
+                  <button class="ev-jd" type="button" @click="openArchive(g.jd_id)">{{ g.jd_id }}</button>
+                  <span v-if="g.level" class="tag">Lv{{ g.level }}</span>
+                  <span class="field-hint">{{ g.lines.length }} 条</span>
+                  <span class="grow"></span>
+                </div>
+                <div v-for="(ln, i) in g.lines" :key="i" class="ev-line" :class="{ 'ev-line-excluded': ln.excluded }">
+                  <div class="ev-text" v-html="highlight(ln.text)"></div>
+                  <div class="ev-ops">
+                    <template v-if="ln.excluded">
+                      <span class="field-hint" v-if="ln.reason" :title="`${ln.reason} · ${ln.excluded_by || ''} ${formatTime(ln.excluded_at)}`">已排除</span>
+                      <span class="field-hint" v-else>已排除</span>
+                      <button v-if="editable" class="row-btn" @click="restoreLine(g, ln)">恢复</button>
+                    </template>
+                    <button v-else-if="editable" class="row-btn row-btn-danger" @click="askExclude(g, ln)">排除</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <p v-else class="cell-sub">该能力项暂无证据摘录。</p>
           </template>
           <p v-else class="cell-sub">在右侧选择一个能力项查看其 JD 证据摘录。</p>
         </aside>
@@ -212,6 +239,100 @@
         确认后模型不可再编辑，系统将自动生成对应题库；生成期间该岗位暂不可开考。
       </p>
     </UiModal>
+    <!-- 排除原因 modal（语句级排除，§8.5） -->
+    <UiModal
+      v-if="excludeState.show"
+      title="排除该证据摘录"
+      :sub="`${excludeState.jd_id} · ${selected?.std_name || ''}`"
+      @close="excludeState.show = false"
+      @confirm="doExclude"
+    >
+      <p class="field-hint" style="margin-bottom: 10px">
+        排除是岗位级源头治理：重新聚合后该摘录不再进入模型证据、LLM 定级与出现率统计；
+        同组剩余摘录仍在。此处留档原因与操作人。
+      </p>
+      <div class="field">
+        <label class="field-label">摘录原文</label>
+        <p class="cell-sub" style="line-height: 1.7">{{ excludeState.text }}</p>
+      </div>
+      <div class="field">
+        <label class="field-label">排除原因（可空）</label>
+        <input v-model="excludeState.reason" class="input" type="text" placeholder="如：词典治理误并入 / 抽取污染" />
+      </div>
+    </UiModal>
+
+    <!-- JD 工序留档抽屉（复用 PositionDetail 模式，§8.5 可下钻） -->
+    <UiDrawer v-if="archive.show" :title="`工序留档 · ${archive.data?.job_title || archive.jdId || ''}`" @close="archive.show = false">
+      <template v-if="archive.data">
+        <div v-if="archive.data.status === 'failed'" class="banner">
+          <span>解析失败：{{ archive.data.error_msg || '未知错误' }}</span>
+        </div>
+        <div v-else-if="archive.data.status !== 'parsed'" class="banner info">
+          <span>该 JD 尚在解析中（status={{ archive.data.status }}）。</span>
+        </div>
+
+        <details class="fold" open>
+          <summary><span class="caret">▶</span> ① JD 原文</summary>
+          <div class="fold-body"><pre class="raw">{{ archive.data.raw_text || '—' }}</pre></div>
+        </details>
+        <details class="fold">
+          <summary><span class="caret">▶</span> ② 清洗结果</summary>
+          <div class="fold-body"><pre class="raw">{{ archive.data.cleaned_text || '—' }}</pre></div>
+        </details>
+        <details class="fold">
+          <summary><span class="caret">▶</span> ③ raw_items（LLM 抽取）</summary>
+          <div class="fold-body">
+            <ItemTable v-if="archive.rawItems.length" :items="archive.rawItems" />
+            <p v-else class="field-hint">无数据</p>
+          </div>
+        </details>
+        <details class="fold" open>
+          <summary><span class="caret">▶</span> ④ std_items（归一后）</summary>
+          <div class="fold-body">
+            <ItemTable v-if="archive.stdItems.length" :items="archive.stdItems" />
+            <p v-else class="field-hint">无数据</p>
+          </div>
+        </details>
+        <div v-if="archive.data.low_confidence" class="banner info">
+          <span>低置信度归一结果（人工核对本条 std_items）</span>
+        </div>
+      </template>
+      <div v-else class="loading">LOADING…</div>
+    </UiDrawer>
+
+    <!-- 排除记录抽屉（全量含已解除；全排除致项消失后的恢复闭环，§8.5） -->
+    <UiDrawer v-if="exclusions.state.show" title="排除记录（含已解除）" @close="exclusions.state.show = false">
+      <template v-if="exclusions.loading"><div class="loading">LOADING…</div></template>
+      <template v-else>
+        <p class="field-hint" style="margin-bottom: 10px">
+          语句粒度排除的全量留档。evidence_matched=false 表示源头已变（JD 重解析 / 词典改名），该排除对当前聚合不再命中。
+        </p>
+        <div v-if="exclusions.rows.length">
+          <div v-for="(row, i) in exclusions.rows" :key="i" class="ev-group" :class="{ 'ev-group-excluded': row.status === 'active' }">
+            <div class="ev-head">
+              <button class="ev-jd" type="button" @click="openArchive(row.jd_id)">{{ row.jd_id }}</button>
+              <span class="tag">{{ row.std_name }} · {{ categoryLabel(row.category) }}</span>
+              <span v-if="row.status === 'active'" class="tag tag-red">生效中</span>
+              <span v-else class="tag">已解除</span>
+              <span v-if="!row.evidence_matched" class="tag warm">源头已变</span>
+              <span class="grow"></span>
+              <button
+                v-if="row.status === 'active'"
+                class="row-btn"
+                :disabled="exclusions.acting"
+                @click="restoreFromList(row)"
+              >恢复</button>
+            </div>
+            <div class="ev-text" :class="{ 'ev-line-excluded': row.status === 'active' }">{{ row.text }}</div>
+            <div class="field-hint">
+              {{ row.reason ? `原因：${row.reason} · ` : '' }}排除 {{ formatTime(row.excluded_at) }}
+              <template v-if="row.lifted_at"> · 解除 {{ formatTime(row.lifted_at) }}</template>
+            </div>
+          </div>
+        </div>
+        <p v-else class="cell-sub">暂无排除记录。</p>
+      </template>
+    </UiDrawer>
   </div>
 </template>
 
@@ -219,8 +340,9 @@
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { adminModels, adminPositions, errMsg } from '../../api'
-import { UiModal, UiPager, toast } from '../../components/ui'
-import { CATEGORY_LABELS, IMPORTANCE_LABELS, categoryLabel, importanceLabel, pct } from '../../lib/labels'
+import { UiModal, UiDrawer, UiPager, toast } from '../../components/ui'
+import ItemTable from '../../components/ItemTable.vue'
+import { CATEGORY_LABELS, IMPORTANCE_LABELS, categoryLabel, importanceLabel, pct, formatTime } from '../../lib/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -294,20 +416,50 @@ function catSigma(cat) {
   return `${(Math.round(s * 10) / 10).toFixed(1)}%`
 }
 
-// ---- 证据面板 ----
-const selectedEvidence = computed(() => {
+// ---- 证据面板（§8.5：按 jd_id 分组 + 语句级排除/恢复显示） ----
+const showExcluded = ref(false)
+
+const selectedExcludedCount = computed(() => {
+  const it = selected.value
+  if (!it) return 0
+  return (it.evidence || []).filter((ev) => ev && typeof ev === 'object' && ev.excluded).length
+})
+
+// 分组视图：[{jd_id, level, excludedCount, lines: [{text, excluded, reason, ...}]}]
+// 默认隐藏全排除的组（组内全部 excluded）；「显示已排除」时全部展示
+const evidenceGroups = computed(() => {
   const it = selected.value
   if (!it) return []
   const name = it.std_name || ''
-  // 摘录文本先转义再高亮（XSS 防护：evidence 来自 LLM 产物）
-  return (it.evidence || []).map((raw) => {
-    const safe = String(raw)
-      .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-    if (!name) return safe
-    const safeName = name.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-    return safe.split(safeName).join(`<mark>${safeName}</mark>`)
-  })
+  const groups = []
+  const byJd = new Map()
+  for (const raw of it.evidence || []) {
+    // 兼容两种形态：正常 {jd_id, level, text}；读侧合并追加的 {..., excluded: true, reason, ...}
+    if (raw == null || typeof raw !== 'object') continue
+    let g = byJd.get(raw.jd_id)
+    if (!g) {
+      g = { jd_id: raw.jd_id, level: raw.level, excludedCount: 0, lines: [] }
+      byJd.set(raw.jd_id, g)
+      groups.push(g)
+    }
+    if (raw.excluded) g.excludedCount += 1
+    g.lines.push(raw)
+  }
+  return showExcluded.value
+    ? groups
+    : groups.filter((g) => g.excludedCount < g.lines.length)
 })
+
+// 摘录文本先转义再高亮（XSS 防护：evidence 来自 LLM 产物）
+function highlight(text) {
+  const raw = typeof text === 'object' ? (text && text.text) || '' : text
+  const name = selected.value?.std_name || ''
+  const safe = String(raw)
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  if (!name) return safe
+  const safeName = name.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  return safe.split(safeName).join(`<mark>${safeName}</mark>`)
+}
 
 function occText(it) {
   const o = it.occurrence || {}
@@ -318,6 +470,100 @@ function occText(it) {
   if (o.occ == null) return rate
   const jdTotal = meta.value?.model?.jd_count
   return `${rate} · 必备 ${Math.round((o.req ?? 0) * o.occ)} / 出现 ${o.occ} / 岗位 ${jdTotal == null ? '—' : jdTotal}`
+}
+
+// ---- §8.5 排除/恢复 ----
+const excludeState = reactive({ show: false, jd_id: '', text: '', reason: '', err: '' })
+
+function askExclude(group, line) {
+  Object.assign(excludeState, {
+    show: true, jd_id: group.jd_id, text: line.text, reason: '', err: ''
+  })
+}
+
+async function doExclude() {
+  const it = selected.value
+  if (!it) return
+  try {
+    await adminModels.markEvidenceExclusion(positionId, {
+      jd_id: excludeState.jd_id,
+      std_name: it.std_name,
+      category: it.category,
+      text: excludeState.text,
+      reason: excludeState.reason.trim() || null
+    })
+    excludeState.show = false
+    toast('已排除，重新聚合后生效于模型', 'warn')
+    await loadModel()
+  } catch (e) {
+    toast(errMsg(e, '排除失败'), 'error')
+  }
+}
+
+async function restoreLine(group, line) {
+  const it = selected.value
+  if (!it) return
+  try {
+    await adminModels.liftEvidenceExclusion(positionId, {
+      jd_id: group.jd_id, std_name: it.std_name, category: it.category, text: line.text
+    })
+    toast('已恢复')
+    await loadModel()
+  } catch (e) {
+    toast(errMsg(e, '恢复失败'), 'error')
+  }
+}
+
+// 排除记录抽屉：全量含已解除（前端正文案交互态）
+const exclusions = reactive({ state: { show: false }, loading: false, acting: false, rows: [] })
+
+async function openExclusions() {
+  exclusions.state.show = true
+  exclusions.loading = true
+  try {
+    const { data } = await adminModels.listEvidenceExclusions(positionId)
+    exclusions.rows = data
+  } catch (e) {
+    toast(errMsg(e, '排除记录加载失败'), 'error')
+    exclusions.state.show = false
+  } finally {
+    exclusions.loading = false
+  }
+}
+
+async function restoreFromList(row) {
+  exclusions.acting = true
+  try {
+    await adminModels.liftEvidenceExclusion(positionId, {
+      jd_id: row.jd_id, std_name: row.std_name, category: row.category, text: row.text
+    })
+    toast('已恢复')
+    await Promise.all([openExclusions(), loadModel()])
+  } catch (e) {
+    toast(errMsg(e, '恢复失败'), 'error')
+  } finally {
+    exclusions.acting = false
+  }
+}
+
+// ---- §8.5 JD 工序留档下钻（复用 PositionDetail 抽屉模式） ----
+const archive = reactive({ show: false, jdId: '', data: null, rawItems: [], stdItems: [] })
+
+async function openArchive(jdId) {
+  archive.jdId = jdId
+  archive.data = null
+  archive.rawItems = []
+  archive.stdItems = []
+  archive.show = true
+  try {
+    const { data } = await adminPositions.jdDetail(jdId)
+    archive.data = data
+    archive.rawItems = data.raw_items || []
+    archive.stdItems = data.std_items || []
+  } catch (e) {
+    toast(errMsg(e, '留档加载失败'), 'error')
+    archive.show = false
+  }
 }
 
 // ---- 数据 ----
@@ -588,4 +834,17 @@ select.mini.select { width: 92px; }
 .agg-bar-fill { height: 100%; border-radius: 3px; background: var(--ink-1); transition: width .3s ease; }
 .agg-bar.stall .agg-bar-fill { background: #8a5a00; }
 .agg-line { margin-top: 6px; font-size: 12px; color: var(--ink-3); }
+
+/* §8.5 证据面板：分组 / 行级排除 */
+.ev-toggle { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 6px; cursor: pointer; }
+.ev-group { border-top: 1px solid rgba(38,38,42,.08); padding: 8px 0 4px; }
+.ev-group-excluded { background: rgba(38,38,42,.03); }
+.ev-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.ev-jd { border: 0; background: none; padding: 0; cursor: pointer; font-size: 11px;
+  color: var(--ink-3); font-family: 'SF Mono', Menlo, Consolas, monospace; text-decoration: underline dotted; }
+.ev-jd:hover { color: var(--ink-1); }
+.ev-line { display: flex; align-items: flex-start; gap: 8px; padding: 2px 0; }
+.ev-text { flex: 1; font-size: 12px; color: var(--ink-2); line-height: 1.65; word-break: break-all; }
+.ev-ops { display: flex; align-items: center; gap: 6px; flex: none; }
+.ev-line-excluded .ev-text { text-decoration: line-through; opacity: .45; }
 </style>

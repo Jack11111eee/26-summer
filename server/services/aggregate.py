@@ -27,29 +27,87 @@ def _mock_aggregate_level(system_prompt: str, user_prompt: str) -> dict:
 
 
 def _collect_items(position_id: str) -> dict[tuple[str, str], dict]:
-    """按 (std_name, category) 分组收集该岗位所有 parsed JD 的能力项与证据。"""
+    """按 (std_name, category) 分组收集该岗位所有 parsed JD 的能力项与证据。
+
+    §8.5 证据排除（单点收口，下游全继承）：evidences 已滤除 evidence_exclusion 的
+    active 行，`_resolve_level`/`_needs_llm` 收到的即滤后集合——禁止在任何下游二次
+    过滤（防口径漂移）。频次级规则：某 JD 对某项的当期证据**非空且全部被排除** →
+    该 JD 整项跳过（不计 jds/req_jds 分子、无证据、无 years 贡献）；原有证据为空
+    的项无可排除对象，行为不变（仍计入出现）。
+    """
     conn = get_conn()
     rows = conn.execute(
         "SELECT jd_id, std_items_json FROM jd_record"
         " WHERE position_id=? AND status='parsed' AND std_items_json IS NOT NULL",
         (position_id,),
     ).fetchall()
+    excluded = {
+        (r["jd_id"], r["std_name"], r["category"], r["text"])
+        for r in conn.execute(
+            "SELECT jd_id, std_name, category, text FROM evidence_exclusion"
+            " WHERE position_id=? AND status='active'", (position_id,))
+    }
 
     groups: dict[tuple[str, str], dict] = defaultdict(lambda: {"jds": set(), "req_jds": set(), "evidences": []})
     for row in rows:
         jd_id = row["jd_id"]
         for it in json.loads(row["std_items_json"]):
+            ev_texts = it.get("evidence") or []
+            kept = [t for t in ev_texts if (jd_id, it["name"], it["category"], t) not in excluded]
+            if ev_texts and not kept:
+                continue  # §8.5 全排除：该 JD 对该项的支持整体撤回
             key = (it["name"], it["category"])
             g = groups[key]
             g["jds"].add(jd_id)
             if it["importance"] == "required":
                 g["req_jds"].add(jd_id)
-            for ev_text in it.get("evidence", []):
+            for ev_text in kept:
                 g["evidences"].append({"jd_id": jd_id, "level": it["required_level"], "text": ev_text})
             # 保留 years（experience 类）
             if it.get("years") is not None:
                 g.setdefault("years_list", []).append(it["years"])
     return groups
+
+
+def collect_excluded_entries(position_id: str) -> dict[tuple[str, str], list[dict]]:
+    """§8.5 读侧合并：active 排除 → {(std_name, category): [entry]}，供模型读取端点
+    将被排除证据条目合并回当期 draft/stalled 模型的 evidence 列表。
+
+    entry = {jd_id, level, text, excluded: True, reason, excluded_by, excluded_at}；
+    level 取该 JD std_item 的 required_level（与快照 evidence 同口径）。表内存 text，
+    但 level/所在项上下文以源头 std_items_json 为准重建（避免双写漂移）。
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT jd_id, std_items_json FROM jd_record"
+        " WHERE position_id=? AND status='parsed' AND std_items_json IS NOT NULL",
+        (position_id,),
+    ).fetchall()
+    # (jd_id, std_name, category, text) → level 索引（排除行的 level 从源头取）
+    level_index: dict[tuple[str, str, str, str], int | None] = {}
+    for row in rows:
+        jd_id = row["jd_id"]
+        for it in json.loads(row["std_items_json"]):
+            for t in it.get("evidence") or []:
+                level_index[(jd_id, it["name"], it["category"], t)] = it.get("required_level")
+
+    out: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for r in conn.execute(
+        "SELECT jd_id, std_name, category, text, reason, excluded_by, excluded_at"
+        " FROM evidence_exclusion WHERE position_id=? AND status='active'",
+        (position_id,),
+    ):
+        key = (r["std_name"], r["category"])
+        out[key].append({
+            "jd_id": r["jd_id"],
+            "level": level_index.get((r["jd_id"], r["std_name"], r["category"], r["text"])),
+            "text": r["text"],
+            "excluded": True,
+            "reason": r["reason"],
+            "excluded_by": r["excluded_by"],
+            "excluded_at": r["excluded_at"],
+        })
+    return dict(out)
 
 
 def _map_importance(r: float, cond_req: float, occ: int, category: str) -> str:

@@ -71,7 +71,13 @@ def get_aggregate_progress(position_id: str) -> dict:
 
 @router.get("/positions/{position_id}/model")
 def get_current_model(position_id: str) -> dict:
-    """当前生效模型：draft/stalled 优先，否则最新 confirmed。无则 404。"""
+    """当前生效模型：draft/stalled 优先，否则最新 confirmed。无则 404。
+
+    §8.5 读侧合并：draft/stalled 时附 evidence_exclusion active 行回各 item 的
+    evidence（每条含 excluded: true + reason/excluded_by/excluded_at，前端灰显/
+    恢复）；confirmed 返回入库快照不合并（快照存库前已剥离，天然不含排除条目）。
+    excluded 标记是读取时实时合并的当期状态、非版本历史快照（历史以表内审计列为准）。
+    """
     conn = get_conn()
     row = conn.execute(
         "SELECT model_id, version, status, model_json, created_at FROM competency_model"
@@ -83,6 +89,14 @@ def get_current_model(position_id: str) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无模型，请先导入 JD 并聚合")
     d = dict(row)
     d["model"] = json.loads(d.pop("model_json"))
+    if d["status"] in ("draft", "stalled"):
+        from ...services.aggregate import collect_excluded_entries
+        excl = collect_excluded_entries(position_id)
+        if excl:
+            for it in d["model"].get("items", []):
+                extra = excl.get((it["std_name"], it["category"]))
+                if extra:
+                    it.setdefault("evidence", []).extend(extra)
     return d
 
 
@@ -128,25 +142,156 @@ def update_model(model_id: str, body: ModelUpdateBody) -> dict:
     existing = json.loads(conn.execute(
         "SELECT model_json FROM competency_model WHERE model_id=?", (model_id,)
     ).fetchone()["model_json"])
-    existing["items"] = body.model_dump()["items"]
+    stored_items = body.model_dump()["items"]
+    # §8.5 PUT 剥离：前端 GET 时收到的实时合并 excluded 条目原样回传，存库前剥除——
+    # 存储不变量：模型存储（model_json + evidence_json）只含未排除证据（排除状态
+    # 唯一权威载体是 evidence_exclusion 表，读取时再实时合并）。
+    for it in stored_items:
+        it["evidence"] = [ev for ev in (it.get("evidence") or [])
+                          if not (isinstance(ev, dict) and ev.get("excluded"))]
+    existing["items"] = stored_items
     existing.pop("stall_reason", None)  # 编辑后清除 stalled 标记
     stored = existing
     conn.execute("UPDATE competency_model SET model_json=?, status='draft' WHERE model_id=?",
                  (json.dumps(stored, ensure_ascii=False), model_id))
-    # 明细表同步重建（人审后的权威内容）
+    # 明细表同步重建（人审后的权威内容）——用剥离后的 stored_items（与 model_json 同源，
+    # §8.5：两处落库均不含 excluded 条目）
     conn.execute("DELETE FROM competency_item WHERE model_id=?", (model_id,))
-    for it in items:
+    for it in stored_items:
         conn.execute(
             "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
             " importance, weight, years, gate, level_reason, occurrence_json, evidence_json)"
             " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (new_id("c"), model_id, it.std_name, it.category, it.required_level,
-             it.importance, it.weight, it.years, it.gate,
-             it.level_reason, json.dumps(it.occurrence),
-             json.dumps(it.evidence, ensure_ascii=False)),
+            (new_id("c"), model_id, it["std_name"], it["category"], it["required_level"],
+             it["importance"], it["weight"], it["years"], it["gate"],
+             it["level_reason"], json.dumps(it["occurrence"]),
+             json.dumps(it["evidence"], ensure_ascii=False)),
         )
     conn.commit()
     return {"model_id": model_id, "status": "draft", "saved": True}
+
+
+# ---------- §8.5 证据排除（岗位作用域，源头治理级；详见 SSOT §8.5） ----------
+
+_EXCLUSION_CATEGORIES = ("hard_skill", "soft_skill", "experience", "qualification")
+
+
+class EvidenceExclusionBody(BaseModel):
+    """标记排除：目标键 + 可选原因（who/when 服务端取当前管理员与时间）。"""
+
+    jd_id: str = Field(min_length=1)
+    std_name: str = Field(min_length=1)
+    category: Literal["hard_skill", "soft_skill", "experience", "qualification"]
+    text: str = Field(min_length=1)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class EvidenceExclusionLiftBody(BaseModel):
+    """解除排除：目标键（同标记，不携带 reason）。"""
+
+    jd_id: str = Field(min_length=1)
+    std_name: str = Field(min_length=1)
+    category: Literal["hard_skill", "soft_skill", "experience", "qualification"]
+    text: str = Field(min_length=1)
+
+
+def _validate_exclusion_target(conn, position_id: str, body: EvidenceExclusionBody) -> None:
+    """目标须为本岗位 parsed JD 的现存证据摘录（400），防脏数据静默入表——
+    失配键（JD 重解析/词典改名后）靠 GET 端点 evidence_matched 标志可见，但新标记
+    必须当前真实存在。"""
+    jd = conn.execute(
+        "SELECT position_id, status FROM jd_record WHERE jd_id=?", (body.jd_id,)
+    ).fetchone()
+    if jd is None or jd["position_id"] != position_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该 JD 不属于此岗位")
+    if jd["status"] != "parsed":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该 JD 未完成解析")
+    items = json.loads(conn.execute(
+        "SELECT std_items_json FROM jd_record WHERE jd_id=?", (body.jd_id,)
+    ).fetchone()["std_items_json"] or "[]")
+    hit = next((it for it in items
+                if it["name"] == body.std_name and it["category"] == body.category), None)
+    if hit is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该 JD 无此能力项")
+    if body.text not in (hit.get("evidence") or []):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该能力项无此证据摘录")
+
+
+@router.post("/positions/{position_id}/evidence-exclusions")
+def mark_evidence_exclusion(position_id: str, body: EvidenceExclusionBody,
+                            admin: dict = Depends(require_admin)) -> dict:
+    """标记一条证据摘录为已排除（§8.5：语句粒度软标记 + who/when/reason 留痕）。
+
+    幂等 upsert（同键重复标记最后写入者胜：覆盖 reason/操作人，复活 active）。
+    聚合运行中标记 → 本次聚合不吃、下次生效（单写 SQLite 无一致性风险）。
+    """
+    conn = get_conn()
+    if conn.execute("SELECT 1 FROM position WHERE position_id=?", (position_id,)).fetchone() is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "岗位不存在")
+    _validate_exclusion_target(conn, position_id, body)
+    conn.execute(
+        "INSERT INTO evidence_exclusion(position_id, jd_id, std_name, category, text,"
+        " reason, excluded_by, excluded_at, status, lifted_by, lifted_at)"
+        " VALUES(?,?,?,?,?,?,?,?,'active',NULL,NULL)"
+        " ON CONFLICT(position_id, jd_id, std_name, category, text) DO UPDATE SET"
+        " reason=excluded.reason, excluded_by=excluded.excluded_by,"
+        " excluded_at=excluded.excluded_at, status='active', lifted_by=NULL, lifted_at=NULL",
+        (position_id, body.jd_id, body.std_name, body.category, body.text,
+         body.reason, admin["user_id"], now_iso()),
+    )
+    conn.commit()
+    return {"position_id": position_id, "jd_id": body.jd_id, "std_name": body.std_name,
+            "category": body.category, "text": body.text, "excluded": True}
+
+
+@router.delete("/positions/{position_id}/evidence-exclusions")
+def lift_evidence_exclusion(position_id: str, body: EvidenceExclusionLiftBody,
+                            admin: dict = Depends(require_admin)) -> dict:
+    """解除排除（§8.5：置 lifted 不删行，lifted_by/lifted_at 留痕；已 lifted 幂等 200）。"""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT status FROM evidence_exclusion"
+        " WHERE position_id=? AND jd_id=? AND std_name=? AND category=? AND text=?",
+        (position_id, body.jd_id, body.std_name, body.category, body.text),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该排除记录不存在")
+    if row["status"] != "lifted":
+        conn.execute(
+            "UPDATE evidence_exclusion SET status='lifted', lifted_by=?, lifted_at=?"
+            " WHERE position_id=? AND jd_id=? AND std_name=? AND category=? AND text=?",
+            (admin["user_id"], now_iso(), position_id,
+             body.jd_id, body.std_name, body.category, body.text),
+        )
+        conn.commit()
+    return {"position_id": position_id, "jd_id": body.jd_id, "std_name": body.std_name,
+            "category": body.category, "text": body.text, "excluded": False}
+
+
+@router.get("/positions/{position_id}/evidence-exclusions")
+def list_evidence_exclusions(position_id: str) -> list[dict]:
+    """全量排除记录（含已解除，审计用），每行附 evidence_matched 实时标志：
+    JD 重解析/词典合并改名后失配的排除据此可见（不做自动迁移，SSOT §8.5）。"""
+    conn = get_conn()
+    active_keys = set()
+    for row in conn.execute(
+        "SELECT jd_id, std_items_json FROM jd_record"
+        " WHERE position_id=? AND status='parsed' AND std_items_json IS NOT NULL",
+        (position_id,),
+    ):
+        for it in json.loads(row["std_items_json"]):
+            for t in it.get("evidence") or []:
+                active_keys.add((row["jd_id"], it["name"], it["category"], t))
+    rows = conn.execute(
+        "SELECT * FROM evidence_exclusion WHERE position_id=? ORDER BY excluded_at DESC",
+        (position_id,),
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["evidence_matched"] = (d["jd_id"], d["std_name"], d["category"], d["text"]) in active_keys
+        out.append(d)
+    return out
 
 
 @router.post("/models/{model_id}/confirm")
