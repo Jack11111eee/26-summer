@@ -94,6 +94,7 @@ export const adminPositions = {
 // 管理端（模型审核/版本/题库）
 export const adminModels = {
   aggregate: (positionId) => api.post(`/admin/positions/${positionId}/aggregate`),
+  getAggregateProgress: (positionId) => api.get(`/admin/positions/${positionId}/aggregate/progress`),
   getModel: (positionId) => api.get(`/admin/positions/${positionId}/model`),
   updateModel: (modelId, items) => api.put(`/admin/models/${modelId}`, { items }),
   confirmModel: (modelId) => api.post(`/admin/models/${modelId}/confirm`),
