@@ -87,7 +87,7 @@
             <template v-if="groups[cat]?.length">
               <div class="cat-head">{{ categoryLabel(cat) }}（{{ groups[cat].length }}）</div>
               <div
-                v-for="item in groups[cat]"
+                v-for="item in pagedItems(cat)"
                 :key="item._key"
                 class="item-card"
                 :class="{ active: selected === item }"
@@ -152,6 +152,15 @@
                   </template>
                 </div>
               </div>
+              <el-pagination
+                class="pager"
+                v-model:current-page="catPages[cat]"
+                v-model:page-size="catPageSize"
+                :total="groups[cat].length"
+                :page-sizes="[10, 20, 50, 100]"
+                layout="total, sizes, prev, pager, next, jumper"
+                @size-change="onSizeChange"
+              />
             </template>
           </div>
 
@@ -197,7 +206,7 @@
 
 <script setup>
 import AdminNav from '../../components/AdminNav.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../../api'
@@ -222,6 +231,10 @@ const addForm = reactive({ std_name: '', category: 'hard_skill', required_level:
 
 const categoryOrder = ['hard_skill', 'soft_skill', 'experience', 'qualification']
 
+// 分块分页：各类目独立页码，共用一个 page size（纯前端切片，数据仍整份本地编辑）
+const catPages = reactive({ hard_skill: 1, soft_skill: 1, experience: 1, qualification: 1 })
+const catPageSize = ref(20)
+
 let pollTimer = null
 let pollCount = 0
 
@@ -237,6 +250,30 @@ const groups = computed(() => {
   }
   return g
 })
+
+// 当前页切片（页码超界时收敛到最大页，仅取值不改状态）
+function pagedItems(cat) {
+  const list = groups.value[cat] || []
+  const maxPage = Math.max(1, Math.ceil(list.length / catPageSize.value))
+  const page = Math.min(catPages[cat], maxPage)
+  return list.slice((page - 1) * catPageSize.value, page * catPageSize.value)
+}
+
+// size 变化时各类目页码重置为 1
+function onSizeChange() {
+  for (const c of categoryOrder) catPages[c] = 1
+}
+
+// 列表收缩（删除/重载）导致页码超界时收敛到最大页
+watch(
+  () => groups.value,
+  (g) => {
+    for (const c of categoryOrder) {
+      const maxPage = Math.max(1, Math.ceil((g[c]?.length || 0) / catPageSize.value))
+      if (catPages[c] > maxPage) catPages[c] = maxPage
+    }
+  }
+)
 
 // Σ 实时合计（百分比）
 const sigmaPct = computed(() => {
@@ -438,6 +475,8 @@ function onAdd() {
   }
   model.value.items.push(item)
   selected.value = item
+  // 跳到新 item 所在页（push 到类目末尾，即最后一页），保证用户能立刻看到
+  catPages[item.category] = Math.max(1, Math.ceil((groups.value[item.category] || []).length / catPageSize.value))
   addVisible.value = false
   addForm.std_name = ''
   addForm.weightPct = 0
@@ -611,6 +650,10 @@ onBeforeUnmount(stopPoll)
   width: 100%;
   margin-top: 8px;
   border-style: dashed;
+}
+.pager {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 .full {
   width: 100%;
