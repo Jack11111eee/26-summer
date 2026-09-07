@@ -13,7 +13,7 @@
           </h2>
         </div>
         <div>
-          <el-button :loading="aggregating" @click="onAggregate">重新聚合</el-button>
+          <el-button :loading="aggregating" @click="onAggregate">{{ aggregateLabel }}</el-button>
           <template v-if="editable">
             <el-button type="primary" :loading="saving" @click="onSave">保存草稿</el-button>
             <el-button type="success" :disabled="status === 'stalled'" :loading="confirming" @click="onConfirm">
@@ -42,7 +42,7 @@
       <div v-if="loading" v-loading="true" class="empty-box" />
       <template v-else-if="!model">
         <el-empty description="该岗位暂无聚合模型">
-          <el-button type="primary" :loading="aggregating" @click="onAggregate">重新聚合</el-button>
+          <el-button type="primary" :loading="aggregating" @click="onAggregate">{{ aggregateLabel }}</el-button>
         </el-empty>
       </template>
 
@@ -284,6 +284,8 @@ const sigmaOk = computed(() => Math.abs(Number(sigmaPct.value) - 100) <= 0.5)
 
 const statusLabel = computed(() => ({ draft: '草稿', stalled: '裁决滞留', confirmed: '已确认' }[status.value] || status.value))
 const statusType = computed(() => ({ draft: 'info', stalled: 'danger', confirmed: 'success' }[status.value] || 'info'))
+// 未聚合过（404 空态）→「开始聚合」；已有模型 →「重新聚合」
+const aggregateLabel = computed(() => (model.value ? '重新聚合' : '开始聚合'))
 
 function categoryLabel(c) {
   return { hard_skill: '硬技能', soft_skill: '软技能', experience: '经验', qualification: '门槛' }[c] || c
