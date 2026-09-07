@@ -29,7 +29,7 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 def test_fresh_replay():
     init_db()
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 15))
+    assert [r["version"] for r in rows] == list(range(1, 16))
     # REF-2.1 parity：用户表名集合 == 从 _DDL 动态提取的 CREATE TABLE 集合（不硬编码数量）
     ddl_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _DDL))
     actual = {
@@ -47,7 +47,7 @@ def test_idempotent():
     init_db()
     init_db()  # 二次 init_db 应 no-op：登记簿行数不变
     rows = _q("SELECT COUNT(*) c FROM schema_version")
-    assert rows[0]["c"] == 14
+    assert rows[0]["c"] == 15
 
 
 def test_old_db_migration():
@@ -87,7 +87,7 @@ def test_old_db_migration():
     qb_cols = {r["name"] for r in _q("PRAGMA table_info(question_bank)")}
     assert {"model_id", "model_version"} <= qb_cols
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 15))
+    assert [r["version"] for r in rows] == list(range(1, 16))
 
 
 def test_position_inactive_migration():
@@ -127,3 +127,35 @@ def test_position_inactive_migration():
     finally:
         conn.close()
     assert _q("SELECT status FROM position WHERE position_id='pos_a1'")[0]["status"] == "inactive"
+
+
+def test_aggregate_task_migration():
+    """migration 15（SSOT §8.4）：聚合任务表。存量库迁移建表 + 新库 _DDL 直接含表，
+    两路径表结构一致、二次 init 幂等。"""
+    from server.db import _DDL  # 旁证：新库路径 _DDL 直接含 aggregate_task
+
+    assert "CREATE TABLE IF NOT EXISTS aggregate_task" in _DDL
+
+    # 存量库路径：先建到最新（含登记簿 15 行），再把登记簿回拨到 14 模拟「migration 14
+    # 时代的存量库」（aggregate_task 由尾部 _DDL IF NOT EXISTS 建过也无妨——迁移幂等）
+    init_db()
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM schema_version WHERE version >= 15")
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    cols = {r["name"] for r in _q("PRAGMA table_info(aggregate_task)")}
+    assert cols == {
+        "task_id", "position_id", "status", "trigger_source", "total", "done",
+        "llm_total", "llm_done", "current_item", "model_id", "error",
+        "created_at", "started_at", "finished_at",
+    }
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    assert [r["version"] for r in rows] == list(range(1, 16))
+
+    init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
+    assert len(_q("PRAGMA table_info(aggregate_task)")) == 14

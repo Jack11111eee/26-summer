@@ -452,6 +452,29 @@ CREATE TABLE IF NOT EXISTS bad_case_candidate (
   reviewed_by  TEXT,
   reviewed_at  TEXT
 );
+
+-- ============ 聚合任务表（SSOT §8.4——聚合进度反馈与全程可追溯，2026-09-07）============
+-- 每次触发一行、不清理；status 枚举 RUNNING/SUCCEEDED/FAILED、trigger_source 枚举
+-- manual/retry/auto:jd-parse 代码校验、无 DB CHECK（N11）；不设 QUEUED（BackgroundTasks
+-- 触发即执行）。溯源链：aggregate_task(task_id) → competency_model(model_id) →
+-- llm_trace(ref_id=model_id, call_type=aggregate_level)；RUNNING 残留行由 init_db
+-- 尾部启动 sweep 收尸（每次启动执行，见 init_db）。
+CREATE TABLE IF NOT EXISTS aggregate_task (
+  task_id        TEXT PRIMARY KEY,
+  position_id    TEXT NOT NULL,
+  status         TEXT NOT NULL,
+  trigger_source TEXT NOT NULL,
+  total          INTEGER,
+  done           INTEGER DEFAULT 0,
+  llm_total      INTEGER,
+  llm_done       INTEGER DEFAULT 0,
+  current_item   TEXT,
+  model_id       TEXT,
+  error          TEXT,
+  created_at     TEXT NOT NULL,
+  started_at     TEXT,
+  finished_at    TEXT
+);
 """
 
 
@@ -923,6 +946,32 @@ def _migrate_position_inactive(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_aggregate_task(conn: sqlite3.Connection) -> None:
+    """SSOT §8.4（2026-09-07）：建 aggregate_task 聚合任务表。
+
+    新表无存量迁移语义（不 ALTER、不重建既有表），CREATE TABLE IF NOT EXISTS 幂等；
+    新库由尾部 _DDL 直接建表，本迁移对纯新库是 no-op 嗅探跳过（同 idempotent 语义）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS aggregate_task (
+      task_id        TEXT PRIMARY KEY,
+      position_id    TEXT NOT NULL,
+      status         TEXT NOT NULL,
+      trigger_source TEXT NOT NULL,
+      total          INTEGER,
+      done           INTEGER DEFAULT 0,
+      llm_total      INTEGER,
+      llm_done       INTEGER DEFAULT 0,
+      current_item   TEXT,
+      model_id       TEXT,
+      error          TEXT,
+      created_at     TEXT NOT NULL,
+      started_at     TEXT,
+      finished_at    TEXT
+    );
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -938,6 +987,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (12, "report_phase5", _migrate_report_phase5),
     (13, "feedback_phase5", _migrate_feedback_phase5),
     (14, "position_inactive", _migrate_position_inactive),
+    (15, "aggregate_task", _migrate_aggregate_task),
 ]
 
 
@@ -995,6 +1045,14 @@ def init_db() -> None:
             )
             conn.commit()
         conn.executescript(_DDL)
+        # 启动 sweep（SSOT §8.4）：进程重启后 BackgroundTasks 任务已死，RUNNING 残留行
+        # 一次性置 FAILED 收尸（前端认领 RUNNING 行才不会永远等一个不存在的任务）；
+        # 无残留则零行、幂等。置于此处因 sweep 依赖表已存在（迁移+DDL 之后）。
+        conn.execute(
+            "UPDATE aggregate_task SET status='FAILED', error='进程重启中断',"
+            " finished_at=? WHERE status='RUNNING'",
+            (datetime.now(timezone.utc).isoformat(),),
+        )
         conn.commit()
     finally:
         conn.close()
