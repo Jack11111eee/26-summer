@@ -3,7 +3,10 @@
     <span>{{ total }} 条</span>
     <div class="pages">
       <button type="button" :disabled="page <= 1" @click="go(page - 1)">‹</button>
-      <button v-for="p in pageList" :key="p" type="button" class="cur-btn" :class="{ cur: p === page }" @click="go(p)">{{ p }}</button>
+      <template v-for="(p, i) in pageList" :key="`${p}-${i}`">
+        <span v-if="p === '…'" class="dots">…</span>
+        <button v-else type="button" class="cur-btn" :class="{ cur: p === page }" @click="go(p)">{{ p }}</button>
+      </template>
       <button type="button" :disabled="page >= maxPage" @click="go(page + 1)">›</button>
     </div>
     <select class="select" :value="pageSize" aria-label="每页条数" @change="onSize">
@@ -13,12 +16,14 @@
 </template>
 
 <script setup>
-// 分页器：{items,total} 契约（后端 clamp 上限 100）。页码窗口 5 个，超出折叠省略。
+// 分页器：{items,total} 契约（后端 clamp 上限 100）。
+// 页码窗口：{1,2,3} ∪ {cur-1,cur,cur+1} ∪ {末3页} 合并，组间不连续处插省略号；
+// 总页数 ≤ 7 时全部平铺无省略。
 import { computed } from 'vue'
 
 const props = defineProps({
   page: { type: Number, required: true },
-  pageSize: { type: Number, default: 20 },
+  pageSize: { type: Number, default: 10 },
   total: { type: Number, default: 0 }
 })
 const emit = defineEmits(['update:page', 'update:page-size', 'change'])
@@ -29,10 +34,20 @@ const maxPage = computed(() => Math.max(1, Math.ceil(props.total / props.pageSiz
 const pageList = computed(() => {
   const m = maxPage.value
   if (m <= 7) return Array.from({ length: m }, (_, i) => i + 1)
-  const cur = props.page
-  const start = Math.max(1, Math.min(cur - 2, m - 4))
-  const end = Math.min(m, start + 4)
-  return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  const groups = [new Set([1, 2, 3]), new Set([props.page - 1, props.page, props.page + 1]), new Set([m - 2, m - 1, m])]
+  const all = new Set()
+  for (const g of groups) for (const p of g) {
+    if (p >= 1 && p <= m) all.add(p) // 当前页近边界时窗口与头/尾组自然重叠合并
+  }
+  const nums = [...all].sort((a, b) => a - b)
+  const out = []
+  let prev = 0
+  for (const n of nums) {
+    if (n - prev > 1) out.push('…')
+    out.push(n)
+    prev = n
+  }
+  return out
 })
 
 function go(p) {

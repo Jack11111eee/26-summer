@@ -45,16 +45,16 @@
       <table>
         <thead>
           <tr>
-            <th>std_name</th><th>category</th><th>definition</th>
-            <th>aliases</th><th>exclusions</th><th>source</th><th>status</th>
-            <th style="text-align:right">action</th>
+            <th style="width: 13%">std_name</th><th style="width: 8%">category</th><th style="width: 22%">definition</th>
+            <th style="width: 15%">aliases</th><th style="width: 14%">exclusions</th><th style="width: 8%">source</th><th style="width: 8%">status</th>
+            <th style="width: 12%; text-align: right">action</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="it in items" :key="`${it.std_name}|${it.category}`">
-            <td><span class="cell-main">{{ it.std_name }}</span></td>
+            <td v-clip><span class="cell-main">{{ it.std_name }}</span></td>
             <td><span class="tag">{{ categoryLabel(it.category) }}</span></td>
-            <td><span class="cell-sub" :title="it.definition">{{ defBrief(it.definition) }}</span></td>
+            <td v-clip class="cell-sub">{{ it.definition || '—' }}</td>
             <td>
               <span v-for="a in it.aliases || []" :key="a" class="tag" style="margin: 1px 2px 1px 0">{{ a }}</span>
               <span v-if="!it.aliases?.length" class="cell-sub">—</span>
@@ -178,7 +178,7 @@ const saving = ref(false)
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(10)
 const llmPendingCount = ref(0)
 
 const filters = reactive({ category: '', created_by: '', status: '', q: '' })
@@ -201,11 +201,6 @@ const mergeCandidates = computed(() => {
       && (!q || c.std_name.toLowerCase().includes(q) || (c.aliases || []).some((a) => a.toLowerCase().includes(q)))
   )
 })
-
-function defBrief(d) {
-  if (!d) return '—'
-  return d.length > 40 ? `${d.slice(0, 40)}…` : d
-}
 
 async function load() {
   loading.value = true

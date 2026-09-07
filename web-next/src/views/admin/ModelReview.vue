@@ -137,11 +137,11 @@
             <template v-else>
               <table>
                 <thead>
-                  <tr><th>std_name</th><th class="num">level</th><th>importance</th><th class="num">weight</th><th class="num">years</th></tr>
+                  <tr><th style="width: 52%">std_name</th><th class="num" style="width: 10%">level</th><th style="width: 14%">importance</th><th class="num" style="width: 12%">weight</th><th class="num" style="width: 12%">years</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="it in catItems(cat.key)" :key="it._k" style="cursor: pointer" @click="selected = selected === it ? null : it" :class="{ selrow: selected === it }">
-                    <td><span class="cell-main">{{ it.std_name }}</span> <span v-if="it.gate" class="tag tag-red">gate</span></td>
+                    <td v-clip><span class="cell-main">{{ it.std_name }}</span> <span v-if="it.gate" class="tag tag-red">gate</span></td>
                     <td class="num">{{ it.required_level ? `Lv${it.required_level}` : '—' }}</td>
                     <td>{{ importanceLabel(it.importance) }}</td>
                     <td class="num">{{ pct(it.weight) }}</td>
@@ -226,7 +226,7 @@ const route = useRoute()
 const router = useRouter()
 const positionId = route.params.id
 
-const PAGE_SIZE = 8
+const PAGE_SIZE = 10
 const CATEGORY_ORDER = [
   { key: 'hard_skill', label: '硬技能' },
   { key: 'soft_skill', label: '软技能' },
@@ -312,7 +312,12 @@ const selectedEvidence = computed(() => {
 function occText(it) {
   const o = it.occurrence || {}
   if (o.r == null && o.req == null) return ''
-  return `${Math.round((o.r || 0) * 100)}% 岗位出现 / 共 ${o.req ?? 0} 条证据`
+  const rate = `${Math.round((o.r || 0) * 100)}% 岗位出现`
+  // 条件 req 三组成数（SSOT §8.1）：required JD 数 = round(req × occ) / 出现 JD 数 = occ / 岗位 JD 总数 = 模型 jd_count；
+  // 旧模型 occurrence 无 occ 键 → 降级只显示出现率（不出 NaN/undefined）
+  if (o.occ == null) return rate
+  const jdTotal = meta.value?.model?.jd_count
+  return `${rate} · 必备 ${Math.round((o.req ?? 0) * o.occ)} / 出现 ${o.occ} / 岗位 ${jdTotal == null ? '—' : jdTotal}`
 }
 
 // ---- 数据 ----

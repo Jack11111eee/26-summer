@@ -19,7 +19,7 @@
         </div>
         <table>
           <thead>
-            <tr><th>version</th><th>status</th><th>confirmed_by</th><th>confirmed_at</th><th>created_at</th><th style="text-align:right">action</th></tr>
+            <tr><th style="width: 12%">version</th><th style="width: 15%">status</th><th style="width: 18%">confirmed_by</th><th style="width: 18%">confirmed_at</th><th style="width: 18%">created_at</th><th style="width: 19%; text-align: right">action</th></tr>
           </thead>
           <tbody>
             <tr v-for="v in versions" :key="v.model_id">
@@ -29,7 +29,7 @@
                 <span v-else-if="v.status === 'stalled'" class="tag tag-red">STALLED</span>
                 <span v-else class="tag">DRAFT</span>
               </td>
-              <td>{{ v.confirmed_by || '—' }}</td>
+              <td v-clip>{{ v.confirmed_by || '—' }}</td>
               <td>{{ formatTime(v.confirmed_at) }}</td>
               <td>{{ formatTime(v.created_at) }}</td>
               <td>

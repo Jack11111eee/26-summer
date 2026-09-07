@@ -23,14 +23,14 @@
         <table>
           <thead>
             <tr>
-              <th>job_title</th><th>company</th><th>source</th><th>status</th>
-              <th>created_at</th><th style="text-align:right">action</th>
+              <th style="width: 34%">job_title</th><th style="width: 16%">company</th><th style="width: 10%">source</th><th style="width: 12%">status</th>
+              <th style="width: 13%">created_at</th><th style="width: 15%; text-align: right">action</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="j in jds" :key="j.jd_id">
-              <td><span class="cell-main">{{ j.job_title || '（解析中…）' }}</span></td>
-              <td>{{ j.company || '—' }}</td>
+              <td v-clip><span class="cell-main">{{ j.job_title || '（解析中…）' }}</span></td>
+              <td v-clip>{{ j.company || '—' }}</td>
               <td>{{ j.source_type || '—' }}</td>
               <td>
                 <span v-if="j.status === 'parsed'" class="tag tag-solid">PARSED</span>

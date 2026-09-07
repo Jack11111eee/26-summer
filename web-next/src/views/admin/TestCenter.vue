@@ -113,19 +113,19 @@
         </div>
         <table>
           <thead>
-            <tr><th>call_type</th><th>ref_id</th><th class="num">attempt</th><th>success</th><th>created_at</th><th>prompt</th></tr>
+            <tr><th style="width: 14%">call_type</th><th style="width: 20%">ref_id</th><th class="num" style="width: 9%">attempt</th><th style="width: 9%">success</th><th style="width: 14%">created_at</th><th style="width: 34%">prompt</th></tr>
           </thead>
           <tbody>
             <tr v-for="t in traces" :key="t.trace_id" style="cursor: pointer" @click="openTrace(t)">
               <td><span class="tag">{{ t.call_type }}</span></td>
-              <td><span class="cell-sub">{{ brief(t.ref_id, 18) }}</span></td>
+              <td v-clip class="cell-sub">{{ t.ref_id }}</td>
               <td class="num">{{ t.attempt }}</td>
               <td>
                 <span v-if="t.success" class="tag tag-solid">OK</span>
                 <span v-else class="tag tag-red">FAIL</span>
               </td>
               <td>{{ formatTime(t.created_at) }}</td>
-              <td><span class="cell-sub">{{ t.prompt_preview }}</span></td>
+              <td v-clip class="cell-sub">{{ t.prompt_preview }}</td>
             </tr>
             <tr v-if="!traces.length && !traceLoading"><td colspan="6" class="empty-row">无匹配留痕</td></tr>
           </tbody>
@@ -177,14 +177,14 @@
         </div>
         <table>
           <thead>
-            <tr><th>std_name</th><th>category</th><th>feedback</th><th>score</th><th>status</th><th>created_at</th><th style="text-align:right">action</th></tr>
+            <tr><th style="width: 14%">std_name</th><th style="width: 10%">category</th><th style="width: 28%">feedback</th><th class="num" style="width: 8%">score</th><th style="width: 10%">status</th><th style="width: 14%">created_at</th><th style="width: 16%; text-align: right">action</th></tr>
           </thead>
           <tbody>
             <template v-for="f in feedbacks" :key="f.feedback_id">
               <tr>
-                <td><span class="cell-main">{{ f.std_name }}</span></td>
+                <td v-clip><span class="cell-main">{{ f.std_name }}</span></td>
                 <td><span class="tag">{{ categoryLabel(f.category) }}</span></td>
-                <td><span class="cell-sub" :title="f.feedback_text">{{ brief(f.feedback_text, 30) }}</span></td>
+                <td v-clip class="cell-sub">{{ f.feedback_text || '—' }}</td>
                 <td class="num">{{ f.total_score ?? '—' }}</td>
                 <td>
                   <span v-if="f.status === 'pending'" class="tag warm">待处理</span>
@@ -199,9 +199,6 @@
                     <button class="row-btn row-btn-solid" @click="askPublish(f)">发布报告</button>
                   </div>
                 </td>
-              </tr>
-              <tr v-if="f.feedback_text && brief(f.feedback_text, 30) !== f.feedback_text">
-                <td colspan="7" class="cell-sub" style="padding-top: 0; padding-bottom: 14px">{{ f.feedback_text }}</td>
               </tr>
             </template>
             <tr v-if="!feedbacks.length && !feedbackLoading"><td colspan="7" class="empty-row">暂无反馈</td></tr>
@@ -250,11 +247,6 @@ const confirmState = reactive({ show: false, kind: '', feedback: null })
 const prettyResult = computed(() =>
   current.value?.result ? JSON.stringify(current.value.result, null, 2) : '— 生成中 —'
 )
-
-function brief(t, n) {
-  const s = String(t ?? '')
-  return s.length > n ? `${s.slice(0, n)}…` : s
-}
 
 // ---- 通用加载 ----
 async function reloadAll() {
