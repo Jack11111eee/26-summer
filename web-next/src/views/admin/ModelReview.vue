@@ -34,6 +34,18 @@
       </div>
     </header>
 
+    <!-- 聚合进度（SSOT §8.4：进度条+双计数+当前项，任务生命周期与页面解耦） -->
+    <div v-if="aggregating" class="agg-progress">
+      <div class="agg-bar" :class="{ stall: aggStalled }">
+        <div class="agg-bar-fill" :style="{ width: aggPercent + '%' }"></div>
+      </div>
+      <div class="agg-line">
+        {{ progress.done ?? 0 }}/{{ progress.total ?? 0 }} 项 · 冲突裁决
+        {{ progress.llm_done ?? 0 }}/{{ progress.llm_total ?? 0 }}
+        <template v-if="progress.current_item"> · 当前：{{ progress.current_item }}</template>
+      </div>
+    </div>
+
     <!-- stalled 横幅 -->
     <div v-if="meta?.status === 'stalled'" class="banner">
       <span class="grow">等级裁决失败滞留（stalled）——LLM 无法为部分能力项定级。</span>
@@ -204,7 +216,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { adminModels, adminPositions, errMsg } from '../../api'
 import { UiModal, UiPager, toast } from '../../components/ui'
@@ -333,8 +345,24 @@ async function loadModel() {
   }
 }
 
-// ---- 聚合（触发 + 3s 轮询直到模型出现，上限 60） ----
+// ---- 聚合（progress 端点轮询，SSOT §8.4） ----
 let aggTimer = null
+const progress = ref({})       // 聚合任务进度行（progress 端点）
+const aggStalled = ref(false)  // 心跳疑似停滞（只改观感，不停轮询）
+// 心跳判停：(done, llm_done, current_item) 签名连续 ~100 轮（3s×100≈5 分钟）不变
+// → toast 疑似停滞但继续轮询（不设硬超时——任务生命周期与页面解耦，死了有 FAILED 兜底）
+let lastHeartbeat = ''
+let sameBeatRounds = 0
+const HEARTBEAT_STALL_ROUNDS = 100
+
+// 进度条百分比（total=0 防除零 → 0%）
+const aggPercent = computed(() => {
+  const total = Number(progress.value?.total) || 0
+  const done = Number(progress.value?.done) || 0
+  if (total <= 0) return 0
+  return Math.min(100, Math.round((done / total) * 100))
+})
+
 async function startAggregate() {
   if (aggregating.value) return
   aggregating.value = true
@@ -346,34 +374,65 @@ async function startAggregate() {
     toast(errMsg(e, '聚合触发失败'), 'error')
     return
   }
-  let polls = 0
+  startAggPoll()
+}
+
+// 轮询 progress 端点（取代模型 404→200 二态轮询）：404 = 任务行尚未插（启动中）
+// 继续轮询；SUCCEEDED → 停轮询拉模型；FAILED → 停轮询报错并拉模型（stalled 模型
+// 200，页面照常展示 stalled 态与恢复入口）；RUNNING → 更新进度条。
+function startAggPoll() {
+  stopAggPoll()
+  lastHeartbeat = ''
+  sameBeatRounds = 0
+  aggStalled.value = false
+  progress.value = {}
   aggTimer = setInterval(async () => {
-    polls += 1
+    let task
     try {
-      const { data } = await adminModels.getModel(positionId)
-      // 已有旧模型时，聚合结果以 version 递增 / created_at 更新为准出现
-      if (data) {
-        stopAggPoll()
-        aggregating.value = false
-        meta.value = data
-        items.value = normalizeItems(data.model?.items || [])
-        selected.value = items.value[0] || null
-        toast(`聚合完成：v${data.version} · ${items.value.length} 项`)
-      }
+      const { data } = await adminModels.getAggregateProgress(positionId)
+      task = data
     } catch {
-      if (e404()) { /* 尚未生成，继续轮询 */ }
-      else { /* 其他错误静默重试 */ }
+      return // 404（启动中）或瞬时错误：下一轮再看
     }
-    if (polls >= 60) {
+    progress.value = task
+
+    const beat = `${task.done}|${task.llm_done}|${task.current_item}`
+    if (beat === lastHeartbeat) sameBeatRounds += 1
+    else { sameBeatRounds = 0; lastHeartbeat = beat }
+    aggStalled.value = sameBeatRounds >= HEARTBEAT_STALL_ROUNDS
+    if (aggStalled.value && sameBeatRounds === HEARTBEAT_STALL_ROUNDS) {
+      toast('聚合进度疑似停滞（约 5 分钟无变化），继续等待中…', 'warn')
+    }
+
+    if (task.status === 'SUCCEEDED') {
       stopAggPoll()
       aggregating.value = false
-      toast('聚合超时，请稍后刷新查看', 'warn')
+      await loadModel()
+      toast(`聚合完成：v${meta.value?.version} · ${items.value.length} 项`)
+    } else if (task.status === 'FAILED') {
+      stopAggPoll()
+      aggregating.value = false
+      toast(task.error || '聚合失败', 'error')
+      await loadModel() // stalled 模型 200，展示恢复入口
     }
   }, 3000)
 }
-function e404() { return true /* getModel 404 视为「尚未产出」，见 loadModel 的 404 分支约定 */ }
 function stopAggPoll() {
   if (aggTimer) { clearInterval(aggTimer); aggTimer = null }
+}
+
+// 进页面认领：仅最新任务行为 RUNNING 才接续进度显示并恢复轮询；
+// SUCCEEDED/FAILED/404 都不认领、不弹旧失败 toast
+async function claimRunning() {
+  try {
+    const { data } = await adminModels.getAggregateProgress(positionId)
+    if (data.status === 'RUNNING') {
+      aggregating.value = true
+      startAggPoll()
+    }
+  } catch {
+    // 404（无记录）或瞬时错误：不认领
+  }
 }
 
 // ---- stalled 重试 ----
@@ -384,8 +443,10 @@ async function retryLevel() {
     toast('已重试 LLM 聚合')
     meta.value = null
     items.value = []
-    stopAggPoll()
-    await startAggregate()
+    // retry-level 端点已删除 stalled 模型并排队重跑，此处只接 progress 轮询
+    // （不二次 POST aggregate，避免双触发竞态）
+    aggregating.value = true
+    startAggPoll()
   } catch (e) {
     toast(errMsg(e, '重试失败'), 'error')
   } finally {
@@ -505,7 +566,11 @@ function goVersions() {
   router.push(`/admin/positions/${positionId}/versions`)
 }
 
-loadModel()
+// 先拉模型（判定空态/编辑态），再查 progress 认领 RUNNING 任务接续展示
+loadModel().then(claimRunning)
+
+// 任务生命周期与页面组件解耦：离开页面只停 UI 轮询，后端任务照跑
+onBeforeUnmount(stopAggPoll)
 </script>
 
 <style scoped>
@@ -513,4 +578,9 @@ loadModel()
 tr.selrow td { background: rgba(255, 255, 255, .75); }
 select.mini.select { width: 92px; }
 ::v-deep(mark) { background: #ffe9b8; padding: 0 1px; border-radius: 2px; }
+.agg-progress { margin-bottom: 20px; }
+.agg-bar { height: 6px; border-radius: 3px; background: rgba(38,38,42,.08); overflow: hidden; }
+.agg-bar-fill { height: 100%; border-radius: 3px; background: var(--ink-1); transition: width .3s ease; }
+.agg-bar.stall .agg-bar-fill { background: #8a5a00; }
+.agg-line { margin-top: 6px; font-size: 12px; color: var(--ink-3); }
 </style>
