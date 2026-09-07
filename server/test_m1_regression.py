@@ -235,3 +235,95 @@ def test_require_admin_rejects_non_admin():
     assert exc_info.value.status_code == 403
 
     assert require_admin({"role": "admin"}) == {"role": "admin"}
+
+
+def test_map_importance_conditional_req_via_hybrid():
+    """9) 混合口径①：条件 req 达标 + 绝对 req 不达标 → required（ASOT §8.1 2026-09-07 裁决）。
+
+    低出现率高条件达标：出现 4/10 JD、其中 3 JD 标 required。
+    绝对口径 req=0.3 < 0.5（旧口径不判 required）；条件口径 req=0.75 ≥ 0.5，
+    r=0.4 ≥ 0.25、occ=4 ≥ 3 → required。
+    """
+    from server.services.aggregate import _map_importance
+
+    assert _map_importance(0.4, 0.75, 4, "hard_skill") == "required"
+
+
+def test_map_importance_occ_floor_blocks():
+    """9b) 混合口径②：occ=2 < REQ_MIN_OCCURRENCE=3 → required 被门槛挡下。
+
+    r=1.0、条件 req=1.0 全达标，唯 occ 不足 → preferred（r ≥ R_THRESHOLD），
+    统计证据下限不因高比率放宽。
+    """
+    from server.services.aggregate import _map_importance
+
+    assert _map_importance(1.0, 1.0, 2, "hard_skill") == "preferred"
+    # 顺带锁 r 门：occ 足但 r < 0.25 → 也不判 required
+    assert _map_importance(0.2, 1.0, 5, "hard_skill") == "plus"
+
+
+def test_map_importance_soft_skill_capped_preferred():
+    """9c) 混合口径③：soft_skill 高 r 高条件 req 仍 preferred（软技能排除 required）。"""
+    from server.services.aggregate import _map_importance
+
+    assert _map_importance(1.0, 1.0, 10, "soft_skill") == "preferred"
+    # gate 类目同样不可判 required（类目过滤只放行 hard_skill）
+    assert _map_importance(1.0, 1.0, 10, "qualification") == "preferred"
+    assert _map_importance(1.0, 1.0, 10, "experience") == "preferred"
+
+
+def test_map_importance_preferred_plus_unchanged():
+    """9d) 混合口径④：preferred/plus 判据回归不变——未达 required 时仅看 r。
+
+    未达 required 的三条路：条件 req 不足 / r 门不足 / occ 门不足，
+    落点均由 r ≥ R_THRESHOLD 单独决定。
+    """
+    from server.services.aggregate import _map_importance
+
+    # 条件 req 不足但 r 高 → preferred
+    assert _map_importance(0.6, 0.3, 6, "hard_skill") == "preferred"
+    # 全不足 r → plus
+    assert _map_importance(0.4, 0.3, 4, "hard_skill") == "plus"
+    assert _map_importance(0.1, 0.9, 5, "soft_skill") == "plus"
+    # 边界：恰在阈值上（>=）判 required
+    assert _map_importance(0.25, 0.5, 3, "hard_skill") == "required"
+    # 边界：条件 req 恰差一线（0.4999）、r 够 preferred 门 → preferred
+    assert _map_importance(0.6, 0.4999, 3, "hard_skill") == "preferred"
+
+
+def test_run_aggregate_occurrence_json_contains_occ():
+    """9e) 落库 occurrence_json 增 occ 键且 req 存条件口径值（2026-09-07 语义变更）。
+
+    种子：5 JD 中 3 出现（其中 3 标 required）→ r=0.6、条件 req=1.0、occ=3。
+    落库断言：occurrence = {r:0.6, req:1.0, occ:3}（旧绝对口径 req 应为 0.6——锁条件口径）。
+    """
+    from server.db import get_conn
+    from server.services.aggregate import run_aggregate
+    from server.services.pipeline import new_id, now_iso
+
+    conn = get_conn()
+    pid = new_id("pos")
+    conn.execute(
+        "INSERT INTO position(position_id, name, status, created_at) VALUES(?,?,?,?)",
+        (pid, "occ 键回归岗", "active", now_iso()),
+    )
+    for i in range(5):
+        jd_id = new_id("jd")
+        items = [{"name": "CUDA", "category": "hard_skill", "importance": "required",
+                  "required_level": 3, "evidence": ["CUDA 编程"]}] if i < 3 else []
+        conn.execute(
+            "INSERT INTO jd_record(jd_id, position_id, job_title, company, source_type,"
+            " raw_text, std_items_json, status, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (jd_id, pid, "测试岗", None, "paste", "JD 原文",
+             json.dumps(items, ensure_ascii=False), "parsed", now_iso()),
+        )
+    conn.commit()
+
+    model_id = run_aggregate(pid)
+    row = conn.execute(
+        "SELECT occurrence_json, importance FROM competency_item WHERE model_id=?",
+        (model_id,),
+    ).fetchone()
+    occ = json.loads(row["occurrence_json"])
+    assert occ == {"r": 0.6, "req": 1.0, "occ": 3}
+    assert row["importance"] == "required"  # hard_skill + 条件 req=1.0 + r=0.6 + occ=3 全达标
