@@ -65,7 +65,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 **Commit every working-tree change.** Never leave completed work uncommitted.
 
 - Small changes (typos, single-function tweaks, config): commit directly to the current branch.
-- Large changes (new features, wide-ranging bug fixes, refactors touching multiple files): create a feature branch first. Do not develop large changes directly on the main branch.
+- Large changes (new features, wide-ranging bug fixes, refactors touching multiple files): cut a new branch from the current branch's HEAD and do the work there — never develop large changes directly on the original branch (this applies to any existing branch, not just main). When done, merge or PR back into the original branch.
 - Each commit should represent one logical, self-contained unit of work.
 
 ---

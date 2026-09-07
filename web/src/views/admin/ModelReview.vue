@@ -132,7 +132,7 @@
                     size="small"
                     :min="0"
                     :max="100"
-                    :precision="1"
+                    :precision="2"
                     :step="1"
                     :disabled="readonly"
                     controls-position="right"
@@ -184,7 +184,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="权重%">
-          <el-input-number v-model="addForm.weightPct" :min="0" :max="100" :precision="1" controls-position="right" />
+          <el-input-number v-model="addForm.weightPct" :min="0" :max="100" :precision="2" controls-position="right" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -275,7 +275,8 @@ function decorate(items) {
   return (items || []).map((it, i) => ({
     ...it,
     _key: `${it.std_name}_${i}_${Math.random().toString(36).slice(2, 8)}`,
-    _weightPct: Number(((it.weight ?? 0) * 100).toFixed(1))
+    // 不做精度量化（显示精度交给输入框 precision），否则 Σ 与保存回写会引入舍入失真
+    _weightPct: (it.weight ?? 0) * 100
   }))
 }
 
@@ -353,13 +354,20 @@ async function onRetry() {
 }
 
 function buildPayload() {
-  return {
-    ...model.value,
-    items: model.value.items.map(({ _key, _weightPct, ...it }) => ({
-      ...it,
-      weight: Number(((Number(_weightPct) || 0) / 100).toFixed(4))
-    }))
+  const items = model.value.items.map(({ _key, _weightPct, ...it }) => ({
+    ...it,
+    weight: Number(((Number(_weightPct) || 0) / 100).toFixed(4))
+  }))
+  // 4 位小数 round 尾差由权重最大项吸收，保证 Σ 严格 = 1（镜像后端 _compute_weights；
+  // 全 0（纯 gate 模型）时跳过，避免把 1.0 压给 gate 项）
+  if (items.length) {
+    const drift = Number((1 - items.reduce((acc, it) => acc + it.weight, 0)).toFixed(4))
+    const maxIt = items.reduce((a, b) => (b.weight > a.weight ? b : a))
+    if (drift && maxIt.weight > 0) {
+      maxIt.weight = Number((maxIt.weight + drift).toFixed(4))
+    }
   }
+  return { ...model.value, items }
 }
 
 async function onSave() {
