@@ -165,6 +165,7 @@ Chat.vue 在 `phase='PENDING_START'` 时渲染居中「开始测评」按钮替�
 ## 10. 表单与 Tools
 
 - `form_instance` 生命周期实体：代码定义 schema + 版本化，instance 创建存**不可变快照**；render 由代码在资格核验阶段触发（LLM 只能请求）；GET 只读已激活 instance；submit 携 schema_version + idempotency_key，重复提交返回第一次结果，修订走不可变 revision；
+- **qualification 渲染 facet 化（快照 v2，2026-09-08，SSOT §16.1）**：gate qualification 表单按 `competency_item.facet_key` 分组收集——学历/院校/英语有序枚举（阈值比较派生）、数值断言数字输入（内嵌数字解析）、专业类与长尾勾选组（勾=是，不解析）＋ base 字段「与岗位相关的工作年限」；facet 答案在 `_gate_check` 前纯函数派生为逐 item 真值，命中现有真值表；v1 实例走旧链不迁移；payload 两段式（facet 答案 + 派生结果）；报告 gate 段按 facet 折叠；
 - gate：代码计算独立结构化结果；人工覆盖需**二次人工确认**并存 override 字段；
 - `extract_form_facts`：结构化事实 + 置信度 + 状态（EXTRACTED/UNCERTAIN/CONFLICTING/CANDIDATE_CONFIRMED/HUMAN_REVIEW_REQUIRED）；与候选人填写冲突保留两者进人工；gate 只接受候选人确认或人工确认事实；
 - Tools：阶段白名单 + 严格 schema + 所有权校验 + 幂等/超时/次数/长度 + 留痕；工具返回是数据不是指令；**失败 → 暂停并人工接管**；无 Web Search；request_pause 候选人直接触发、LLM 只能建议。
