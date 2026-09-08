@@ -87,11 +87,13 @@
 // 测评历史页（§12.1/§12.6）：本人会话列表（服务端分页 + status 过滤），三态行入口——
 // in_progress 继续直达 Chat（恢复链现成）；completed 报告/模型两入口（评估模型
 // preview=1 只读预览，2026-09-08）；abandoned 只读；三态行均挂「删除」（软删除）。
-import { onMounted, ref } from 'vue'
+import { onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { assessment, errMsg } from '../../api'
 import { toast, UiConfirm, UiPager } from '../../components/ui'
 import { formatTime } from '../../lib/labels'
+
+defineOptions({ name: 'AssessmentHistory' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 const router = useRouter()
 const items = ref([])
@@ -156,4 +158,12 @@ async function confirmDelete() {
 }
 
 onMounted(load)
+
+// keep-alive 激活：静默重拉保筛选保页码（booted 守卫防首屏双拉；返回自报告页时
+// sweep 已在列表端点内跑过，超时会话状态如实更新，§5，2026-09-08）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  load()
+})
 </script>
