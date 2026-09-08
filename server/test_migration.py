@@ -29,7 +29,7 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 def test_fresh_replay():
     init_db()
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 19))
+    assert [r["version"] for r in rows] == list(range(1, 20))
     # REF-2.1 parity：用户表名集合 == 从 _DDL 动态提取的 CREATE TABLE 集合（不硬编码数量）
     ddl_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _DDL))
     actual = {
@@ -47,7 +47,7 @@ def test_idempotent():
     init_db()
     init_db()  # 二次 init_db 应 no-op：登记簿行数不变
     rows = _q("SELECT COUNT(*) c FROM schema_version")
-    assert rows[0]["c"] == 18
+    assert rows[0]["c"] == 19
 
 
 def test_old_db_migration():
@@ -87,7 +87,7 @@ def test_old_db_migration():
     qb_cols = {r["name"] for r in _q("PRAGMA table_info(question_bank)")}
     assert {"model_id", "model_version"} <= qb_cols
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 19))
+    assert [r["version"] for r in rows] == list(range(1, 20))
 
 
 def test_position_inactive_migration():
@@ -157,7 +157,7 @@ def test_aggregate_task_migration():
     rows = _q("SELECT version FROM schema_version ORDER BY version")
     # 回拨到 14 后重放会连 15/16/17/18（aggregate_task/jd_position_index/
     # evidence_exclusion/qbank_task_progress）一并补齐（登记簿始终到最新）
-    assert [r["version"] for r in rows] == list(range(1, 19))
+    assert [r["version"] for r in rows] == list(range(1, 20))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
     assert len(_q("PRAGMA table_info(aggregate_task)")) == 14
@@ -195,7 +195,7 @@ def test_jd_position_index():
     )
     assert idx and idx[0]["name"] == "idx_jd_position"
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 19))
+    assert [r["version"] for r in rows] == list(range(1, 20))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，索引已存在不重复建
     assert len(_q("SELECT name FROM sqlite_master WHERE type='index' AND"
@@ -228,7 +228,7 @@ def test_evidence_exclusion_migration():
         "excluded_by", "excluded_at", "status", "lifted_by", "lifted_at",
     }
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 19))
+    assert [r["version"] for r in rows] == list(range(1, 20))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
     assert len(_q("PRAGMA table_info(evidence_exclusion)")) == 11
@@ -274,7 +274,7 @@ def test_qbank_task_progress_migration():
     assert row["status"] == "FAILED" and row["error_msg"] == "旧错误"
     assert row["total"] is None and row["done"] is None and row["current_item"] is None
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 19))
+    assert [r["version"] for r in rows] == list(range(1, 20))
 
     init_db()  # 二次 init：嗅探幂等，登记簿不重放、三列不重复 ALTER
     assert len(_q("PRAGMA table_info(question_bank_task)")) == 12
