@@ -14,6 +14,8 @@ const routes = [
       // meta.keepAlive：进入页面缓存白名单（§5 前端列表页状态缓存，2026-09-08）——
       // 组件名必须 = 路由名（壳内 keep-alive include 以此匹配，页面用 defineOptions 显式命名）
       { path: 'positions', name: 'AdminPositions', component: () => import('../views/admin/Positions.vue'), meta: { keepAlive: true } },
+      // 模型聚合（SSOT §8.6，2026-09-08）：跨岗位聚合任务与模型总览，替换原侧栏「岗位详情」死链项
+      { path: 'models', name: 'AdminModelAggregation', component: () => import('../views/admin/ModelAggregation.vue'), meta: { keepAlive: true } },
       { path: 'positions/:id', name: 'AdminPositionDetail', component: () => import('../views/admin/PositionDetail.vue') },
       { path: 'positions/:id/review', name: 'AdminModelReview', component: () => import('../views/admin/ModelReview.vue') },
       { path: 'positions/:id/versions', name: 'VersionHistory', component: () => import('../views/admin/VersionHistory.vue') },

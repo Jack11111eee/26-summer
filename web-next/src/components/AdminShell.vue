@@ -68,7 +68,9 @@ const auth = useAuthStore()
 
 const navItems = [
   { path: '/admin/positions', label: '岗位库', cntKey: 'pending_positions', cntHot: true },
-  { path: '/admin/positions/detail', label: '岗位详情' },
+  // 模型聚合（SSOT §8.6，2026-09-08）：替换原「岗位详情」死链项（/admin/positions/detail
+  // 会被 positions/:id 路由吞作岗位 ID）；stalled 徽标数据源 todos.stalled_models 既有轮询
+  { path: '/admin/models', label: '模型聚合', cntKey: 'stalled_models', cntHot: true },
   { path: '/admin/qbank', label: '题库状态' },
   { path: '/admin/dict', label: '能力词典', cntKey: 'dict_llm_pending', cntHot: true },
   { path: '/admin/users', label: '用户管理', cntKey: 'user_total' },

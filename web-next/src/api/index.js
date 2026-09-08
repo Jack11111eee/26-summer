@@ -104,6 +104,8 @@ export const adminPositions = {
 export const adminModels = {
   aggregate: (positionId) => api.post(`/admin/positions/${positionId}/aggregate`),
   getAggregateProgress: (positionId) => api.get(`/admin/positions/${positionId}/aggregate/progress`),
+  // 聚合管理页列表（SSOT §8.6）：岗位 × 最新聚合任务行 + 最新模型，分页/筛选/summary
+  listAggregations: (params) => api.get('/admin/aggregate-tasks', { params }),
   getModel: (positionId) => api.get(`/admin/positions/${positionId}/model`),
   updateModel: (modelId, items) => api.put(`/admin/models/${modelId}`, { items }),
   confirmModel: (modelId) => api.post(`/admin/models/${modelId}/confirm`),
