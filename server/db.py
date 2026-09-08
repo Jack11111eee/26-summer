@@ -99,7 +99,12 @@ CREATE TABLE IF NOT EXISTS competency_item (
   gate            INTEGER NOT NULL DEFAULT 0,
   level_reason    TEXT,
   occurrence_json TEXT,
-  evidence_json   TEXT
+  evidence_json   TEXT,
+  -- ============ facet 打标两列（SSOT §8.1 工序⑤/§16.1，2026-09-08）============
+  -- 聚合落 item 行时由确定性分类器预打标（关键词词表 + 内嵌数字解析，无 LLM）；
+  -- 渲染端只读不重跑分类；存量行 NULL → 整组降级勾选组 fallback。全可空无 DB CHECK。
+  facet_key         TEXT,
+  facet_params_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS competency_dict (
@@ -1102,6 +1107,26 @@ def _migrate_suggestion(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_competency_item_facet(conn: sqlite3.Connection) -> None:
+    """SSOT §8.1/§16.1（2026-09-08）：competency_item 加 facet 打标两列（全可空无 CHECK）。
+
+    存量库 PRAGMA 嗅探逐列 ALTER（幂等，同 qbank_task_progress 先例）；新库表已含
+    两列（尾部 _DDL）自然跳过。存量行保持 NULL（保守降级勾选组，不回填不重打标
+    ——已 confirmed 模型不覆盖，岗位重聚合刷版本自然带上）。
+    载入序并入 m5 时 #19 已被 suggestion 占用，本迁移改号 #20（登记簿无历史应用
+    记录，与 evidence_exclusion #17 改号先例同语义）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(competency_item)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL）
+    for name, decl in (
+        ("facet_key", "TEXT"),
+        ("facet_params_json", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE competency_item ADD COLUMN {name} {decl}")
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -1122,6 +1147,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (17, "evidence_exclusion", _migrate_evidence_exclusion),
     (18, "qbank_task_progress", _migrate_qbank_task_progress),
     (19, "suggestion", _migrate_suggestion),
+    (20, "competency_item_facet", _migrate_competency_item_facet),
 ]
 
 
