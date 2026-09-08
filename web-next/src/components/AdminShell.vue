@@ -71,7 +71,7 @@ const navItems = [
   // 模型聚合（SSOT §8.6，2026-09-08）：替换原「岗位详情」死链项（/admin/positions/detail
   // 会被 positions/:id 路由吞作岗位 ID）；stalled 徽标数据源 todos.stalled_models 既有轮询
   { path: '/admin/models', label: '模型聚合', cntKey: 'stalled_models', cntHot: true },
-  { path: '/admin/qbank', label: '题库状态' },
+  { path: '/admin/qbank', label: '题库状态', cntKey: 'question_bank_not_ready', cntHot: true },
   { path: '/admin/dict', label: '能力词典', cntKey: 'dict_llm_pending', cntHot: true },
   { path: '/admin/users', label: '用户管理', cntKey: 'user_total' },
   { path: '/admin/test-center', label: '测试中心', cntKey: 'feedback_pending', cntHot: true }
@@ -80,6 +80,7 @@ const navItems = [
 // 待办计数（todos 轮询 + 词典/用户轻量计数，30s 节流；详情页等二级路由沿父项高亮）
 const counts = reactive({
   pending_positions: null,
+  question_bank_not_ready: null,
   stalled_models: null,
   orphan_jds: null,
   dict_llm_pending: null,
@@ -121,6 +122,7 @@ async function pollCounts() {
   try {
     const { data } = await api.get('/admin/todos')
     counts.pending_positions = data.pending_positions
+    counts.question_bank_not_ready = data.question_bank_not_ready
     counts.stalled_models = data.stalled_models
     counts.orphan_jds = data.orphan_jds
   } catch { /* 轮询失败静默，下轮再试 */ }
