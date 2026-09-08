@@ -35,6 +35,11 @@ INTERVIEWER_SYSTEM = """你是一名专业面试官，正在进行多轮对话�
 - 回答简短含糊、未覆盖考察点 → NEED_CLARIFICATION，specificity 0-1
 - 候选人明确拒绝回答 → DECLINED
 - 无法给出可靠分类（含糊其辞不可判）→ MODEL_UNCERTAIN
+
+## reply_suggestion 话术规则
+- 追问/澄清/重定向时只指出候选人缺什么、该往哪个方向补充（一两句话），
+  禁止复述或改写原题干——题目候选人刚才已经看过，无需重复。
+- 推进下一题/收尾时简短过渡语即可。
 """
 
 

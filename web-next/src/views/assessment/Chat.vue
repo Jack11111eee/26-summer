@@ -305,6 +305,9 @@ function pad2(n) {
 // ---- 消息构建 ----
 const QTYPE_LABELS = { subjective: '主观题', objective: '客观题', behavioral: '行为题' }
 
+// 已渲染过题面的题号（防追问回复顶掉判据后整段题干重推）
+const renderedQuestions = new Set()
+
 function pushMessage(msg) {
   messages.value.push(msg)
   scrollToBottom()
@@ -328,6 +331,18 @@ function extractFormId(text) {
 
 function displayContent(m) {
   return m.formId ? m.content.replace(/📎\[form:[^\]]+\]/g, '').trim() : m.content
+}
+
+// 题面卡片：仅在换题时渲染一次（question_id 记账——追问回复不等同于换了题）
+function pushQuestionCard(q, label) {
+  if (!q || renderedQuestions.has(q.question_id)) return null
+  renderedQuestions.add(q.question_id)
+  return pushMessage({
+    role: 'assistant',
+    content: q.stem,
+    label,
+    chips: chipsOf(q)
+  })
 }
 
 // ---- 加载与恢复 ----
@@ -366,10 +381,10 @@ async function load() {
         pushMessage({ role: 'user', content: m.content, time: hmTimeOf(m.created_at) })
       }
     }
-    if (data.current_question && !(data.messages || []).length) {
-      pushMessage({ role: 'assistant', content: data.current_question.stem, label: '第一问', chips: chipsOf(data.current_question) })
-    } else if (data.current_question) {
-      // 最新一问若已在 messages 中则不重复渲染
+    // 消息表不含题干（服务端只落问答话术），当前题面补一张卡片撑住「往上翻」
+    // （刷新/重进恢复：最后一问答完后消息流里没有该题题面）
+    if (data.status === 'in_progress') {
+      pushQuestionCard(data.current_question, `第${cnNum((data.answered_count ?? 0) + 1)}问`)
     }
 
     statusText.value = statusFor()
@@ -419,18 +434,12 @@ function statusFor() {
 async function refreshSession() {
   try {
     const { data } = await assessment.getSession(sessionId)
-    // 若新题已派发且未在消息流中，补渲染（SSE done 后 refresh 场景）
-    const stem = data.current_question?.stem
-    const lastAi = [...messages.value].reverse().find((m) => m.role === 'assistant')
-    if (stem && data.status === 'in_progress' && !paused.value && !pendingStart.value) {
-      if (!lastAi || lastAi.content !== stem) {
-        pushMessage({
-          role: 'assistant',
-          content: stem,
-          label: `第${cnNum((data.answered_count ?? 0) + 1)}问`,
-          chips: chipsOf(data.current_question),
-          reason: null
-        })
+    // 仅在换新题时补题面卡片（question_id 记账——追问回复后当前题不变，
+    // 不再把「最后一条 AI 消息 != 题干」误判为换题而整段重推题干）
+    if (data.status === 'in_progress' && !paused.value && !pendingStart.value) {
+      const q = data.current_question
+      if (q && !renderedQuestions.has(q.question_id)) {
+        pushQuestionCard(q, `第${cnNum((data.answered_count ?? 0) + 1)}问`)
       }
     }
     applySession(data)
@@ -456,14 +465,7 @@ async function onStart() {
     statusText.value = '已开始 · 正在派发第一题'
     const { data } = await assessment.getSession(sessionId)
     applySession(data)
-    if (data.current_question) {
-      pushMessage({
-        role: 'assistant',
-        content: data.current_question.stem,
-        label: '第一问',
-        chips: chipsOf(data.current_question)
-      })
-    }
+    pushQuestionCard(data.current_question, '第一问')
     statusText.value = statusFor()
   } catch (e) {
     if (e?.response?.status === 409 && e?.response?.data?.detail?.error_code === 'SESSION_NOT_IN_PROGRESS') {
