@@ -38,7 +38,7 @@
         <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
           <p class="field-hint" style="flex: 1; min-width: 220px">共 {{ totalCount }} 项能力 · 约 40 分钟 · 从点击「开始测评」起计时</p>
           <button class="btn-accent" style="width: auto; padding: 11px 34px" :disabled="starting" @click="startAssessment">
-            {{ starting ? '正在创建测评…' : '开始测评' }}
+            {{ starting ? '正在创建测评…' : (hasActiveResume ? '继续测评（从中断处继续）' : '开始测评') }}
           </button>
         </div>
       </template>
@@ -65,6 +65,11 @@ const loadErr = ref('')
 const starting = ref(false)
 
 const totalCount = computed(() => model.value?.model?.items?.length ?? 0)
+
+// 按钮态（§12.6）：岗位卡片携带 resume 标记（进行中会话存在）→ 标注「继续测评（从中断处
+// 继续）」；后端 get-or-create 已保证两种点击语义等价（缺标记时回退「开始测评」，点击
+// 仍会复用在途会话），最简实现不新增后端请求
+const hasActiveResume = computed(() => route.query.resume === '1' || route.query.resume === 1)
 
 function catItems(cat) {
   return (model.value?.model?.items || []).filter((it) => it.category === cat)

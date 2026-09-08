@@ -46,7 +46,10 @@ export function errMsg(e, fallback = '请求失败') {
 export const assessment = {
   listPositions: () => api.get('/assessment/positions'),
   getModel: (positionId) => api.get(`/assessment/positions/${positionId}/model`),
+  // get-or-create（SSOT §12.1）：无在途 201 新建 / 同岗位在途 200 复用同 session_id
   createSession: (positionId) => api.post('/assessment/sessions', { position_id: positionId }),
+  // 历史端点（SSOT §12.6）：本人会话列表，服务端分页 {items,total} + status 过滤
+  listSessions: (params) => api.get('/assessment/sessions', { params }),
   // 入场确认（SC-5 计时起算锚）：PENDING_START → ACTIVE；409 SESSION_ALREADY_ACTIVE 幂等
   startSession: (sessionId) => api.post(`/assessment/sessions/${sessionId}/start`),
   // 暂停/继续（03-05 交付，web-next 首次接线）：409 SESSION_ALREADY_PAUSED / SESSION_NOT_PAUSED 幂等护栏
@@ -68,7 +71,10 @@ export const assessment = {
   generateReport: (sessionId) => api.post(`/assessment/sessions/${sessionId}/report`),
   getReportBySession: (sessionId) => api.get(`/assessment/reports/by-session/${sessionId}`),
   submitFeedback: (reportId, itemId, feedbackText) =>
-    api.post(`/assessment/reports/${reportId}/feedback`, { item_id: itemId, feedback_text: feedbackText })
+    api.post(`/assessment/reports/${reportId}/feedback`, { item_id: itemId, feedback_text: feedbackText }),
+  // 意见反馈通道（SSOT §22.1）：提交 + 本人历史（含处理状态）
+  submitSuggestion: (text) => api.post('/assessment/suggestions', { text }),
+  listMySuggestions: () => api.get('/assessment/suggestions')
 }
 
 // 管理端（模块一：岗位库/JD 导入）
@@ -148,6 +154,11 @@ export const admin = {
     list: (status) => api.get('/admin/feedback/list', { params: status ? { status } : {} }),
     review: (feedbackId, note = '') => api.post(`/admin/feedback/${feedbackId}/review`, { note }),
     badCase: (feedbackId, note = '') => api.post(`/admin/feedback/${feedbackId}/bad-case`, { note })
+  },
+  // 意见反馈（SSOT §22.1——独立 suggestion 通道，管理端 TestCenter 反馈区切换）
+  suggestions: {
+    list: (status) => api.get('/admin/suggestions', { params: status ? { status } : {} }),
+    review: (suggestionId, note = '') => api.post(`/admin/suggestions/${suggestionId}/review`, { note })
   },
   reports: {
     publish: (reportId, reviewOutcome = 'CONFIRMED', reviewNote = '') =>
