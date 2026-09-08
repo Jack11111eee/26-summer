@@ -116,6 +116,14 @@ export const adminDict = {
   remove: (stdName, category) => api.delete(`/admin/dict/${encodeURIComponent(stdName)}/${category}`)
 }
 
+// 管理端（题库状态，SSOT §9.5）：任务列表 / 详情 / 题目表 / retry（接线既有端点）
+export const adminQbank = {
+  list: (params) => api.get('/admin/question-bank-tasks', { params }),
+  detail: (taskId) => api.get(`/admin/question-bank-tasks/${taskId}`),
+  questions: (taskId, params) => api.get(`/admin/question-bank-tasks/${taskId}/questions`, { params }),
+  retry: (taskId) => api.post(`/admin/question-bank-tasks/${taskId}/retry`)
+}
+
 // 管理端（用户）
 export const adminUsers = {
   list: (params) => api.get('/admin/users', { params }),
