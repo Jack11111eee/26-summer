@@ -10,7 +10,7 @@
       </div>
     </header>
 
-    <!-- 状态过滤（§9.5：全部 / 生成中 / 已落库 / 失败） -->
+    <!-- 状态过滤（§9.5：全部 / 生成中 / 已落库 / 失败；归档扩展：全部 / 使用中 / 已归档） -->
     <div class="filters">
       <select v-model="statusFilter" class="select" @change="resetAndLoad">
         <option value="">全部状态</option>
@@ -18,6 +18,11 @@
         <option value="QUEUED">排队中</option>
         <option value="SUCCEEDED">已落库</option>
         <option value="FAILED">失败</option>
+      </select>
+      <select v-model="bankStatusFilter" class="select" @change="resetAndLoad">
+        <option value="">全部题库</option>
+        <option value="active">使用中</option>
+        <option value="archived">已归档</option>
       </select>
     </div>
 
@@ -47,6 +52,8 @@
               <span v-else-if="t.status === 'RUNNING'" class="tag warm">生成中</span>
               <span v-else-if="t.status === 'QUEUED'" class="tag warm">排队中</span>
               <span v-else class="tag tag-red">失败</span>
+              <!-- 归档扩展：题库使用态标签（已归档行弱化视觉） -->
+              <span v-if="t.bank_status === 'archived'" class="tag qk-archived-tag">已归档</span>
             </td>
             <td>
               <!-- 生成中 / 排队中：进度条 + done/total + 当前项（§9.5） -->
@@ -65,7 +72,12 @@
               </div>
               <div v-else class="cell-sub">—</div>
             </td>
-            <td class="num">{{ t.question_count ?? 0 }}</td>
+            <td class="num">
+              {{ t.question_count ?? 0 }}
+              <!-- 归档扩展：archived_count 并列展示（仅归档行或有归档计数时显示，避免噪音） -->
+              <span v-if="t.bank_status === 'archived' || t.archived_count > 0"
+                    class="qk-archived-cnt">（归档 {{ t.archived_count }}）</span>
+            </td>
             <td>{{ formatTime(t.created_at) }}</td>
           </tr>
           <tr v-if="!items.length && !loading"><td colspan="6" class="empty-row">暂无题库任务（模型确认后自动生成）</td></tr>
@@ -138,13 +150,15 @@
             <div class="fold-body">
               <table v-if="questions.items.length">
                 <thead>
-                  <tr><th style="width: 20%">std_name</th><th style="width: 14%">difficulty</th><th style="width: 12%">qtype</th><th style="width: 54%">stem 预览</th></tr>
+                  <tr><th style="width: 18%">std_name</th><th style="width: 13%">difficulty</th><th style="width: 11%">qtype</th><th style="width: 10%">status</th><th style="width: 48%">stem 预览</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="q in questions.items" :key="q.question_id">
                     <td v-clip><span class="cell-main">{{ q.std_name }}</span></td>
                     <td><span class="tag">{{ q.difficulty || '—' }}</span></td>
                     <td class="cell-sub">{{ q.qtype }}</td>
+                    <!-- 归档扩展：题目行 status 列（值仅 active/archived，直译；归档版详情后端已放开全量） -->
+                    <td><span v-if="q.status === 'archived'" class="tag qk-archived-tag">已归档</span><span v-else class="tag">使用中</span></td>
                     <td v-clip class="cell-sub">{{ q.stem_preview }}</td>
                   </tr>
                 </tbody>
@@ -227,6 +241,7 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const statusFilter = ref('')
+const bankStatusFilter = ref('') // 归档扩展：全部 / 使用中(active) / 已归档(archived)
 
 const STATUS_LABELS = { RUNNING: '生成中', QUEUED: '排队·生成中', SUCCEEDED: '已落库', FAILED: '生成失败' }
 
@@ -252,6 +267,7 @@ async function load() {
   try {
     const params = { page: page.value, page_size: pageSize.value }
     if (statusFilter.value) params.status_filter = statusFilter.value
+    if (bankStatusFilter.value) params.bank_status = bankStatusFilter.value
     const { data } = await adminQbank.list(params)
     items.value = data.items
     total.value = data.total
@@ -282,6 +298,7 @@ function schedulePoll() {
     try {
       const params = { page: page.value, page_size: pageSize.value }
       if (statusFilter.value) params.status_filter = statusFilter.value
+      if (bankStatusFilter.value) params.bank_status = bankStatusFilter.value
       const { data } = await adminQbank.list(params)
       items.value = data.items
       total.value = data.total
@@ -388,4 +405,7 @@ onBeforeUnmount(stopPoll)
 .qk-err { font-size: 12px; color: var(--danger); }
 .qk-errfull { white-space: pre-wrap; word-break: break-all; font-size: 12px; line-height: 1.6; color: var(--danger); margin: 0; }
 .qk-trace { margin-bottom: 8px; }
+/* 归档扩展：已归档行弱化视觉（复用 .tag 形态，muted 配色） */
+.qk-archived-tag { margin-left: 4px; color: var(--ink-3); border-style: dashed; }
+.qk-archived-cnt { font-size: 10px; color: var(--ink-3); }
 </style>
