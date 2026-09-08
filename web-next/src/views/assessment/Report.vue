@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="report-body">
-      <span class="back-link" @click="goBack">← 返回岗位选择</span>
+      <span class="back-link" @click="goBack">← 返回测评历史</span>
 
       <!-- 生成中 / 失败 -->
       <div v-if="phase === 'generating'" class="generating">
@@ -51,14 +51,30 @@
               <tr><th>门槛项</th><th>结果</th><th>说明</th></tr>
             </thead>
             <tbody>
-              <tr v-for="(g, i) in report.gate_details" :key="i">
-                <td>{{ g.std_name }}</td>
-                <td>
-                  <span v-if="g.passed" class="chip">通过</span>
-                  <span v-else class="chip amber">未通过</span>
-                </td>
-                <td class="cell-sub" style="color: var(--ink-3)">{{ g.reason }}</td>
-              </tr>
+              <template v-for="(grp, i) in gateGroups" :key="i">
+                <!-- 同 facet 多 item 折叠为一行（SSOT §16.1 报告折叠）；无 facet 的项各占一行 -->
+                <tr v-if="grp.items.length > 1">
+                  <td>
+                    <b>{{ facetLabel(grp.key) }}</b>
+                    <div class="gate-sub" v-for="g in grp.items" :key="g.item_id">
+                      <span :class="g.passed ? 'ok' : 'no'">{{ g.passed ? '✓' : '✗' }}</span> {{ g.std_name }}
+                    </div>
+                  </td>
+                  <td>
+                    <span v-if="grp.allPassed" class="chip">通过</span>
+                    <span v-else class="chip amber">未通过</span>
+                  </td>
+                  <td class="cell-sub" style="color: var(--ink-3)">{{ grp.reasons.join('；') }}</td>
+                </tr>
+                <tr v-else v-for="g in grp.items" :key="g.item_id">
+                  <td>{{ g.std_name }}</td>
+                  <td>
+                    <span v-if="g.passed" class="chip">通过</span>
+                    <span v-else class="chip amber">未通过</span>
+                  </td>
+                  <td class="cell-sub" style="color: var(--ink-3)">{{ g.reason }}</td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </section>
@@ -319,6 +335,37 @@ function statusLabel(s) {
 }
 
 const coverage = computed(() => report.value?.coverage || null)
+
+// ---- gate 段 facet 折叠（SSOT §16.1）----
+const FACET_LABELS = {
+  education_degree: '学历要求',
+  school_tier: '院校档次',
+  english_level: '英语等级',
+  number_range: '数值条件',
+  major_group: '专业与资格项'
+}
+function facetLabel(key) {
+  return FACET_LABELS[key] || '资格核验'
+}
+const gateGroups = computed(() => {
+  const details = report.value?.gate_details || []
+  const buckets = new Map()
+  const order = []
+  for (const g of details) {
+    const key = g.facet_key || null
+    if (!buckets.has(key)) {
+      buckets.set(key, { key, items: [], reasons: [] })
+      order.push(key)
+    }
+    const b = buckets.get(key)
+    b.items.push(g)
+    b.reasons.push(g.reason || '')
+  }
+  return order.map((k) => {
+    const b = buckets.get(k)
+    return { ...b, allPassed: b.items.every((g) => g.passed) }
+  })
+})
 const missingReasonText = computed(() => {
   const mr = coverage.value?.missing_reasons
   if (!mr) return ''
@@ -441,7 +488,8 @@ async function submitFeedback() {
 
 // ---- 操作 ----
 function goBack() {
-  router.push('/assessment/positions')
+  // §12.6：完成测评后的「返回」落历史页（刚完成这场 + 全部过往，语义顺）
+  router.push('/assessment/history')
 }
 function printReport() {
   window.print()

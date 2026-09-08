@@ -5,7 +5,8 @@
   （实验 5 实证 SQL SUM 跨行双计 8 vs 6——Anti-pattern 3 禁 SQL SUM 求和，仅 Python merge）；
 - 接 conn 区（不 commit——D-06 契约：事务边界由调用者持有，本模块零 commit）：
   close_open_interval / open_interval / advance_interval / paused_overlap_seconds /
-  session_active_seconds / seal_if_question_timed_out / maybe_abandon_session / touch_last_activity。
+  session_active_seconds / seal_if_question_timed_out / maybe_abandon_session /
+  sweep_user_stale_sessions / touch_last_activity。
 
 interval_type ∈ {active, paused}（N11 代码校验，无 DB CHECK）；reason 敏感不进评分 prompt（D-40）。
 6h ABANDONED 惰性判定（无后台线程 D-005——A3：判定挂 answer 路径 load_owned_session 相邻）。
@@ -125,6 +126,24 @@ def session_active_seconds(conn, session_id: str) -> float:
     return overlap_seconds(spans, 0.0, now_dt.timestamp())
 
 
+def question_elapsed_seconds(conn, session_id: str, question_id: str) -> float | None:
+    """当前题已耗秒（只读展示，§15 客户端只展示）——seal_if_question_timed_out 同口径。
+
+    now - activated_at - Σpaused 重叠（followup 共用；暂停窗口不计入单题计时）。
+    legacy（activated_at NULL）或题不存在返回 None（前端显示为 --:--）。
+    """
+    row = conn.execute(
+        "SELECT activated_at FROM assessment_question WHERE question_id=?",
+        (question_id,),
+    ).fetchone()
+    if row is None or row["activated_at"] is None:
+        return None
+    now_dt = _ts(now_iso())
+    activated = _ts(row["activated_at"])
+    paused = paused_overlap_seconds(conn, session_id, activated, now_dt)
+    return (now_dt - activated).total_seconds() - paused
+
+
 def seal_if_question_timed_out(conn, session_id: str, question_id: str, user_id: str) -> bool:
     """单题超时点检（Pitfall 10：activated_at NULL 返 False 不 TypeError）。
 
@@ -182,8 +201,30 @@ def maybe_abandon_session(conn, s: dict) -> None:
     )
     append_event(conn, session_id=s["session_id"], event_type="SESSION_ABANDONED",
                  from_state="in_progress", to_state="abandoned", actor_type="system")
+    # 终态补刀归档（SSOT §9.2 2026-09-08 规则④）：abandoned 与 completed 同为终态——
+    # 豁免在途的旧版题库行在 6h sweep 此归档（helper 不 commit，落库由调用方既有
+    # commit 覆盖；answer 路径 write-then-raise 的 conn.commit() 同样持久化本 UPDATE）
+    from .question_bank import archive_superseded_banks
+    archive_superseded_banks(conn, s["position_id"])
     s["status"] = "abandoned"
     s["phase"] = "ABANDONED"
+
+
+def sweep_user_stale_sessions(conn, user_id: str) -> None:
+    """本人 in_progress 行 6h sweep（SSOT §12.6/§12.1 2026-09-08——挂两点：create 复用查询前 + 历史列出前）。
+
+    逐行复用 maybe_abandon_session（单会话 MUTATE 风格 + 逐行 SESSION_ABANDONED 事件，
+    append-only 契约不破、不删证据）；未超 6h 行 no-op。不 commit——D-06 契约
+    （事务边界由调用者持有，本模块零 commit），调用方有改动自行 conn.commit()。
+    用户中途退出后不再回来 → answer 路径的惰性判定永不触发（永挂 in_progress），
+    本函数补齐「create 再入 / 历史列出」两处触发点，防复用超时死会话。
+    """
+    rows = conn.execute(
+        "SELECT * FROM assessment_session WHERE user_id=? AND status='in_progress'",
+        (user_id,),
+    ).fetchall()
+    for r in rows:
+        maybe_abandon_session(conn, dict(r))
 
 
 def touch_last_activity(conn, session_id: str) -> None:

@@ -252,14 +252,14 @@ def test_map_importance_conditional_req_via_hybrid():
 def test_map_importance_occ_floor_blocks():
     """9b) 混合口径②：occ=2 < REQ_MIN_OCCURRENCE=3 → required 被门槛挡下。
 
-    r=1.0、条件 req=1.0 全达标，唯 occ 不足 → preferred（r ≥ R_THRESHOLD），
+    r=1.0、条件 req=1.0 全达标，唯 occ 不足 → plus（occ < PREFERRED_MIN_OCCURRENCE），
     统计证据下限不因高比率放宽。
     """
     from server.services.aggregate import _map_importance
 
-    assert _map_importance(1.0, 1.0, 2, "hard_skill") == "preferred"
-    # 顺带锁 r 门：occ 足但 r < 0.25 → 也不判 required
-    assert _map_importance(0.2, 1.0, 5, "hard_skill") == "plus"
+    assert _map_importance(1.0, 1.0, 2, "hard_skill") == "plus"
+    # 顺带锁 r 门：occ 足但 r < 0.25 → 也不判 required（occ 基准下落 preferred）
+    assert _map_importance(0.2, 1.0, 5, "hard_skill") == "preferred"
 
 
 def test_map_importance_soft_skill_capped_preferred():
@@ -273,22 +273,37 @@ def test_map_importance_soft_skill_capped_preferred():
 
 
 def test_map_importance_preferred_plus_unchanged():
-    """9d) 混合口径④：preferred/plus 判据回归不变——未达 required 时仅看 r。
+    """9d) preferred/plus 判据（2026-09-08 occ 基准）——未达 required 时仅看 occ。
 
     未达 required 的三条路：条件 req 不足 / r 门不足 / occ 门不足，
-    落点均由 r ≥ R_THRESHOLD 单独决定。
+    落点均由出现 JD 数 ≥ PREFERRED_MIN_OCCURRENCE 单独决定。
     """
     from server.services.aggregate import _map_importance
 
-    # 条件 req 不足但 r 高 → preferred
+    # 条件 req 不足但 occ 够 → preferred
     assert _map_importance(0.6, 0.3, 6, "hard_skill") == "preferred"
-    # 全不足 r → plus
-    assert _map_importance(0.4, 0.3, 4, "hard_skill") == "plus"
-    assert _map_importance(0.1, 0.9, 5, "soft_skill") == "plus"
+    # 未达 required 且 occ ≥ 3 → preferred（r 不再参与压档）
+    assert _map_importance(0.4, 0.3, 4, "hard_skill") == "preferred"
+    assert _map_importance(0.1, 0.9, 5, "soft_skill") == "preferred"
     # 边界：恰在阈值上（>=）判 required
     assert _map_importance(0.25, 0.5, 3, "hard_skill") == "required"
-    # 边界：条件 req 恰差一线（0.4999）、r 够 preferred 门 → preferred
+    # 边界：条件 req 恰差一线（0.4999）、occ=3 达 preferred 门 → preferred
     assert _map_importance(0.6, 0.4999, 3, "hard_skill") == "preferred"
+    # 低 occ（< 3）不达 preferred 门 → plus
+    assert _map_importance(0.4, 0.3, 2, "hard_skill") == "plus"
+    assert _map_importance(0.1, 0.9, 2, "soft_skill") == "plus"
+
+
+def test_map_importance_preferred_occ_boundary():
+    """9f) preferred occ 门边界：occ=3 达门 → preferred；occ=2 不达 → plus。
+
+    未达 required、r/条件 req 都不高（0.4/0.3），落点只由 occ 决定；
+    正例锁 2026-09-08 occ 基准判据。
+    """
+    from server.services.aggregate import _map_importance
+
+    assert _map_importance(0.4, 0.3, 3, "hard_skill") == "preferred"
+    assert _map_importance(0.4, 0.3, 2, "hard_skill") == "plus"
 
 
 def test_run_aggregate_occurrence_json_contains_occ():

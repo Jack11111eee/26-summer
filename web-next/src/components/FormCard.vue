@@ -38,8 +38,26 @@
           :required="f.required"
         >
           <option v-if="!f.required" value="">（未选择）</option>
-          <option v-for="o in f.options || []" :key="String(o.value)" :value="o.value">{{ o.label ?? o.value }}</option>
+          <option v-for="o in normOptions(f.options)" :key="String(o.value)" :value="o.value">{{ o.label ?? o.value }}</option>
         </select>
+
+        <!-- v2 勾选组（facet major_group/长尾 fallback）：勾 = 是；提交收集为数组 -->
+        <div v-else-if="f.type === 'checklist'" class="checklist">
+          <label
+            v-for="o in normOptions(f.options)"
+            :key="String(o.value)"
+            class="check-row"
+          >
+            <input
+              type="checkbox"
+              :value="o.value"
+              :checked="checkedSet(f.name).has(o.value)"
+              @change="toggleChecked(f.name, o.value)"
+            />
+            <span>{{ o.label ?? o.value }}</span>
+          </label>
+          <p class="field-hint">勾选符合的项；未勾选项将按「否」提交。</p>
+        </div>
       </div>
 
       <p v-if="errorText" class="field-error">{{ errorText }}</p>
@@ -66,6 +84,8 @@ const emit = defineEmits(['submitted'])
 
 const schema = ref(props.initialSchema || null)
 const payload = reactive({})
+// checklist 勾选组独立载体（field.name → Set；v2 facet 勾选组，提交时展开为数组塞回 payload）
+const checklists = reactive({})
 const submitted = ref(false)
 const submitting = ref(false)
 const errorText = ref('')
@@ -86,10 +106,30 @@ onMounted(async () => {
 
 function seedDefaults() {
   for (const f of schema.value.fields || []) {
-    if (f.type === 'select') payload[f.name] = null
+    if (f.type === 'checklist') {
+      checklists[f.name] = new Set()
+      payload[f.name] = []
+    } else if (f.type === 'select') payload[f.name] = null
     else if (f.type === 'number') payload[f.name] = null
     else payload[f.name] = ''
   }
+}
+
+function checkedSet(name) {
+  return checklists[name] || new Set()
+}
+
+function toggleChecked(name, value) {
+  const set = checkedSet(name)
+  if (set.has(value)) set.delete(value)
+  else set.add(value)
+  // 同步进 payload（提交载体）——Set 不可 JSON 序列化，展开为数组
+  payload[name] = [...set]
+}
+
+// options 兼容两种形态：纯字符串数组（后端 forms.py 生成）与 {value,label} 对象数组
+function normOptions(opts) {
+  return (opts || []).map((o) => (typeof o === 'string' ? { value: o, label: o } : o))
 }
 
 function validate() {

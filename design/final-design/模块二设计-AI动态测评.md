@@ -46,6 +46,16 @@ soft_skill ── required / preferred / plus
 
 **题库生成结构规则（非运行期参数，SSOT §17）**：hard_skill 项 `weight>0.10` 生成 easy/medium/hard 三档，否则两档；soft_skill 两档。**experience/qualification 不生成题（2026-09-07 裁决——旧「无难度各 1 题」结构作废，两类走 §10 表单链；题库生成从此只有 scope=position）**。
 
+### 1.5 题库生成任务可观测（2026-09-08 新增，SSOT §9.5）
+
+题库生成（BackgroundTasks 后台任务）的任务行契约，形态对齐模块一 aggregate_task（SSOT §8.4）；差异登记：保留 QUEUED 态（confirm 事务先插行再调度，三态在后台异常前可查）、已有 model_version 列、触发路径仅 confirm/retry 两路不设 trigger_source。
+
+- **进度列**：`total / done`（计划 (item×难度档) 总数 / 已完成数，done 含幂等跳过的档）、`current_item`（`(std_name, category, difficulty)` liveness 信号）——存量库启动幂等补列，存量行不虚构进度；
+- **行为规则**：循环前写 total、循环内逐档推进 done/current_item（逐次 commit 防轮询连接长持锁）；`init_db` 启动将 RUNNING/QUEUED 残留置 FAILED（error=进程重启中断；不自动重启，人工 retry 补跑）；error_msg 截断 200→2000；llm_trace 关联不改表——按任务时间窗 × `call_type='question_gen'` × ref_id=item_id 过滤，prompt/response/error 逐次可溯；
+- **查询端点**（admin）：`GET /admin/question-bank-tasks`（岗位×模型最新任务行列表：分页 + status 过滤 + 题量）/ `…/{task_id}`（详情 + 同岗位历史任务行 + llm_trace 调用列表 + item×难度覆盖统计）/ `…/{task_id}/questions`（题目表，stem 预览）；
+- **前端联动**（web-next）：左侧栏「题库状态」页（`/admin/qbank`）——列表岗位×模型版本一行；生成中显示进度条 + done/total + 当前项（3s 轮询、进页认领 RUNNING，任务生命周期与页面解耦）；失败详情 error 全文 + 历史任务行 + llm_trace 逐次调用折叠 + retry 接线既有端点；已落库详情 v1 只做统计概览 + 题目表（题干预览）；
+- 列表以任务行驱动，「有题无任务行」的 D-12 前遗留不入列表（2026-09-08 核验当前库为 0）。
+
 ## 2. 题量与配额
 
 ### 2.1 计数口径
@@ -155,6 +165,7 @@ Chat.vue 在 `phase='PENDING_START'` 时渲染居中「开始测评」按钮替�
 ## 10. 表单与 Tools
 
 - `form_instance` 生命周期实体：代码定义 schema + 版本化，instance 创建存**不可变快照**；render 由代码在资格核验阶段触发（LLM 只能请求）；GET 只读已激活 instance；submit 携 schema_version + idempotency_key，重复提交返回第一次结果，修订走不可变 revision；
+- **qualification 渲染 facet 化（快照 v2，2026-09-08，SSOT §16.1）**：gate qualification 表单按 `competency_item.facet_key` 分组收集——学历/院校/英语有序枚举（阈值比较派生）、数值断言数字输入（内嵌数字解析）、专业类与长尾勾选组（勾=是，不解析）＋ base 字段「与岗位相关的工作年限」；facet 答案在 `_gate_check` 前纯函数派生为逐 item 真值，命中现有真值表；v1 实例走旧链不迁移；payload 两段式（facet 答案 + 派生结果）；报告 gate 段按 facet 折叠；
 - gate：代码计算独立结构化结果；人工覆盖需**二次人工确认**并存 override 字段；
 - `extract_form_facts`：结构化事实 + 置信度 + 状态（EXTRACTED/UNCERTAIN/CONFLICTING/CANDIDATE_CONFIRMED/HUMAN_REVIEW_REQUIRED）；与候选人填写冲突保留两者进人工；gate 只接受候选人确认或人工确认事实；
 - Tools：阶段白名单 + 严格 schema + 所有权校验 + 幂等/超时/次数/长度 + 留痕；工具返回是数据不是指令；**失败 → 暂停并人工接管**；无 Web Search；request_pause 候选人直接触发、LLM 只能建议。
@@ -177,4 +188,4 @@ Chat.vue 在 `phase='PENDING_START'` 时渲染居中「开始测评」按钮替�
 
 ## 13. 本文依据
 
-《总设计文档.md》§4、§9–§16、§25–§28、§31（开放参数裁决）；变更日志条目 2026-09-05/09-06；差异登记见总文档 §30。
+《总设计文档.md》§4、§9–§16（含 §9.5）、§25–§28、§31（开放参数裁决）；变更日志条目 2026-09-05/09-06/09-08；差异登记见总文档 §30。

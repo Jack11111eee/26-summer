@@ -140,6 +140,36 @@ def _advance_task_progress(conn, position_id: str, model_id: str,
     conn.commit()
 
 
+def archive_superseded_banks(conn, position_id: str) -> None:
+    """旧版题库归档（SSOT §9.2，2026-09-08）：该岗位被更新 confirmed 模型取代的
+    旧版题库行 status='active' → 'archived'（保留行支撑追溯，不删数据）。
+
+    谓词：岗位全部 confirmed 模型 − 最新行（version 高者为新，同 version 取 rowid
+    最新——与 assessment._latest_confirmed_model 同口径）名下的 active 题；
+    在途豁免——model_id 被 in_progress 会话引用的不动（动态派题不断粮；豁免只认
+    in_progress：已终态会话的追溯按 bank_question_id 直连 join，不依赖 active）。
+    不 commit（D-06 契约：事务边界由调用方持有——confirm 事务 / 会话终态补刀各在
+    既有 commit 内顺带落库）。eval_seed 行（谓词 status='active'）天然不被触碰；
+    draft/stalled 模型名下无 active 题，谓词同样天然覆盖。
+    """
+    keep = conn.execute(
+        "SELECT model_id FROM competency_model"
+        " WHERE position_id=? AND status='confirmed'"
+        " ORDER BY version DESC, rowid DESC LIMIT 1",
+        (position_id,),
+    ).fetchone()
+    if keep is None:
+        return  # 该岗位无 confirmed 模型：无可判定「被取代」，不动任何行
+    conn.execute(
+        "UPDATE question_bank SET status='archived' WHERE status='active'"
+        " AND model_id IN (SELECT model_id FROM competency_model"
+        "                  WHERE position_id=? AND status='confirmed' AND model_id != ?)"
+        " AND model_id NOT IN (SELECT DISTINCT model_id FROM assessment_session"
+        "                      WHERE status='in_progress')",
+        (position_id, keep["model_id"]),
+    )
+
+
 def generate_question_bank(position_id: str, model_id: str) -> None:
     """为 confirmed 模型生成题库（异步任务调用）。失败不抛（可手动重触发），但落表 FAILED。
 

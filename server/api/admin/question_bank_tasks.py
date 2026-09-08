@@ -6,6 +6,11 @@
   'question_gen' × 该模型 item 集 ref_id=item_id 关联）+ item×difficulty 覆盖统计；
 - 题目表：该 (position, model) 题目分页（stem 预览）。
 
+归档扩展（SSOT §9.5 2026-09-08 旧版题库归档）：列表行增 bank_status（该模型
+最新题库行状态派生：使用中/已归档）+ archived_count 旁列 + bank_status 过滤参数；
+详情覆盖统计与题目表在该模型已整体归档时后端自动放开 status 过滤
+（active+archived 全量、题目行带 status 列，无手动 toggle 交互）。
+
 服务端分页契约 {items, total}（§31）；RUNNING 任务时间窗右端点取「至今」。
 """
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -44,14 +49,60 @@ def _question_count(conn, position_id: str, model_id: str) -> int:
     ).fetchone()["c"]
 
 
+def _bank_status(conn, position_id: str, model_id: str) -> str:
+    """该 (position, model) 题库的使用状态派生（SSOT §9.5 归档扩展）。
+
+    取该模型最新题库行的 status：'archived' → 已归档，其余（'active'）→ 使用中。
+    「无题无任务行」组合不可达（task 行必有 position/model 两列——建行口径），
+    仍保留缺失防御返回 'active'（eval_seed 占位题属 eval 工具隔离态，非归档语义，
+    派生走行状态直读——占位场景判「使用中」不参与本页管理口径）。
+    """
+    row = conn.execute(
+        "SELECT status FROM question_bank WHERE model_id=? AND position_id=?"
+        " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (model_id, position_id),
+    ).fetchone()
+    if row is None:
+        return "active"
+    return "archived" if row["status"] == "archived" else "active"
+
+
+def _archived_count(conn, position_id: str, model_id: str) -> int:
+    """该 (position, model) 的 archived 题量计数（归档后主计数归零仍可辨「未丢题」）。"""
+    return conn.execute(
+        "SELECT COUNT(*) c FROM question_bank WHERE status='archived'"
+        " AND model_id=? AND position_id=?",
+        (model_id, position_id),
+    ).fetchone()["c"]
+
+
+def _is_fully_archived(conn, position_id: str, model_id: str) -> bool:
+    """该模型题库已整体归档（无 active 行且有 archived 行）——detail/questions 放开口径。
+
+    只整体归档才放开：在途豁免的混合态（部分 archived 部分 active）仍走
+    active-only——归档版本打开详情即见全量是用户裁决口径，非归档版本不扩散口径。
+    """
+    row = conn.execute(
+        "SELECT SUM(status='active') AS n_active, SUM(status='archived') AS n_archived"
+        " FROM question_bank WHERE model_id=? AND position_id=?",
+        (model_id, position_id),
+    ).fetchone()
+    return bool(row and row["n_active"] == 0 and row["n_archived"] > 0)
+
+
 @router.get("")
 def list_question_bank_tasks(page: int = 1, page_size: int = 20,
-                             status_filter: str | None = None) -> dict:
+                             status_filter: str | None = None,
+                             bank_status: str | None = None) -> dict:
     """题库任务列表（§9.5）：按 (岗位 × 模型) 最新任务行，status 过滤 + 服务端分页。
 
     status_filter：RUNNING / QUEUED / SUCCEEDED / FAILED（query 参数名避让 FastAPI
     的 status）；缺省不过滤。progress 用嵌套对象 {done, total, current_item}——
     避免与分页契约的 total（行数）命名冲突。
+
+    bank_status（归档扩展）：'active'/'archived' 使用态过滤——列表行是 task 行
+    join position，bank_status 派生自 question_bank（该模型最新题库行状态），
+    实现上用 EXISTS 子查询过滤；非法值忽略（与 status_filter 同防御口径）。
     """
     page = max(1, page)
     page_size = clamp_pagination_limit(page_size)
@@ -62,9 +113,19 @@ def list_question_bank_tasks(page: int = 1, page_size: int = 20,
     if status_filter and status_filter in ("RUNNING", "QUEUED", "SUCCEEDED", "FAILED"):
         status_clause = " AND qbt.status=?"
         params.append(status_filter)
+    bank_clause = ""
+    if bank_status in ("active", "archived"):
+        # 模型级归档谓词（规则②：归档单元 = 模型）：EXISTS archived 行 ⇔ 已归档。
+        # 无题库行的模型（生成中/失败未落题）归「使用中」侧（无 archived 行天然不命中）。
+        bank_clause = (" AND EXISTS (SELECT 1 FROM question_bank ab"
+                       " WHERE ab.model_id=qbt.model_id AND ab.position_id=qbt.position_id"
+                       " AND ab.status='archived')" if bank_status == "archived"
+                       else " AND NOT EXISTS (SELECT 1 FROM question_bank ab"
+                       " WHERE ab.model_id=qbt.model_id AND ab.position_id=qbt.position_id"
+                       " AND ab.status='archived')")
     conn = get_conn()
     total = conn.execute(
-        "SELECT COUNT(*) c FROM question_bank_task qbt WHERE" + latest + status_clause,
+        "SELECT COUNT(*) c FROM question_bank_task qbt WHERE" + latest + status_clause + bank_clause,
         params,
     ).fetchone()["c"]
     rows = conn.execute(
@@ -72,7 +133,7 @@ def list_question_bank_tasks(page: int = 1, page_size: int = 20,
         " qbt.model_version, qbt.status, qbt.total, qbt.done, qbt.current_item,"
         " qbt.error_msg, qbt.created_at, qbt.started_at, qbt.finished_at"
         " FROM question_bank_task qbt JOIN position p ON p.position_id=qbt.position_id"
-        " WHERE" + latest + status_clause +
+        " WHERE" + latest + status_clause + bank_clause +
         " ORDER BY qbt.created_at DESC, qbt.rowid DESC LIMIT ? OFFSET ?",
         (*params, page_size, offset),
     ).fetchall()
@@ -80,6 +141,8 @@ def list_question_bank_tasks(page: int = 1, page_size: int = 20,
     for r in rows:
         d = dict(r)
         d["question_count"] = _question_count(conn, d["position_id"], d["model_id"])
+        d["bank_status"] = _bank_status(conn, d["position_id"], d["model_id"])
+        d["archived_count"] = _archived_count(conn, d["position_id"], d["model_id"])
         d["progress"] = {"done": d.pop("done"), "total": d.pop("total"),
                          "current_item": d.pop("current_item")}
         items.append(d)
@@ -121,14 +184,18 @@ def _load_traces(conn, task) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def _coverage_matrix(conn, position_id: str, model_id: str) -> list[dict]:
-    """item × difficulty 覆盖统计（§9.5）：该模型 active 题按 std_name×difficulty 计数。
+def _coverage_matrix(conn, position_id: str, model_id: str,
+                     include_archived: bool = False) -> list[dict]:
+    """item × difficulty 覆盖统计（§9.5）：该模型题按 std_name×difficulty 计数。
 
     行 = std_name（附 category），列 = easy/medium/hard。
+    include_archived（归档扩展）：该模型已整体归档时按不过滤 status 口径重算——
+    归档版本的覆盖统计照常可看（「题丢了」的可见性缺口，SSOT §9.5 裁决）。
     """
+    status_clause = "" if include_archived else " AND status='active'"
     rows = conn.execute(
         "SELECT std_name, category, difficulty, COUNT(*) c FROM question_bank"
-        " WHERE status='active' AND model_id=? AND position_id=?"
+        f" WHERE model_id=? AND position_id=?{status_clause}"
         " GROUP BY std_name, category, difficulty",
         (model_id, position_id),
     ).fetchall()
@@ -156,7 +223,10 @@ def get_question_bank_task(task_id: str) -> dict:
         (task["position_id"], task["model_id"]),
     ).fetchall()]
     traces = _load_traces(conn, task)
-    coverage = _coverage_matrix(conn, task["position_id"], task["model_id"])
+    # 归档扩展（SSOT §9.5）：该模型已整体归档 → 覆盖统计按不过滤 status 口径重算
+    coverage = _coverage_matrix(conn, task["position_id"], task["model_id"],
+                                 include_archived=_is_fully_archived(
+                                     conn, task["position_id"], task["model_id"]))
     conn.close()
     d = dict(task)
     d["progress"] = {"done": d.pop("done"), "total": d.pop("total"),
@@ -171,21 +241,25 @@ def list_question_bank_task_questions(task_id: str, page: int = 1,
 
     题库单元 = 岗位 + 模型版本；task 行必有 position/model 两列（建行口径），无模型
     一说不可达，仍保留缺失防御。
+
+    归档扩展（SSOT §9.5）：该模型已整体归档 → queryset 放开 status 过滤
+    （active+archived 全量分页），题目行输出 status 列（值仅 active/archived，直译）。
     """
     page = max(1, page)
     page_size = clamp_pagination_limit(page_size)
     offset = (page - 1) * page_size
     conn = get_conn()
     task = _load_task(conn, task_id)
+    include_archived = _is_fully_archived(conn, task["position_id"], task["model_id"])
+    status_clause = "" if include_archived else " AND status='active'"
     total = conn.execute(
-        "SELECT COUNT(*) c FROM question_bank WHERE status='active'"
-        " AND model_id=? AND position_id=?",
+        f"SELECT COUNT(*) c FROM question_bank WHERE model_id=? AND position_id=?{status_clause}",
         (task["model_id"], task["position_id"]),
     ).fetchone()["c"]
     rows = conn.execute(
-        f"SELECT question_id, std_name, category, difficulty, qtype,"
+        f"SELECT question_id, std_name, category, difficulty, qtype, status,"
         f" substr(stem,1,{_STEM_PREVIEW}) AS stem_preview"
-        " FROM question_bank WHERE status='active' AND model_id=? AND position_id=?"
+        f" FROM question_bank WHERE model_id=? AND position_id=?{status_clause}"
         " ORDER BY std_name, difficulty LIMIT ? OFFSET ?",
         (task["model_id"], task["position_id"], page_size, offset),
     ).fetchall()

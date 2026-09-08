@@ -99,7 +99,12 @@ CREATE TABLE IF NOT EXISTS competency_item (
   gate            INTEGER NOT NULL DEFAULT 0,
   level_reason    TEXT,
   occurrence_json TEXT,
-  evidence_json   TEXT
+  evidence_json   TEXT,
+  -- ============ facet 打标两列（SSOT §8.1 工序⑤/§16.1，2026-09-08）============
+  -- 聚合落 item 行时由确定性分类器预打标（关键词词表 + 内嵌数字解析，无 LLM）；
+  -- 渲染端只读不重跑分类；存量行 NULL → 整组降级勾选组 fallback。全可空无 DB CHECK。
+  facet_key         TEXT,
+  facet_params_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS competency_dict (
@@ -352,6 +357,23 @@ CREATE TABLE IF NOT EXISTS eval_results (
   result_json  TEXT,
   created_at   TEXT NOT NULL,
   completed_at TEXT
+);
+
+-- ============ 意见反馈表（SSOT §22.1，2026-09-08 新增）============
+-- 通用系统建议通道，独立于 feedback 逐分异议管道（feedback 的 report_id/item_id
+-- NOT NULL 列 SQLite 不可 ALTER 放开，复用需 12 步表重建且 JOIN/事件挂靠/bad_case
+-- 管道对建议形态全不适配——2026-09-08 已裁决独立表）。status 只两值：建议无
+-- bad_case 沉淀语义；审计三列（review_note/reviewer_id/reviewed_at）与 feedback
+-- Phase 5 模式对齐。
+CREATE TABLE IF NOT EXISTS suggestion (
+  suggestion_id TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES user,
+  text          TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed')),
+  created_at    TEXT NOT NULL,
+  review_note   TEXT,
+  reviewer_id   TEXT,
+  reviewed_at   TEXT
 );
 
 -- ============ 状态事件表（SSOT §13.1，v2.0 新增契约）============
@@ -1064,6 +1086,47 @@ def _migrate_qbank_task_progress(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE question_bank_task ADD COLUMN {name} {decl}")
 
 
+def _migrate_suggestion(conn: sqlite3.Connection) -> None:
+    """SSOT §22.1（2026-09-08）：建 suggestion 意见反馈表。
+
+    新表无存量迁移语义（不 ALTER、不重建既有表），CREATE TABLE IF NOT EXISTS 幂等；
+    新库由尾部 _DDL 直接建表，本迁移对纯新库是 no-op 嗅探跳过（同 aggregate_task/
+    evidence_exclusion 先例语义）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS suggestion (
+      suggestion_id TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL REFERENCES user,
+      text          TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed')),
+      created_at    TEXT NOT NULL,
+      review_note   TEXT,
+      reviewer_id   TEXT,
+      reviewed_at   TEXT
+    );
+    """)
+
+
+def _migrate_competency_item_facet(conn: sqlite3.Connection) -> None:
+    """SSOT §8.1/§16.1（2026-09-08）：competency_item 加 facet 打标两列（全可空无 CHECK）。
+
+    存量库 PRAGMA 嗅探逐列 ALTER（幂等，同 qbank_task_progress 先例）；新库表已含
+    两列（尾部 _DDL）自然跳过。存量行保持 NULL（保守降级勾选组，不回填不重打标
+    ——已 confirmed 模型不覆盖，岗位重聚合刷版本自然带上）。
+    载入序并入 m5 时 #19 已被 suggestion 占用，本迁移改号 #20（登记簿无历史应用
+    记录，与 evidence_exclusion #17 改号先例同语义）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(competency_item)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL）
+    for name, decl in (
+        ("facet_key", "TEXT"),
+        ("facet_params_json", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE competency_item ADD COLUMN {name} {decl}")
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -1083,6 +1146,8 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (16, "jd_position_index", _migrate_jd_position_index),
     (17, "evidence_exclusion", _migrate_evidence_exclusion),
     (18, "qbank_task_progress", _migrate_qbank_task_progress),
+    (19, "suggestion", _migrate_suggestion),
+    (20, "competency_item_facet", _migrate_competency_item_facet),
 ]
 
 

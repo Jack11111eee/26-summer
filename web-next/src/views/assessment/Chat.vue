@@ -1,10 +1,10 @@
 <template>
   <div class="app">
-    <!-- 退出确认 -->
+    <!-- 退出确认（§12.6 R1：退出 = 暂停计时，文案如实） -->
     <UiConfirm
       v-if="exitConfirm"
       title="退出测评"
-      message="退出后本场测评不会作废，回来后可从中断处继续。确认退出？"
+      message="退出将暂停本场计时，已作答内容已保存，回来后可从中断处继续。确认退出？"
       confirm-text="退出"
       @close="exitConfirm = false"
       @confirm="confirmExit"
@@ -130,7 +130,15 @@
             </button>
           </div>
         </form>
-        <p class="composer-note">回答发送后保存 · 本场测评约 40 分钟 · 中途可暂停</p>
+        <p class="composer-note" :class="{ over: sessionTimedOut || questionTimedOut }">
+          {{
+            sessionTimedOut
+              ? '本场时间已到 · 提交当前回答后将收尾测评'
+              : questionTimedOut
+                ? '本题时间已到 · 提交后将进入下一题'
+                : '回答发送后保存 · 本场测评约 40 分钟 · 中途可暂停'
+          }}
+        </p>
       </div>
     </div>
 
@@ -138,6 +146,20 @@
       <div class="rail-title">本场访谈</div>
       <div class="rail-num"><span class="big">{{ pad2(session?.answered_count ?? 0) }}</span><span class="total"> / {{ pad2(session?.total_count ?? '—') }} 题</span></div>
       <div class="rail-bar" aria-hidden="true"><i :style="{ width: `${progressPct}%` }"></i></div>
+
+      <!-- 计时器（§15 客户端只展示）：服务端读数为锚 + 本地走秒；暂停/未开始冻结 -->
+      <div class="timer-block" aria-label="计时">
+        <div class="timer-row">
+          <span class="tl">本题</span>
+          <span class="tv" :class="{ warn: questionWarn }">{{ questionClock }}</span>
+          <span class="tt">/ {{ fmtClock(questionTotal) }}</span>
+        </div>
+        <div class="timer-row">
+          <span class="tl">全场</span>
+          <span class="tv" :class="{ warn: sessionWarn }">{{ sessionClock }}</span>
+          <span class="tt">/ {{ fmtClock(sessionTotal) }}</span>
+        </div>
+      </div>
 
       <div
         v-for="(t, i) in toc"
@@ -216,6 +238,60 @@ const composerPlaceholder = computed(() =>
   canAnswer.value ? '在此写下你的回答……' : '正在准备下一问…'
 )
 
+// ---- 计时器（§15 客户端只展示）：服务端读数为锚 + 本地走秒 ----
+// syncClock 每次 getSession 后重锚（新题派发/暂停恢复自然重置）；
+// PAUSED / PENDING_START 冻结不走秒（clockRunning 门）。
+const clock = reactive({ session: null, question: null, questionId: null, anchor: 0 })
+let clockTimer = null
+const clockRunning = computed(
+  () => session.value?.status === 'in_progress' && session.value?.phase === 'ACTIVE'
+)
+const sessionTotal = computed(() => session.value?.session_total_seconds ?? 40 * 60)
+const questionTotal = computed(() => session.value?.question_total_seconds ?? 20 * 60)
+
+function syncClock(data) {
+  clock.session = data.session_elapsed_seconds ?? null
+  clock.question = data.question_elapsed_seconds ?? null
+  clock.questionId = data.current_question?.question_id ?? null
+  clock.anchor = Date.now()
+}
+
+function tickClock() {
+  if (!clockRunning.value) return
+  const dt = (Date.now() - clock.anchor) / 1000
+  if (clock.session != null) clock.session += dt
+  if (clock.question != null && clock.questionId) clock.question += dt
+  clock.anchor = Date.now()
+}
+
+function fmtClock(v) {
+  if (v == null) return '--:--'
+  const s = Math.max(0, Math.floor(v))
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+const sessionClock = computed(() =>
+  clock.session == null ? '--:--' : fmtClock(Math.min(clock.session, sessionTotal.value))
+)
+const questionClock = computed(() =>
+  clock.question == null ? '--:--' : fmtClock(Math.min(clock.question, questionTotal.value))
+)
+// 剩余不足（本场 ≤10min / 本题 ≤5min）转琥珀色提醒
+const sessionWarn = computed(
+  () => clock.session != null && clockRunning.value && sessionTotal.value - clock.session <= 600
+)
+const questionWarn = computed(
+  () => clock.question != null && clockRunning.value && questionTotal.value - clock.question <= 300
+)
+// 全场到点（本地读数 ≥ 上限即封顶显示；收尾仍由服务端 answer 点检触发——§15 客户端只展示）
+const sessionTimedOut = computed(
+  () => clock.session != null && clockRunning.value && clock.session >= sessionTotal.value
+)
+// 本题到点（显示层封顶；封存仍由服务端 answer 点检触发——§15 客户端只展示）
+const questionTimedOut = computed(
+  () => clock.question != null && clockRunning.value && clock.question >= questionTotal.value
+)
+
 // ---- TOC 右栏：done/current/upcoming + 折叠省略 ----
 const toc = computed(() => {
   const answered = session.value?.answered_count ?? 0
@@ -249,6 +325,9 @@ function pad2(n) {
 // ---- 消息构建 ----
 const QTYPE_LABELS = { subjective: '主观题', objective: '客观题', behavioral: '行为题' }
 
+// 已渲染过题面的题号（防追问回复顶掉判据后整段题干重推）
+const renderedQuestions = new Set()
+
 function pushMessage(msg) {
   messages.value.push(msg)
   scrollToBottom()
@@ -272,6 +351,18 @@ function extractFormId(text) {
 
 function displayContent(m) {
   return m.formId ? m.content.replace(/📎\[form:[^\]]+\]/g, '').trim() : m.content
+}
+
+// 题面卡片：仅在换题时渲染一次（question_id 记账——追问回复不等同于换了题）
+function pushQuestionCard(q, label) {
+  if (!q || renderedQuestions.has(q.question_id)) return null
+  renderedQuestions.add(q.question_id)
+  return pushMessage({
+    role: 'assistant',
+    content: q.stem,
+    label,
+    chips: chipsOf(q)
+  })
 }
 
 // ---- 加载与恢复 ----
@@ -310,10 +401,10 @@ async function load() {
         pushMessage({ role: 'user', content: m.content, time: hmTimeOf(m.created_at) })
       }
     }
-    if (data.current_question && !(data.messages || []).length) {
-      pushMessage({ role: 'assistant', content: data.current_question.stem, label: '第一问', chips: chipsOf(data.current_question) })
-    } else if (data.current_question) {
-      // 最新一问若已在 messages 中则不重复渲染
+    // 消息表不含题干（服务端只落问答话术），当前题面补一张卡片撑住「往上翻」
+    // （刷新/重进恢复：最后一问答完后消息流里没有该题题面）
+    if (data.status === 'in_progress') {
+      pushQuestionCard(data.current_question, `第${cnNum((data.answered_count ?? 0) + 1)}问`)
     }
 
     statusText.value = statusFor()
@@ -348,6 +439,7 @@ function chipsOf(q) {
 
 function applySession(data) {
   session.value = data
+  syncClock(data)
 }
 
 function statusFor() {
@@ -362,18 +454,12 @@ function statusFor() {
 async function refreshSession() {
   try {
     const { data } = await assessment.getSession(sessionId)
-    // 若新题已派发且未在消息流中，补渲染（SSE done 后 refresh 场景）
-    const stem = data.current_question?.stem
-    const lastAi = [...messages.value].reverse().find((m) => m.role === 'assistant')
-    if (stem && data.status === 'in_progress' && !paused.value && !pendingStart.value) {
-      if (!lastAi || lastAi.content !== stem) {
-        pushMessage({
-          role: 'assistant',
-          content: stem,
-          label: `第${cnNum((data.answered_count ?? 0) + 1)}问`,
-          chips: chipsOf(data.current_question),
-          reason: null
-        })
+    // 仅在换新题时补题面卡片（question_id 记账——追问回复后当前题不变，
+    // 不再把「最后一条 AI 消息 != 题干」误判为换题而整段重推题干）
+    if (data.status === 'in_progress' && !paused.value && !pendingStart.value) {
+      const q = data.current_question
+      if (q && !renderedQuestions.has(q.question_id)) {
+        pushQuestionCard(q, `第${cnNum((data.answered_count ?? 0) + 1)}问`)
       }
     }
     applySession(data)
@@ -399,14 +485,7 @@ async function onStart() {
     statusText.value = '已开始 · 正在派发第一题'
     const { data } = await assessment.getSession(sessionId)
     applySession(data)
-    if (data.current_question) {
-      pushMessage({
-        role: 'assistant',
-        content: data.current_question.stem,
-        label: '第一问',
-        chips: chipsOf(data.current_question)
-      })
-    }
+    pushQuestionCard(data.current_question, '第一问')
     statusText.value = statusFor()
   } catch (e) {
     if (e?.response?.status === 409 && e?.response?.data?.detail?.error_code === 'SESSION_NOT_IN_PROGRESS') {
@@ -484,7 +563,7 @@ function onEnter() {
   if (!composing) onSend()
 }
 
-function onSend() {
+async function onSend() {
   const text = draft.value.trim()
   if (!text || !canAnswer.value || composing) return
   const questionId = currentQuestion.value?.question_id
@@ -495,6 +574,7 @@ function onSend() {
 
   pushMessage({ role: 'user', content: text, time: hmNow(), pending: true })
   draft.value = ''
+  await nextTick() // 等 DOM 刷成空值再量高度；同步调用会量到长文高度，输入框停留在拉伸状态
   fitTextarea()
   streaming.value = true
   statusText.value = '回答已保存 · AI 正在理解你的回答'
@@ -539,9 +619,9 @@ function onSend() {
       streaming.value = false
       statusText.value = '发送失败，请重试'
       toast(err?.message || '作答提交失败', 'error')
-      // 失败回退草稿，避免重打全文
+      // 失败回退草稿，避免重打全文（同样须等 DOM 刷成草稿值后再量高度）
       draft.value = text
-      fitTextarea()
+      nextTick(fitTextarea)
     }
   })
 }
@@ -552,12 +632,24 @@ function onFormSubmitted() {
   refreshSession()
 }
 
-// ---- 退出 ----
+// ---- 退出（§12.6 R1：确认退出 = abort SSE → pause（409 容忍集静默）→ 跳岗位页）----
 function onExit() {
   exitConfirm.value = true
 }
 async function confirmExit() {
   exitConfirm.value = false
+  if (abortStream) abortStream() // 先断进行中的 SSE 流（暂停窗口不打断流会撕断消费合同）
+  try {
+    await assessment.pauseSession(sessionId)
+  } catch (e) {
+    const code = e?.response?.data?.detail?.error_code
+    if (e?.response?.status === 409 && (code === 'SESSION_ALREADY_PAUSED' || code === 'SESSION_NOT_ACTIVE')) {
+      /* 幂等容忍：已在暂停态 / PENDING_START 未开始计时——静默 */
+    } else {
+      // 其余错误（网络/4xx）提示后仍跳转：消息已逐条落库，回来恢复依旧可能，不困死用户
+      toast('暂停失败，计时仍在进行', 'error')
+    }
+  }
   router.push('/assessment/positions')
 }
 
@@ -565,9 +657,11 @@ onMounted(async () => {
   await load()
   await nextTick()
   fitTextarea()
+  clockTimer = setInterval(tickClock, 1000)
 })
 
 onBeforeUnmount(() => {
+  if (clockTimer) clearInterval(clockTimer)
   if (abortStream) abortStream()
 })
 </script>

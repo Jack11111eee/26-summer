@@ -394,23 +394,24 @@ def test_submit_six_dimensions():
     def _submit(payload, expected_revision=1):
         return client.post(
             f"/api/assessment/sessions/{sid}/forms/submit-v2",
-            json={"form_instance_id": form_id, "schema_version": "v1",
+            json={"form_instance_id": form_id, "schema_version": "v2",
                   "expected_revision": expected_revision, "payload": payload},
             headers=headers,
         )
 
-    valid = {"years_of_experience": 5, "本科学历": "是"}
+    # v2 快照：qualification 无 facet 打标 → 勾选组「checked」（勾 = 是）
+    valid = {"years_of_experience": 5, "checked": ["本科学历"]}
 
-    # ④ 必填缺失 → 422 FORM_MISSING_FIELD
-    r = _submit({"years_of_experience": 5})
+    # ④ 必填缺失 → 422 FORM_MISSING_FIELD（years_of_experience）
+    r = _submit({})
     assert r.status_code == 422, r.text
     assert r.json()["detail"]["error_code"] == "FORM_MISSING_FIELD", r.text
-    # ⑤ 枚举外值 → 422 FORM_INVALID_OPTION
-    r = _submit({"years_of_experience": 5, "本科学历": "maybe"})
+    # ⑤ 枚举外值 → 422 FORM_INVALID_OPTION（checklist 选项外成员）
+    r = _submit({"years_of_experience": 5, "checked": ["不存在的项"]})
     assert r.status_code == 422, r.text
     assert r.json()["detail"]["error_code"] == "FORM_INVALID_OPTION", r.text
     # ⑥ 超长 → 422 FORM_FIELD_TOO_LONG
-    r = _submit({"years_of_experience": "12345678901", "本科学历": "是"})
+    r = _submit({"years_of_experience": "12345678901", "checked": ["本科学历"]})
     assert r.status_code == 422, r.text
     assert r.json()["detail"]["error_code"] == "FORM_FIELD_TOO_LONG", r.text
     # ③ revision 不匹配 → 409 FORM_INSTANCE_REVISION_CONFLICT
@@ -428,10 +429,14 @@ def test_submit_six_dimensions():
         assert "item_id" in g and "gate_result" in g
 
     # ② 重提交 → 409 FORM_ALREADY_SUBMITTED + 首次结果 payload 原样带回
+    # （v2 两段式：payload_json 存 facet_answers + derived，审计可复现）
     r = _submit(valid)
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["error_code"] == "FORM_ALREADY_SUBMITTED", r.text
-    assert r.json()["detail"]["payload"] == valid, r.text
+    first = r.json()["detail"]["payload"]
+    assert first["facet_answers"] == valid, first
+    assert first["schema_version"] == "v2"
+    assert first["derived"] == {"本科学历": True}, first
 
 
 def test_gate_row_written():
@@ -444,8 +449,8 @@ def test_gate_row_written():
     form_id = _answer_until_form(sid, headers)
     r = client.post(
         f"/api/assessment/sessions/{sid}/forms/submit-v2",
-        json={"form_instance_id": form_id, "schema_version": "v1", "expected_revision": 1,
-              "payload": {"years_of_experience": 5, "本科学历": "是"}},
+        json={"form_instance_id": form_id, "schema_version": "v2", "expected_revision": 1,
+              "payload": {"years_of_experience": 5, "checked": ["本科学历"]}},
         headers=headers,
     )
     assert r.status_code in (200, 201), r.text
@@ -457,7 +462,7 @@ def test_gate_row_written():
         assert row["score_state"] is None
         assert row["gate_result"] in ("true", "false")
         assert row["gate_reason"], "gate_reason 应非空"
-        assert row["evaluated_schema_version"] == "v1"
+        assert row["evaluated_schema_version"] == "v2"
         assert row["gate_status"] == "EVALUATED"
     ev = _q("SELECT COUNT(*) c FROM assessment_state_event WHERE session_id=? AND event_type='GATE_EVALUATED'", (sid,))[0]["c"]
     assert ev == 2, f"GATE_EVALUATED 事件应 == gate item 数，实得 {ev}"
@@ -472,8 +477,8 @@ def test_submit_unblocks_finish():
     form_id = _answer_until_form(sid, headers)
     r = client.post(
         f"/api/assessment/sessions/{sid}/forms/submit-v2",
-        json={"form_instance_id": form_id, "schema_version": "v1", "expected_revision": 1,
-              "payload": {"years_of_experience": 5, "本科学历": "是"}},
+        json={"form_instance_id": form_id, "schema_version": "v2", "expected_revision": 1,
+              "payload": {"years_of_experience": 5, "checked": ["本科学历"]}},
         headers=headers,
     )
     assert r.status_code in (200, 201), r.text
@@ -572,8 +577,8 @@ def test_admin_override_requires_reason():
     form_id = _answer_until_form(sid, headers)
     r = client.post(
         f"/api/assessment/sessions/{sid}/forms/submit-v2",
-        json={"form_instance_id": form_id, "schema_version": "v1", "expected_revision": 1,
-              "payload": {"years_of_experience": 5, "本科学历": "是"}},
+        json={"form_instance_id": form_id, "schema_version": "v2", "expected_revision": 1,
+              "payload": {"years_of_experience": 5, "checked": ["本科学历"]}},
         headers=headers,
     )
     assert r.status_code in (200, 201), r.text
@@ -620,8 +625,8 @@ def test_dual_source_precedence():
     form_id = _answer_until_form(sid_a, headers)
     r = client.post(
         f"/api/assessment/sessions/{sid_a}/forms/submit-v2",
-        json={"form_instance_id": form_id, "schema_version": "v1", "expected_revision": 1,
-              "payload": {"years_of_experience": 0, "本科学历": "是"}},
+        json={"form_instance_id": form_id, "schema_version": "v2", "expected_revision": 1,
+              "payload": {"years_of_experience": 0, "checked": ["本科学历"]}},
         headers=headers,
     )
     assert r.status_code in (200, 201), r.text
@@ -674,8 +679,8 @@ def test_score_session_preserves_gate_rows():
     form_id = _answer_until_form(sid, headers)
     r = client.post(
         f"/api/assessment/sessions/{sid}/forms/submit-v2",
-        json={"form_instance_id": form_id, "schema_version": "v1", "expected_revision": 1,
-              "payload": {"years_of_experience": 5, "本科学历": "是"}},
+        json={"form_instance_id": form_id, "schema_version": "v2", "expected_revision": 1,
+              "payload": {"years_of_experience": 5, "checked": ["本科学历"]}},
         headers=headers,
     )
     assert r.status_code in (200, 201), r.text
@@ -709,8 +714,8 @@ def test_form_submit_idempotent():
     headers = _auth_headers("p3_formidem")
     sid = _create_session(pid, headers)
     form_id = _answer_until_form(sid, headers)
-    body = {"form_instance_id": form_id, "schema_version": "v1", "expected_revision": 1,
-            "payload": {"years_of_experience": 5, "本科学历": "是"},
+    body = {"form_instance_id": form_id, "schema_version": "v2", "expected_revision": 1,
+            "payload": {"years_of_experience": 5, "checked": ["本科学历"]},
             "idempotency_key": "k-form-1"}
     r1 = client.post(f"/api/assessment/sessions/{sid}/forms/submit-v2", json=body, headers=headers)
     assert r1.status_code in (200, 201), r1.text

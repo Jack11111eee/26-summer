@@ -39,14 +39,16 @@ CATEGORY_RATIO = {
 }
 # 类内重要性系数
 IMPORTANCE_COEF = {"required": 1.0, "preferred": 0.6, "plus": 0.3}
-# importance 混合口径（SSOT §8.1 工序⑤，2026-09-07 裁决）
+# importance 混合口径（SSOT §8.1 工序⑤；required 2026-09-07 裁决、preferred 2026-09-08 裁决）
 # required 三重判据：条件 req（req_jds/出现 jds）≥ REQ_THRESHOLD、
 # r ≥ REQ_MIN_OCCURRENCE_RATIO、出现 JD 数 ≥ REQ_MIN_OCCURRENCE；
-# 仅 hard_skill 可判 required（soft_skill 上限 preferred）。
+# 仅 hard_skill 可判 required（soft_skill 上限 preferred，2026-09-07）。
+# preferred occ 基准（2026-09-08）：未达 required 且出现 JD 数 ≥ PREFERRED_MIN_OCCURRENCE；
+# 绝对 r 阈值与样本量耦合（34 模型 15 个 preferred=0）已退役。
 REQ_THRESHOLD = 0.5  # 条件口径阈值（语义 2026-09-07 变更：标 required 的 JD 数 ÷ 出现 JD 数）
 REQ_MIN_OCCURRENCE_RATIO = 0.25
 REQ_MIN_OCCURRENCE = 3
-R_THRESHOLD = 0.5
+PREFERRED_MIN_OCCURRENCE = 3
 # LLM 校验失败重试次数
 LLM_RETRY = 2
 # 清洗时要求块最小长度（低于则 low_confidence=1）
@@ -84,6 +86,9 @@ BAD_CASE_DIVERGENCE_THRESHOLD = 2
 MAX_JD_LENGTH = 10000
 MAX_JD_FILE_LINES = 500
 MAX_PAGINATION_LIMIT = 100
+# 意见反馈文本上限（SSOT §22.1，2026-09-08——对齐 MAX_JD_LENGTH 先例：真实建议鲜超
+# 千字，宽裕上限控单请求输入成本）
+MAX_SUGGESTION_LENGTH = 2000
 
 # ---- 演示期不启用（SSOT §31-4/§31-5/§31-6，2026-09-06 裁决 by-design）----
 # 曾经的开放参数占位已摘除：TRACE_RETENTION_DAYS / TRACE_DESENSITIZE（trace 全量保留
