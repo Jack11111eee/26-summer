@@ -130,8 +130,14 @@
             </button>
           </div>
         </form>
-        <p class="composer-note" :class="{ over: sessionTimedOut }">
-          {{ sessionTimedOut ? '本场时间已到 · 提交当前回答后将收尾测评' : '回答发送后保存 · 本场测评约 40 分钟 · 中途可暂停' }}
+        <p class="composer-note" :class="{ over: sessionTimedOut || questionTimedOut }">
+          {{
+            sessionTimedOut
+              ? '本场时间已到 · 提交当前回答后将收尾测评'
+              : questionTimedOut
+                ? '本题时间已到 · 提交后将进入下一题'
+                : '回答发送后保存 · 本场测评约 40 分钟 · 中途可暂停'
+          }}
         </p>
       </div>
     </div>
@@ -267,7 +273,9 @@ function fmtClock(v) {
 const sessionClock = computed(() =>
   clock.session == null ? '--:--' : fmtClock(Math.min(clock.session, sessionTotal.value))
 )
-const questionClock = computed(() => fmtClock(clock.question))
+const questionClock = computed(() =>
+  clock.question == null ? '--:--' : fmtClock(Math.min(clock.question, questionTotal.value))
+)
 // 剩余不足（本场 ≤10min / 本题 ≤5min）转琥珀色提醒
 const sessionWarn = computed(
   () => clock.session != null && clockRunning.value && sessionTotal.value - clock.session <= 600
@@ -278,6 +286,10 @@ const questionWarn = computed(
 // 全场到点（本地读数 ≥ 上限即封顶显示；收尾仍由服务端 answer 点检触发——§15 客户端只展示）
 const sessionTimedOut = computed(
   () => clock.session != null && clockRunning.value && clock.session >= sessionTotal.value
+)
+// 本题到点（显示层封顶；封存仍由服务端 answer 点检触发——§15 客户端只展示）
+const questionTimedOut = computed(
+  () => clock.question != null && clockRunning.value && clock.question >= questionTotal.value
 )
 
 // ---- TOC 右栏：done/current/upcoming + 折叠省略 ----
