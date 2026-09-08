@@ -246,8 +246,8 @@ def _merge_equivalent_gate_groups(
     return groups
 
 
-def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
-    """聚合成模型草稿。返回 model_id；LLM#3 失败时模型 status=stalled。
+def run_aggregate(position_id: str, trigger_source: str = "manual") -> str | None:
+    """聚合成模型草稿。返回 model_id（并发守卫命中时返回 None）；LLM#3 失败时模型 status=stalled。
 
     已有 confirmed 模型时不覆盖（diff 审阅流属 M3），仅生成新 draft。
 
@@ -261,6 +261,17 @@ def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
     pos = conn.execute("SELECT name FROM position WHERE position_id=?", (position_id,)).fetchone()
     if pos is None:
         raise ValueError(f"岗位不存在: {position_id}")
+
+    # 入口并发守卫（SSOT §8.4，2026-09-08）：同岗位已有 RUNNING 任务行则本次静默跳过
+    # （不产生新任务行/新版本，返回 None）——挡住批量导入期间逐条 JD 的尾部重复触发
+    # 与跨请求并发撞 UNIQUE(position_id, version)；主动路径（POST aggregate / retry-level）
+    # 在端点层先行 409，此守卫是兜底而非主防线。
+    running = conn.execute(
+        "SELECT task_id FROM aggregate_task WHERE position_id=? AND status='RUNNING' LIMIT 1",
+        (position_id,),
+    ).fetchone()
+    if running is not None:
+        return None
 
     groups = _collect_items(position_id)
     # facet 打标 + A 类断言等价合并（SSOT §8.1 工序⑤，2026-09-08）：分组后、任务行

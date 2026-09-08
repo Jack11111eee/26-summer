@@ -261,11 +261,19 @@ def run_parse_pipeline(jd_id: str) -> None:
 
     # 自动触发聚合（2026-08-30 决策）：解析成功后、独立于解析异常处理；
     # 仅当岗位 active 时聚合，pending_review 不聚合。聚合自身异常不连累 JD 状态。
+    # 收尾触发（SSOT §8.4，2026-09-08）：同岗位仍有 imported/parsing JD（批内
+    # 其余条目尚未解析完）则本轮跳过——同批导入每岗位恰好聚合一次，由批内最后一
+    # 条解析完成者触发；run_aggregate 入口守卫为兜底，双触发不重跑。
     if auto_aggregate:
         pos = conn.execute("SELECT status FROM position WHERE position_id=?", (auto_aggregate,)).fetchone()
         if pos and pos["status"] == "active":
-            try:
-                from .aggregate import run_aggregate
-                run_aggregate(auto_aggregate, "auto:jd-parse")
-            except Exception:  # noqa: BLE001 - 聚合失败静默（管理员可手动重新聚合）
-                pass
+            pending_parse = conn.execute(
+                "SELECT 1 FROM jd_record WHERE position_id=? AND status IN ('imported','parsing') LIMIT 1",
+                (auto_aggregate,),
+            ).fetchone()
+            if pending_parse is None:
+                try:
+                    from .aggregate import run_aggregate
+                    run_aggregate(auto_aggregate, "auto:jd-parse")
+                except Exception:  # noqa: BLE001 - 聚合失败静默（管理员可手动重新聚合）
+                    pass
