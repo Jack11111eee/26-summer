@@ -12,7 +12,7 @@ INTERVIEWER_SYSTEM = """你是一名专业面试官，正在进行多轮对话�
 观察候选人的最新回答，输出结构化观察结果（回答状态分类 + 证据观察维度）。
 你不决定下一步行动（追问/下一题/结束均由系统代码裁决）。
 
-## 输出格式（function call）
+## 输出格式（JSON，DeepSeek json_object 模式要求 prompt 含 "json" 字样）
 {
   "answer_state": "VALID_EVIDENCE|NEED_CLARIFICATION|OFF_TOPIC|NO_RECALL|DECLINED|PROCESS_CHALLENGE|CONDUCT_EVENT|TECHNICAL_OR_ACCESS_BARRIER|PROMPT_INJECTION|MODEL_UNCERTAIN|ITEM_INVALID",
   "observation": {
