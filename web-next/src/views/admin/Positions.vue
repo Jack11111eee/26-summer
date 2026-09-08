@@ -85,7 +85,73 @@
         />
       </section>
 
-      <!-- 模块二：待归属 JD -->
+      <!-- 模块二：岗位清单 -->
+      <section class="block n2">
+        <div class="block-head">
+          <span class="block-title">岗位清单</span>
+          <span class="block-cnt">{{ cntText(positions) }}</span>
+        </div>
+        <div class="filters">
+          <select
+            v-model="positions.statusFilter"
+            class="select"
+            @change="onFilterSelect(positions, adminPositions.listPositions)"
+          >
+            <option value="">全部状态</option>
+            <option value="active">上架 active</option>
+            <option value="inactive">下架 inactive</option>
+            <option value="pending_review">待审核</option>
+          </select>
+          <select
+            v-model="positions.sortOrder"
+            class="select"
+            @change="onFilterSelect(positions, adminPositions.listPositions)"
+          >
+            <option value="">默认排序</option>
+            <option value="jd_desc">JD 数多→少</option>
+            <option value="jd_asc">JD 数少→多</option>
+          </select>
+          <input
+            v-model="positions.q"
+            class="input search"
+            type="text"
+            placeholder="搜索岗位名…"
+            @input="onFilterInput(positions, adminPositions.listPositions)"
+          />
+          <span v-if="positions.indexing" class="field-hint">建立筛选索引…</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th style="width: 40%">position_name</th><th style="width: 16%">status</th><th class="num" style="width: 12%">jd_count</th><th style="width: 32%; text-align: right">action</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in positionsView.items" :key="p.position_id">
+              <td v-clip><span class="cell-main">{{ p.name }}</span></td>
+              <td>
+                <span v-if="p.status === 'active'" class="tag tag-solid">ACTIVE</span>
+                <span v-else-if="p.status === 'inactive'" class="tag tag-red">INACTIVE</span>
+                <span v-else class="tag">待审核</span>
+              </td>
+              <td class="num">{{ p.jd_count }}</td>
+              <td>
+                <div class="row-actions">
+                  <button class="row-btn" @click="goDetail(p)">详情</button>
+                  <button class="row-btn row-btn-solid" :disabled="p.status !== 'active'" @click="goReview(p)">模型审核</button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="!positionsView.items.length"><td colspan="4" class="empty-row">暂无岗位</td></tr>
+          </tbody>
+        </table>
+        <UiPager
+          v-model:page="positions.page"
+          v-model:page-size="positions.pageSize"
+          :total="positionsView.total"
+          @change="loadPositions"
+        />
+      </section>
+
+      <!-- 模块三：待归属 JD -->
       <section class="block n2">
         <div class="block-head">
           <span class="block-title">待归属 JD</span>
@@ -136,63 +202,6 @@
           @change="loadOrphans"
         />
       </section>
-
-      <!-- 模块三：岗位清单 -->
-      <section class="block n2">
-        <div class="block-head">
-          <span class="block-title">岗位清单</span>
-          <span class="block-cnt">{{ cntText(positions) }}</span>
-        </div>
-        <div class="filters">
-          <select
-            v-model="positions.statusFilter"
-            class="select"
-            @change="onFilterSelect(positions, adminPositions.listPositions)"
-          >
-            <option value="">全部状态</option>
-            <option value="active">上架 active</option>
-            <option value="inactive">下架 inactive</option>
-            <option value="pending_review">待审核</option>
-          </select>
-          <input
-            v-model="positions.q"
-            class="input search"
-            type="text"
-            placeholder="搜索岗位名…"
-            @input="onFilterInput(positions, adminPositions.listPositions)"
-          />
-          <span v-if="positions.indexing" class="field-hint">建立筛选索引…</span>
-        </div>
-        <table>
-          <thead>
-            <tr><th style="width: 40%">position_name</th><th style="width: 16%">status</th><th class="num" style="width: 12%">jd_count</th><th style="width: 32%; text-align: right">action</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in positionsView.items" :key="p.position_id">
-              <td v-clip><span class="cell-main">{{ p.name }}</span></td>
-              <td>
-                <span v-if="p.status === 'active'" class="tag tag-solid">ACTIVE</span>
-                <span v-else-if="p.status === 'inactive'" class="tag tag-red">INACTIVE</span>
-                <span v-else class="tag">待审核</span>
-              </td>
-              <td class="num">{{ p.jd_count }}</td>
-              <td>
-                <div class="row-actions">
-                  <button class="row-btn" @click="goDetail(p)">详情</button>
-                  <button class="row-btn row-btn-solid" :disabled="p.status !== 'active'" @click="goReview(p)">模型审核</button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="!positionsView.items.length"><td colspan="4" class="empty-row">暂无岗位</td></tr>
-          </tbody>
-        </table>
-        <UiPager
-          v-model:page="positions.page"
-          v-model:page-size="positions.pageSize"
-          :total="positionsView.total"
-          @change="loadPositions"
-        />
-      </section>
     </template>
 
     <!-- 拒绝岗位确认（删除性操作） -->
@@ -230,7 +239,7 @@ const confirmState = reactive({ show: false, position: null })
 const todos = reactive({ pending_positions: 0, stalled_models: 0, orphan_jds: 0, question_bank_not_ready: 0, question_bank_failed: [] })
 // mode: 'server' 服务端分页 | 'local' 本地索引（筛选激活后）
 function mkBlock() {
-  return reactive({ items: [], total: 0, page: 1, pageSize: 10, q: '', statusFilter: '', mode: 'server', all: [], indexing: false })
+  return reactive({ items: [], total: 0, page: 1, pageSize: 10, q: '', statusFilter: '', sortOrder: '', mode: 'server', all: [], indexing: false })
 }
 const pending = mkBlock()
 const orphans = mkBlock()
@@ -265,8 +274,18 @@ function matches(b, it) {
   return true
 }
 
+// jd_count 排序（仅岗位清单）：all 保持创建时间倒序的默认序，排序时复制后按序排
+const JD_SORTERS = {
+  jd_desc: (a, b) => (b.jd_count || 0) - (a.jd_count || 0),
+  jd_asc: (a, b) => (a.jd_count || 0) - (b.jd_count || 0),
+}
+function sorted(b, filtered) {
+  const sorter = JD_SORTERS[b.sortOrder]
+  return sorter ? [...filtered].sort(sorter) : filtered
+}
+
 function localView(b) {
-  const filtered = b.all.filter((it) => matches(b, it))
+  const filtered = sorted(b, b.all.filter((it) => matches(b, it)))
   const start = (b.page - 1) * b.pageSize
   return { items: filtered.slice(start, start + b.pageSize), total: filtered.length }
 }
@@ -311,13 +330,13 @@ async function ensureIndex(b, fetcher, force = false) {
 // 输入即时过滤：若无索引先建（一次），此后纯内存
 function onFilterInput(b, fetcher) {
   b.page = 1
-  if (b.mode === 'server' && (b.q.trim() || b.statusFilter)) ensureIndex(b, fetcher)
+  if (b.mode === 'server' && (b.q.trim() || b.statusFilter || b.sortOrder)) ensureIndex(b, fetcher)
   if (b.mode === 'local') { /* computed 视图即时重算 */ }
 }
 
 function onFilterSelect(b, fetcher) {
   b.page = 1
-  if (b.mode === 'server' && (b.q.trim() || b.statusFilter)) ensureIndex(b, fetcher)
+  if (b.mode === 'server' && (b.q.trim() || b.statusFilter || b.sortOrder)) ensureIndex(b, fetcher)
 }
 
 // ---- 数据加载 ----
@@ -369,6 +388,7 @@ async function refreshAll() {
   for (const b of [pending, orphans, positions]) {
     b.q = ''
     b.statusFilter = ''
+    b.sortOrder = ''
     b.page = 1
     b.mode = 'server'
     b.all = []

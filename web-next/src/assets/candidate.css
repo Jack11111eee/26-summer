@@ -433,6 +433,22 @@ body.candidate {
 /* ---------- 测评历史页（§12.6） ---------- */
 .candidate .hist-inner { max-width: 860px; }
 .candidate .hist-filter { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+/* 分页器（暖纸侧）：列表卡片节奏 + 窄输入跳页 */
+.candidate .pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 16px; font-size: 12px; color: var(--ink-3); flex-wrap: wrap; }
+.candidate .pager button {
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink-2);
+  border-radius: 8px; min-width: 26px; height: 26px; padding: 0 6px; font-size: 12px; cursor: pointer;
+}
+.candidate .pager button:hover:not(:disabled) { border-color: var(--accent); color: var(--ink-1); }
+.candidate .pager button:disabled { opacity: .35; cursor: not-allowed; }
+.candidate .pager .pages { display: flex; gap: 4px; align-items: center; }
+.candidate .pager .pages button.cur { background: var(--accent); color: #fff; border-color: var(--accent); }
+.candidate .pager .pages .dots { width: 18px; text-align: center; color: var(--ink-3); user-select: none; }
+.candidate .pager .jump { display: inline-flex; align-items: center; gap: 4px; }
+.candidate .pager .jump .input { width: 52px; min-width: 0; padding: 4px 6px; text-align: center; font-size: 12px; border-radius: 8px; }
+.candidate .pager .select { width: auto; padding: 4px 8px; font-size: 12px; border-radius: 8px; }
+.candidate .pager .jump .input::-webkit-outer-spin-button, .candidate .pager .jump .input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.candidate .pager .jump .input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .candidate .filter-btn {
   border: 1px solid var(--line); background: var(--paper); color: var(--ink-2);
   font-family: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 16px; border-radius: 999px;

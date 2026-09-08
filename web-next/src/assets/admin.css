@@ -207,6 +207,10 @@ body.admin {
 .admin .pager .pages { display: flex; gap: 4px; align-items: center; }
 .admin .pager .pages button.cur { background: var(--ink-1); color: #fff; border-color: var(--ink-1); }
 .admin .pager .pages .dots { width: 18px; text-align: center; color: var(--ink-3); user-select: none; }
+.admin .pager .jump { display: inline-flex; align-items: center; gap: 4px; }
+.admin .pager .jump .input { width: 52px; min-width: 0; padding: 4px 6px; text-align: center; }
+.admin .pager .jump .input::-webkit-outer-spin-button, .admin .pager .jump .input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.admin .pager .jump .input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
 /* ---- modal / drawer ---- */
 .admin .overlay {
