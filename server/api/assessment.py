@@ -273,6 +273,47 @@ def list_sessions(page: int = 1, page_size: int = 20,
     return {"items": items, "total": total}
 
 
+@router.delete("/sessions/{session_id}")
+def delete_session(session_id: str, user: dict = Depends(require_login)) -> dict:
+    """候选端软删除（SSOT §12.1，2026-09-08）：全状态可删——owner-only 写。
+
+    completed/abandoned 行：直写 hidden_at + SESSION_HIDDEN 事件（from_state=当前
+    status，to_state='hidden'，actor_type='candidate'）；in_progress 行：先按用户
+    主动作废写 SESSION_ABANDONED（actor=candidate——用户主动作废，abandonment 留痕；
+    不调 maybe_abandon_session——那是不足 6h 时的 no-op，此处无条件作废）+ 直接
+    UPDATE（无 6h 判定 / 终态补刀归档——归档谓词只认 status='in_progress' 行的
+    在途豁免，行即将 hidden 保持快照即可），再同事务写 hidden_at + SESSION_HIDDEN。
+    幂等（同 evidence-exclusions lift 先例）：重复 DELETE 已 hidden 行 → 200 直返，
+    不重复写事件。返回体最小化。不做取消隐藏（本期单向；admin 读豁免分支不过滤
+    hidden——管理端审计全量可见，append-only 不破）。
+    """
+    conn = get_conn()
+    # owner-only 写：不传 allow_admin_read——admin 与其他候选人同路径 404（D-03）
+    s = load_owned_session(conn, session_id, user)
+    if s["hidden_at"] is not None:
+        return {"session_id": session_id, "deleted": True}
+    now = now_iso()
+    if s["status"] == "in_progress":
+        # 用户主动作废（区别于 6h 系统惰性作废的事件 actor=system）：无条件翻终态
+        conn.execute(
+            "UPDATE assessment_session SET status='abandoned', phase='ABANDONED',"
+            " abandoned_at=? WHERE session_id=?",
+            (now, session_id),
+        )
+        append_event(conn, session_id=session_id, event_type="SESSION_ABANDONED",
+                     from_state="in_progress", to_state="abandoned",
+                     actor_type="candidate", actor_id=user["user_id"])
+    conn.execute(
+        "UPDATE assessment_session SET hidden_at=? WHERE session_id=?",
+        (now, session_id),
+    )
+    append_event(conn, session_id=session_id, event_type="SESSION_HIDDEN",
+                 from_state="abandoned" if s["status"] == "in_progress" else s["status"],
+                 to_state="hidden", actor_type="candidate", actor_id=user["user_id"])
+    conn.commit()
+    return {"session_id": session_id, "deleted": True}
+
+
 @router.get("/sessions/{session_id}")
 def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
     """会话状态：当前题 = 未封存最新实例（动态派发 / legacy 旧 seq 兜底）。"""
