@@ -111,11 +111,42 @@ def _update_task_status(conn, position_id: str, model_id: str, task_status: str,
     )
 
 
+def _update_task_progress(conn, position_id: str, model_id: str, *,
+                          total: int | None = None) -> None:
+    """循环前写 total（§9.5）：(item × 难度档) 总数，跳过 exp/qual 项。"""
+    conn.execute(
+        "UPDATE question_bank_task SET total=?"
+        " WHERE task_id=(SELECT task_id FROM question_bank_task"
+        " WHERE position_id=? AND model_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1)",
+        (total, position_id, model_id),
+    )
+
+
+def _advance_task_progress(conn, position_id: str, model_id: str,
+                           done: int, current_item: str) -> None:
+    """循环内逐档推进 done/current_item（§9.5）+ 立即 commit。
+
+    与 aggregate_task._advance 同型：UPDATE+commit 必须原子——update 后本连接
+    若持未决写事务进入 LLM 调用，llm_trace 落库的独立连接会撞 5s busy_timeout
+    （database is locked，§8.4 已论证同型问题）；逐次 commit 也让轮询侧连接
+    不长持锁。done 含幂等跳过的档（查重命中的档也算已处理）。
+    """
+    conn.execute(
+        "UPDATE question_bank_task SET done=?, current_item=?"
+        " WHERE task_id=(SELECT task_id FROM question_bank_task"
+        " WHERE position_id=? AND model_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1)",
+        (done, current_item, position_id, model_id),
+    )
+    conn.commit()
+
+
 def generate_question_bank(position_id: str, model_id: str) -> None:
     """为 confirmed 模型生成题库（异步任务调用）。失败不抛（可手动重触发），但落表 FAILED。
 
     task 行生命周期（D-12）：入口置 RUNNING / 岗位不存在置 FAILED /
     正常完成置 SUCCEEDED / 异常置 FAILED + error_msg（"失败静默改为至少落表"）。
+    进度列（§9.5）：循环前写 total；循环内逐档更新 done/current_item 并与该档题目
+    写入同事务 commit——done 含幂等跳过的档。
     """
     conn = get_conn()
     try:
@@ -137,10 +168,10 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
             (model_id,),
         ).fetchall()
 
+        # 先收集待生成 item（含计划档），跳过 exp/qual 项（SSOT §9.1：不生成题）
+        planned: list[dict] = []
         for row in items:
             item = dict(row)
-            # experience/qualification：不生成题（SSOT §9.1 2026-09-07——只走表单链）。
-            # 历史通用题不迁移不删除；scope=general 生成路径已随之移除。
             if item["category"] not in ("hard_skill", "soft_skill"):
                 continue
             # §8.5 防御过滤：正常链路落库证据不含 excluded 条目（PUT 剥离/聚合滤除），
@@ -149,10 +180,19 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                 ev for ev in json.loads(item.pop("evidence_json") or "[]")
                 if not (isinstance(ev, dict) and ev.get("excluded"))
             ]
+            planned.append(item)
 
+        # 进度起点（§9.5）：total = Σlen(plan)（跳过 exp/qual 后——与循环实际处理的档数一致）
+        _update_task_progress(conn, position_id, model_id,
+                              total=sum(len(_question_plan(it)) for it in planned))
+        conn.commit()
+        done = 0
+        for item in planned:
             plan = _question_plan(item)
             chain_key = item["item_id"] if len(plan) > 1 else None
             for seq, (difficulty, qtype) in enumerate(plan, start=1):
+                current = f"({item['std_name']}, {item['category']}, {difficulty})"
+                _advance_task_progress(conn, position_id, model_id, done, current)
                 # WR-03：幂等按 (std_name, category, difficulty) 的 plan 目标粒度——
                 # 部分 item 成功的链条重触发时只补缺档（easy 有/medium missing 只生成
                 # medium），不再整 item 跳过导致残缺链条永不补齐
@@ -164,6 +204,9 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                     (model_id, model_version, item["std_name"], item["category"], difficulty),
                 ).fetchone()
                 if exists:
+                    # §9.5：查重命中的档也算已处理（done 含幂等跳过的档）
+                    done += 1
+                    _advance_task_progress(conn, position_id, model_id, done, current)
                     continue
                 result = call_llm_json(
                     "question_gen", item["item_id"], QUESTION_GEN_SYSTEM,
@@ -193,13 +236,16 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                         chain_key=chain_key, chain_seq=seq if chain_key else None,
                         model_id=model_id, model_version=model_version, item_id=item["item_id"],
                     )
-                conn.commit()
+                done += 1
+                # 与该档题目写入同事务 commit（§9.5）：done/current_item 与题目原子落库
+                _advance_task_progress(conn, position_id, model_id, done, current)
         _update_task_status(conn, position_id, model_id, "SUCCEEDED")
         conn.commit()
     except Exception as e:  # noqa: BLE001
-        # 失败不抛（保持"可手动重触发"总语义），但至少落表 FAILED（D-12）
+        # 失败不抛（保持"可手动重触发"总语义），但至少落表 FAILED（D-12）；
+        # error_msg 截断 2000（§9.5：排障需完整异常文本；200 会截断 sqlite/python 原文）
         try:
-            _update_task_status(conn, position_id, model_id, "FAILED", error_msg=str(e)[:200])
+            _update_task_status(conn, position_id, model_id, "FAILED", error_msg=str(e)[:2000])
             conn.commit()
         except Exception:  # noqa: BLE001
             pass  # 落表本身失败时维持旧静默语义（无更好降级路径）
