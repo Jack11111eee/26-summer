@@ -166,6 +166,7 @@ body.candidate {
   padding: 10px 15px;
   font-size: 15px;
   white-space: pre-line;
+  overflow-wrap: anywhere; /* 超长无空格串在气泡边界断行向下排，不横向溢出 */
 }
 .candidate .msg.me.draft .bubble { color: var(--ink-2); }
 
@@ -241,6 +242,8 @@ body.candidate {
   padding: 10px 0 6px;
 }
 .candidate .ta::placeholder { color: var(--ink-3); }
+/* 聚焦指示由外层胶囊描边承担（.composer:focus-within），textarea 豁免全局 :focus-visible 以免双框 */
+.candidate .ta:focus-visible { outline: none; }
 
 .candidate .composer-foot { display: flex; align-items: center; justify-content: space-between; }
 .candidate .hint { font-size: 11.5px; color: var(--ink-3); }

@@ -484,7 +484,7 @@ function onEnter() {
   if (!composing) onSend()
 }
 
-function onSend() {
+async function onSend() {
   const text = draft.value.trim()
   if (!text || !canAnswer.value || composing) return
   const questionId = currentQuestion.value?.question_id
@@ -495,6 +495,7 @@ function onSend() {
 
   pushMessage({ role: 'user', content: text, time: hmNow(), pending: true })
   draft.value = ''
+  await nextTick() // 等 DOM 刷成空值再量高度；同步调用会量到长文高度，输入框停留在拉伸状态
   fitTextarea()
   streaming.value = true
   statusText.value = '回答已保存 · AI 正在理解你的回答'
@@ -539,9 +540,9 @@ function onSend() {
       streaming.value = false
       statusText.value = '发送失败，请重试'
       toast(err?.message || '作答提交失败', 'error')
-      // 失败回退草稿，避免重打全文
+      // 失败回退草稿，避免重打全文（同样须等 DOM 刷成草稿值后再量高度）
       draft.value = text
-      fitTextarea()
+      nextTick(fitTextarea)
     }
   })
 }
