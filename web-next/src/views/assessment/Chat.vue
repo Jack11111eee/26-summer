@@ -130,7 +130,9 @@
             </button>
           </div>
         </form>
-        <p class="composer-note">回答发送后保存 · 本场测评约 40 分钟 · 中途可暂停</p>
+        <p class="composer-note" :class="{ over: sessionTimedOut }">
+          {{ sessionTimedOut ? '本场时间已到 · 提交当前回答后将收尾测评' : '回答发送后保存 · 本场测评约 40 分钟 · 中途可暂停' }}
+        </p>
       </div>
     </div>
 
@@ -262,7 +264,9 @@ function fmtClock(v) {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
-const sessionClock = computed(() => fmtClock(clock.session))
+const sessionClock = computed(() =>
+  clock.session == null ? '--:--' : fmtClock(Math.min(clock.session, sessionTotal.value))
+)
 const questionClock = computed(() => fmtClock(clock.question))
 // 剩余不足（本场 ≤10min / 本题 ≤5min）转琥珀色提醒
 const sessionWarn = computed(
@@ -270,6 +274,10 @@ const sessionWarn = computed(
 )
 const questionWarn = computed(
   () => clock.question != null && clockRunning.value && questionTotal.value - clock.question <= 300
+)
+// 全场到点（本地读数 ≥ 上限即封顶显示；收尾仍由服务端 answer 点检触发——§15 客户端只展示）
+const sessionTimedOut = computed(
+  () => clock.session != null && clockRunning.value && clock.session >= sessionTotal.value
 )
 
 // ---- TOC 右栏：done/current/upcoming + 折叠省略 ----
