@@ -284,12 +284,20 @@ def delete_session(session_id: str, user: dict = Depends(require_login)) -> dict
     UPDATE（无 6h 判定 / 终态补刀归档——归档谓词只认 status='in_progress' 行的
     在途豁免，行即将 hidden 保持快照即可），再同事务写 hidden_at + SESSION_HIDDEN。
     幂等（同 evidence-exclusions lift 先例）：重复 DELETE 已 hidden 行 → 200 直返，
-    不重复写事件。返回体最小化。不做取消隐藏（本期单向；admin 读豁免分支不过滤
-    hidden——管理端审计全量可见，append-only 不破）。
+    不重复写事件。owner 判定不走 load_owned_session（其 owner 分支已滤 hidden——
+    已删行会先 404 到不了幂等分支），此处自带同键查询不滤 hidden。返回体最小化。
+    不做取消隐藏（本期单向；admin 读豁免分支不过滤 hidden——管理端审计全量可见，
+    append-only 不破）。
     """
     conn = get_conn()
-    # owner-only 写：不传 allow_admin_read——admin 与其他候选人同路径 404（D-03）
-    s = load_owned_session(conn, session_id, user)
+    # owner-only 写：自带 owner 判定（session_id+user_id 双键、不滤 hidden——幂等须
+    # 读得到已删行）；admin 与其他候选人同路径 404（D-03，写路径无读豁免）
+    s = conn.execute(
+        "SELECT status, hidden_at FROM assessment_session WHERE session_id=? AND user_id=?",
+        (session_id, user["user_id"]),
+    ).fetchone()
+    if s is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
     if s["hidden_at"] is not None:
         return {"session_id": session_id, "deleted": True}
     now = now_iso()
