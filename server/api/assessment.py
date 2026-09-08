@@ -31,6 +31,7 @@ from ..services.timer import (
     close_open_interval,
     maybe_abandon_session,
     open_interval,
+    question_elapsed_seconds,
     seal_if_question_timed_out,
     session_active_seconds,
     touch_last_activity,
@@ -203,6 +204,13 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         " WHERE session_id=? ORDER BY sequence_no, created_at",
         (session_id,),
     ).fetchall()]
+    # 计时读数（§15 客户端只展示）：全场 = Σactive 区间（暂停不计入）；本题 =
+    # now - activated_at - Σpaused 重叠（与超时判定同口径）。仅进行中会话有意义；
+    # 常量上限一并下发，前端渲染 mm:ss 用
+    session_elapsed = (session_active_seconds(conn, session_id)
+                       if s["status"] == "in_progress" else None)
+    question_elapsed = (question_elapsed_seconds(conn, session_id, cur["question_id"])
+                         if cur is not None and s["status"] == "in_progress" else None)
     return {
         "session_id": s["session_id"],
         "status": s["status"],
@@ -215,6 +223,10 @@ def get_session(session_id: str, user: dict = Depends(require_login)) -> dict:
         "total_count": total,
         "open_form": open_form,
         "messages": messages,
+        "session_elapsed_seconds": session_elapsed,
+        "question_elapsed_seconds": question_elapsed,
+        "session_total_seconds": _config.SESSION_TOTAL_MINUTES * 60,
+        "question_total_seconds": _config.QUESTION_TIMEOUT_MINUTES * 60,
     }
 
 

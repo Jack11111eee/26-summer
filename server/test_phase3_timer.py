@@ -508,6 +508,89 @@ def test_session_paused_guard():
     assert r.json()["detail"]["error_code"] == "SESSION_PAUSED", r.text
 
 
+# ---------- 计时读数展示面（§15 客户端只展示——get_session 四键契约） ----------
+
+def test_get_session_timer_fields_active():
+    """ACTIVE 会话 get_session 带 session/question_elapsed_seconds（数值）+ 两常量上限。"""
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
+    headers = _auth_headers("timer_readout")
+    sid = _create_session(pid, headers)
+    qid = _first_question(sid, headers)["question_id"]
+
+    r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert isinstance(data["session_elapsed_seconds"], (int, float)), data
+    assert isinstance(data["question_elapsed_seconds"], (int, float)), data
+    assert data["session_elapsed_seconds"] >= 0
+    assert data["question_elapsed_seconds"] >= 0
+    assert data["session_total_seconds"] == cfg.SESSION_TOTAL_MINUTES * 60
+    assert data["question_total_seconds"] == cfg.QUESTION_TIMEOUT_MINUTES * 60
+
+
+def test_get_session_timer_excludes_pause():
+    """直插 paused 区间 10s 覆盖题激活窗 → question_elapsed = wall - paused（口径断言）。"""
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
+    headers = _auth_headers("timer_readout2")
+    sid = _create_session(pid, headers)
+    qid = _first_question(sid, headers)["question_id"]
+
+    # 时间旅行：题激活于 100s 前，其中 40s 在 paused 区间内 → 有效 60s
+    act = (datetime.now(timezone.utc) - timedelta(seconds=100)).isoformat()
+    p_start = (datetime.now(timezone.utc) - timedelta(seconds=90)).isoformat()
+    p_end = (datetime.now(timezone.utc) - timedelta(seconds=50)).isoformat()
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE assessment_question SET activated_at=? WHERE question_id=?", (act, qid))
+        conn.execute(
+            "INSERT INTO session_time_intervals(interval_id, session_id, interval_type, started_at, ended_at)"
+            " VALUES(?,?,?,?,?)", ("sti_r2", sid, "paused", p_start, p_end))
+        conn.commit()
+    finally:
+        conn.close()
+
+    r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+    qe = r.json()["question_elapsed_seconds"]
+    assert 55 <= qe <= 65, f"100s 墙钟 - 40s paused ≈ 60s，实得 {qe}"
+
+
+def test_get_session_timer_pending_start_null():
+    """PENDING_START（未 start）会话读数为 null——计时未起算（phase 门语义）。"""
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
+    headers = _auth_headers("timer_readout3")
+    sid = _create_session(pid, headers)
+
+    r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+    data = r.json()
+    assert data["question_elapsed_seconds"] is None, data
+    assert data["current_question"] is None, "PENDING_START 不派题"
+
+
+def test_get_session_timer_legacy_null():
+    """legacy activated_at NULL（Pitfall 10 同形态）→ question_elapsed 为 null 不 500。"""
+    pid, mid = _seed_position_with_confirmed_model()
+    _seed_question_bank(pid, mid)
+    headers = _auth_headers("timer_readout4")
+    sid = _create_session(pid, headers)
+    qid = _first_question(sid, headers)["question_id"]
+
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE assessment_question SET activated_at=NULL WHERE question_id=?", (qid,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    r = client.get(f"/api/assessment/sessions/{sid}", headers=headers)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["question_elapsed_seconds"] is None, data
+    assert data["current_question"]["question_id"] == qid  # 读数缺不影响当前题下发
+
+
 # ---------- phase 列 ----------
 
 def test_phase_column_defaults():

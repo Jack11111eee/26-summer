@@ -195,6 +195,14 @@ body.candidate {
 .candidate .rail-bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 10px 0 16px; }
 .candidate .rail-bar i { display: block; height: 100%; width: 37.5%; background: var(--accent); border-radius: 3px; transition: width .3s ease; }
 
+/* 计时器（本题/全场）：tabular-nums 防跳动；不足转琥珀色 */
+.candidate .timer-block { margin: -6px 0 14px; display: grid; gap: 4px; }
+.candidate .timer-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.candidate .timer-row .tl { color: var(--ink-3); font-size: 12px; }
+.candidate .timer-row .tv { font-variant-numeric: tabular-nums; font-weight: 600; }
+.candidate .timer-row .tt { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 12px; }
+.candidate .timer-row .tv.warn { color: var(--chip-amber-ink); }
+
 .candidate .toc-item {
   display: flex; gap: 10px; align-items: baseline;
   font-size: 13px;
