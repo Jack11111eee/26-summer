@@ -431,3 +431,93 @@ def test_generate_failed_visible(monkeypatch):
     r = client.get(f"/api/assessment/reports/by-session/{session_id}", headers=_admin_headers())
     assert r.status_code == 200
     assert r.json()["report_status"] == "FAILED"
+
+
+# ============ 05-03 追加：SQLite 写锁死锁回归（2026-09-08 事故复盘方案 A）============
+
+def _seed_divergence_session() -> str:
+    """造 completed 会话 + 一条双分背离行（live=5, final=3，差 2 恰达阈值）。
+
+    复现数据形态对齐事故会话 sess_75f9c0b382d8（c_12ad63b093e5: live=5, final=3）。
+    """
+    session_id, item_ids = _seed_session([
+        {"std_name": "Python", "category": "hard_skill", "importance": "preferred", "weight": 0.3},
+    ])
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO question_score(score_id, session_id, item_id, score_live, score_final,"
+        " score_state, created_at) VALUES(?,?,?,?,?,?,?)",
+        (new_id("qs"), session_id, item_ids[0], 5, 3, "SCORED", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    return session_id
+
+
+def _probe_write_lock(timeout: float = 1.0) -> None:
+    """新连接短超时探针：BEGIN IMMEDIATE 抢写锁，被 RESERVED 挡住即超时抛错。"""
+    import sqlite3
+    from server.db import _resolve_db_path
+    probe = sqlite3.connect(_resolve_db_path(), timeout=timeout)
+    try:
+        probe.execute("BEGIN IMMEDIATE")
+        probe.execute("ROLLBACK")
+    finally:
+        probe.close()
+
+
+def test_report_lock_leak_regression():
+    """双分背离会话跑 generate_report：写锁不得跨 LLM 调用泄漏 + bad_case 行独立落库。
+
+    事故形态（修复前）：主 conn 上 bad_case 候选 INSERT 未提交持 RESERVED 锁进
+    call_llm_json → llm_trace 落库（独立连接）5s 超时 database is locked →
+    generate_report 抛 OperationalError，且 conn 未回滚 → 锁漏到 GC 才释放。
+    修复（方案 A）：检测改独立小事务（函数内自 commit/close）；finally 兜底回滚。
+    """
+    from server.services.report import generate_report
+
+    session_id = _seed_divergence_session()
+
+    # mock provider 下 call_llm_json 走 _mock_report + _record_trace（独立连接写
+    # llm_trace）——若主 conn 仍持未决写事务，此处即复现 OperationalError 抛出
+    report = generate_report(session_id)
+    assert report["report_status"] in ("PROVISIONAL", "READY"), report
+
+    # 跑完立即可写库（无 RESERVED 泄漏，不需要等 GC/超时）
+    _probe_write_lock()
+
+    # bad_case 候选已落库且独立于主链提交（pending 行可见）
+    cand = _q("SELECT status, score_live, score_final, divergence FROM bad_case_candidate"
+              " WHERE session_id=?", (session_id,))
+    assert len(cand) == 1, f"应建 1 条背离候选，实得 {cand}"
+    assert cand[0]["status"] == "pending"
+    assert (cand[0]["score_live"], cand[0]["score_final"]) == (5, 3)
+    assert cand[0]["divergence"] == 2.0
+
+
+def test_report_lock_freed_on_main_chain_failure(monkeypatch):
+    """主链中途异常（LLM 之后）：finally 回滚释放写锁，bad_case 候选行独立幸存。
+
+    修复前若 LLM 后任一步抛异常，generate_report 的 conn 事务开着无回滚（异常帧
+    被回溯引用期间锁持续）——修复后 finally rollback 兜底。bad_case 检测已独立
+    小事务提交，主链失败不吞掉候选行。
+    """
+    import server.services.report as report_mod
+    from server.services.report import generate_report
+
+    session_id = _seed_divergence_session()
+
+    def _boom(agg, sid, report_text=""):
+        raise RuntimeError("mock 主链失败（LLM 后）")
+
+    monkeypatch.setattr(report_mod, "_run_consistency_checks", _boom)
+    with pytest.raises(RuntimeError, match="mock 主链失败"):
+        generate_report(session_id)
+
+    # 异常抛出后锁已释放（不依赖 GC 回收连接）
+    _probe_write_lock()
+    # bad_case 候选行独立小事务已提交——主链失败不回滚掉它
+    cand = _q("SELECT status FROM bad_case_candidate WHERE session_id=?", (session_id,))
+    assert cand and cand[0]["status"] == "pending", "bad_case 候选应独立提交幸存"
+    # 主链失败 → 未写终态 report 行（失败收尾由调用方 _write_failed_report 负责）
+    assert _q("SELECT COUNT(*) c FROM report WHERE session_id=?", (session_id,))[0]["c"] == 0
