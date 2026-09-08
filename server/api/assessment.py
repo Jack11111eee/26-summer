@@ -62,7 +62,7 @@ def _active_session_summary(conn, position_id: str, user_id: str) -> dict | None
     """本人该岗位最新 in_progress 会话摘要（SSOT §12.6 岗位列表 active_session 字段）。
 
     remaining = max(0, SESSION_TOTAL_MINUTES*60 − Σactive)//60——「剩余约 X 分钟」展示口径，
-    与全场超时判定（answer 点检）同源同封顶： Pediatrics 超时读数在列表层封 0 不为负。
+    与全场超时判定（answer 点检）同源同封顶——超时读数在列表层封 0 不为负。
     PENDING_START 行 active 区间未开 → 剩余 = 全场满额。
     """
     row = conn.execute(

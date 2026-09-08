@@ -12,7 +12,7 @@
   ended_at/abandoned_at）/ 本人隔离（他人会话不可见）
 - positions 摘要（§12.6）：active_session {session_id, phase, remaining_minutes}；
   无在途 null；PENDING_START 剩余 = 40 分钟满额；start 后秒级流逝仍 40
-- suggestion（§22.1）：提交（监 422：空文本/超长 2001；边界 2000 放行）+ 本人历史
+- suggestion（§22.1）：提交校验（空文本 422 / 超长 2001 → 422；边界 2000 放行）+ 本人历史
   隔离 + 管理端 list（status 过滤）/review（status→reviewed + note + 审计字段 +
   404）+ candidate 访问 admin 端点 403 + 候选人视角处理进度
 - 回归：pause/resume 与 get-or-create 复用兼容；abandoned 后再点同岗位正常新建（R3）
