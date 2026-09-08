@@ -139,6 +139,20 @@
       <div class="rail-num"><span class="big">{{ pad2(session?.answered_count ?? 0) }}</span><span class="total"> / {{ pad2(session?.total_count ?? '—') }} 题</span></div>
       <div class="rail-bar" aria-hidden="true"><i :style="{ width: `${progressPct}%` }"></i></div>
 
+      <!-- 计时器（§15 客户端只展示）：服务端读数为锚 + 本地走秒；暂停/未开始冻结 -->
+      <div class="timer-block" aria-label="计时">
+        <div class="timer-row">
+          <span class="tl">本题</span>
+          <span class="tv" :class="{ warn: questionWarn }">{{ questionClock }}</span>
+          <span class="tt">/ {{ fmtClock(questionTotal) }}</span>
+        </div>
+        <div class="timer-row">
+          <span class="tl">全场</span>
+          <span class="tv" :class="{ warn: sessionWarn }">{{ sessionClock }}</span>
+          <span class="tt">/ {{ fmtClock(sessionTotal) }}</span>
+        </div>
+      </div>
+
       <div
         v-for="(t, i) in toc"
         :key="i"
@@ -214,6 +228,48 @@ const progressPct = computed(() => {
 })
 const composerPlaceholder = computed(() =>
   canAnswer.value ? '在此写下你的回答……' : '正在准备下一问…'
+)
+
+// ---- 计时器（§15 客户端只展示）：服务端读数为锚 + 本地走秒 ----
+// syncClock 每次 getSession 后重锚（新题派发/暂停恢复自然重置）；
+// PAUSED / PENDING_START 冻结不走秒（clockRunning 门）。
+const clock = reactive({ session: null, question: null, questionId: null, anchor: 0 })
+let clockTimer = null
+const clockRunning = computed(
+  () => session.value?.status === 'in_progress' && session.value?.phase === 'ACTIVE'
+)
+const sessionTotal = computed(() => session.value?.session_total_seconds ?? 40 * 60)
+const questionTotal = computed(() => session.value?.question_total_seconds ?? 20 * 60)
+
+function syncClock(data) {
+  clock.session = data.session_elapsed_seconds ?? null
+  clock.question = data.question_elapsed_seconds ?? null
+  clock.questionId = data.current_question?.question_id ?? null
+  clock.anchor = Date.now()
+}
+
+function tickClock() {
+  if (!clockRunning.value) return
+  const dt = (Date.now() - clock.anchor) / 1000
+  if (clock.session != null) clock.session += dt
+  if (clock.question != null && clock.questionId) clock.question += dt
+  clock.anchor = Date.now()
+}
+
+function fmtClock(v) {
+  if (v == null) return '--:--'
+  const s = Math.max(0, Math.floor(v))
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+const sessionClock = computed(() => fmtClock(clock.session))
+const questionClock = computed(() => fmtClock(clock.question))
+// 剩余不足（本场 ≤10min / 本题 ≤5min）转琥珀色提醒
+const sessionWarn = computed(
+  () => clock.session != null && clockRunning.value && sessionTotal.value - clock.session <= 600
+)
+const questionWarn = computed(
+  () => clock.question != null && clockRunning.value && questionTotal.value - clock.question <= 300
 )
 
 // ---- TOC 右栏：done/current/upcoming + 折叠省略 ----
@@ -348,6 +404,7 @@ function chipsOf(q) {
 
 function applySession(data) {
   session.value = data
+  syncClock(data)
 }
 
 function statusFor() {
@@ -566,9 +623,11 @@ onMounted(async () => {
   await load()
   await nextTick()
   fitTextarea()
+  clockTimer = setInterval(tickClock, 1000)
 })
 
 onBeforeUnmount(() => {
+  if (clockTimer) clearInterval(clockTimer)
   if (abortStream) abortStream()
 })
 </script>

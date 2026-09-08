@@ -125,6 +125,24 @@ def session_active_seconds(conn, session_id: str) -> float:
     return overlap_seconds(spans, 0.0, now_dt.timestamp())
 
 
+def question_elapsed_seconds(conn, session_id: str, question_id: str) -> float | None:
+    """当前题已耗秒（只读展示，§15 客户端只展示）——seal_if_question_timed_out 同口径。
+
+    now - activated_at - Σpaused 重叠（followup 共用；暂停窗口不计入单题计时）。
+    legacy（activated_at NULL）或题不存在返回 None（前端显示为 --:--）。
+    """
+    row = conn.execute(
+        "SELECT activated_at FROM assessment_question WHERE question_id=?",
+        (question_id,),
+    ).fetchone()
+    if row is None or row["activated_at"] is None:
+        return None
+    now_dt = _ts(now_iso())
+    activated = _ts(row["activated_at"])
+    paused = paused_overlap_seconds(conn, session_id, activated, now_dt)
+    return (now_dt - activated).total_seconds() - paused
+
+
 def seal_if_question_timed_out(conn, session_id: str, question_id: str, user_id: str) -> bool:
     """单题超时点检（Pitfall 10：activated_at NULL 返 False 不 TypeError）。
 
