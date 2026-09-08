@@ -46,15 +46,15 @@ JD 文本 ──► 胜任力模型（模块一）──► 有界动态测评�
 | LLM 客户端 | `openai` SDK（base_url 可切 DeepSeek 等 OpenAI 兼容端点）；`mock` 模式用规则模拟 LLM，**离线可跑通全流程** |
 | 存储 | SQLite 单文件（默认 `data/app.db`）；DDL + 迁移内嵌 `server/db.py`（`schema_version` 演进） |
 | 鉴权 | JWT (HS256) + bcrypt；角色 `admin` / `candidate` |
-| 前端 | Vue 3 · Vite · Element Plus · Vue Router · Pinia · axios · ECharts |
-| 部署形态 | Vite build 产物由 FastAPI 静态托管，单进程 uvicorn 演示上线 |
+| 前端 | Vue 3 · Vite · Vue Router · Pinia · axios（活跃前端 `web-next/`；UI 组件与雷达图为自研，不依赖 Element Plus / ECharts；旧 `web/` 已退役留档） |
+| 部署形态 | Vite build 产物（`web-next/dist`）由 FastAPI 静态托管，单进程 uvicorn 演示上线 |
 
 ## 目录结构
 
 ```
 .
 ├── server/                 # FastAPI 后端
-│   ├── main.py             # 应用入口：加载 .env / 建表 / 注册路由 / 静态托管 web/dist
+│   ├── main.py             # 应用入口：加载 .env / 建表 / 注册路由 / 静态托管 web-next/dist
 │   ├── config.py           # 环境变量与可配置常量（权重口径、测评配额、开放参数占位）
 │   ├── db.py               # SQLite DDL + 迁移（schema_version）+ 初始化（20+ 张表）
 │   ├── schemas.py          # Pydantic 请求 / 响应模型
@@ -62,8 +62,9 @@ JD 文本 ──► 胜任力模型（模块一）──► 有界动态测评�
 │   ├── api/                # 路由：auth、assessment、admin/{jds,models,positions,dict,users,trace,feedback,forms,eval,reports}
 │   ├── services/           # 服务层：流水线 / 题库 / 选题 / 难度状态机 / 表单 / 幂等 / 计时 / 评分 / 聚合 / 报告 / 事件
 │   └── test_*.py           # pytest：P0 安全 / 模块二~四 / 迁移 / E2E / eval 隔离
-├── web/                    # 前端 Vue 3 + Vite + Element Plus
+├── web-next/               # 前端（唯一活跃）：Vue 3 + Vite，自研 ui/ 组件与 SVG 雷达图
 │   └── src/views/          # admin/（管理端）+ assessment/（测评端）+ Login / Register
+├── web/                    # 前端（已退役留档，不改动）：Element Plus + ECharts 旧实现
 ├── design/                 # 设计与需求文档（见「权威文档」）
 ├── data/                   # 运行时数据（git 忽略）：app.db、jd_corpus 语料、backups 备份
 ├── eval/                   # 模块四独立评测：一致性(b) + 虚拟考生(c) + fixtures
@@ -116,15 +117,15 @@ uvicorn server.main:app --reload --port 8000
 ### 2) 前端（开发模式，热更新）
 
 ```bash
-cd web
+cd web-next
 npm install
-npm run dev          # http://localhost:5173 ，/api 自动代理到 :8000
+npm run dev          # http://localhost:5174 ，/api 自动代理到 :8000
 ```
 
 ### 3) 单进程演示（前端构建后由后端托管）
 
 ```bash
-cd web && npm run build
+cd web-next && npm run build
 # 回仓库根目录，再次启动 uvicorn，访问 http://localhost:8000
 uvicorn server.main:app --port 8000
 ```
@@ -151,7 +152,7 @@ uvicorn server.main:app --port 8000
 cd server && python -m pytest . -q
 
 # 前端构建校验
-cd web && npm ci && npm run build
+cd web-next && npm ci && npm run build
 
 # 独立评测（eval/ 使用隔离临时库，见 eval/ 内说明）
 ```
@@ -167,4 +168,5 @@ CI 位于 `.github/workflows/ci.yml`，push / PR 时执行上述后端测试与�
 ## 相关约定
 
 - 提交信息使用中文；一次 commit 一个逻辑单元；涉及 SSOT 的变更需先经用户授权并原子提交。
-- 运行产物（`.env`、`data/`、`web/node_modules/`、`web/dist/`）均已被 `.gitignore` 忽略，不入库。
+- 运行产物（`.env`、`data/`、`web-next/node_modules/`、`web-next/dist/`）均已被 `.gitignore` 忽略，不入库。
+- 前端基线（2026-09-08）：`web-next/` 为唯一活跃前端；`web/` 已退役留档，不再改动，CI 也不再构建它。

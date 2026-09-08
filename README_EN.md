@@ -46,15 +46,15 @@ The system is organized around four design modules (see `design/final-design/总
 | LLM client | `openai` SDK (base_url swappable to OpenAI-compatible endpoints such as DeepSeek); `mock` provider simulates the LLM with rules — **the full flow runs offline** |
 | Storage | Single-file SQLite (default `data/app.db`); DDL + migrations embedded in `server/db.py` (`schema_version` based) |
 | Auth | JWT (HS256) + bcrypt; roles `admin` / `candidate` |
-| Frontend | Vue 3 · Vite · Element Plus · Vue Router · Pinia · axios · ECharts |
-| Deployment shape | Vite build output is served statically by FastAPI; single-process uvicorn demo deploy |
+| Frontend | Vue 3 · Vite · Vue Router · Pinia · axios (active frontend: `web-next/`; the UI kit and radar chart are hand-rolled — no Element Plus / ECharts; the legacy `web/` is retired) |
+| Deployment shape | Vite build output (`web-next/dist`) is served statically by FastAPI; single-process uvicorn demo deploy |
 
 ## Repository Layout
 
 ```
 .
 ├── server/                 # FastAPI backend
-│   ├── main.py             # App entry: loads .env / creates tables / registers routes / serves web/dist
+│   ├── main.py             # App entry: loads .env / creates tables / registers routes / serves web-next/dist
 │   ├── config.py           # Env vars & tunables (weighting scheme, assessment quotas, open-parameter placeholders)
 │   ├── db.py               # SQLite DDL + migrations (schema_version) + init (20+ tables)
 │   ├── schemas.py          # Pydantic request / response models
@@ -62,8 +62,9 @@ The system is organized around four design modules (see `design/final-design/总
 │   ├── api/                # Routes: auth, assessment, admin/{jds,models,positions,dict,users,trace,feedback,forms,eval,reports}
 │   ├── services/           # Business logic: pipeline / question bank / selection / difficulty state machine / forms / idempotency / timing / scoring / aggregation / reports / events
 │   └── test_*.py           # pytest: P0 security / Modules 2–4 / migrations / E2E / eval isolation
-├── web/                    # Vue 3 + Vite + Element Plus frontend
+├── web-next/               # Frontend (the only active one): Vue 3 + Vite, hand-rolled ui/ components and SVG radar
 │   └── src/views/          # admin/ (management) + assessment/ (candidate) + Login / Register
+├── web/                    # Frontend (retired, kept for history — do not modify): the old Element Plus + ECharts implementation
 ├── design/                 # Design & requirements docs (see "Authoritative Documents")
 ├── data/                   # Runtime data (git-ignored): app.db, jd_corpus, backups
 ├── eval/                   # Independent Module-4 eval: consistency (b) + virtual candidates (c) + fixtures
@@ -116,15 +117,15 @@ uvicorn server.main:app --reload --port 8000
 ### 2) Frontend (dev mode, hot reload)
 
 ```bash
-cd web
+cd web-next
 npm install
-npm run dev          # http://localhost:5173 — /api is proxied to :8000
+npm run dev          # http://localhost:5174 — /api is proxied to :8000
 ```
 
 ### 3) Single-process demo (build, then served by the backend)
 
 ```bash
-cd web && npm run build
+cd web-next && npm run build
 # Back at the repo root, start uvicorn again and open http://localhost:8000
 uvicorn server.main:app --port 8000
 ```
@@ -151,7 +152,7 @@ uvicorn server.main:app --port 8000
 cd server && python -m pytest . -q
 
 # Frontend build check
-cd web && npm ci && npm run build
+cd web-next && npm ci && npm run build
 
 # Independent eval (eval/ uses an isolated temp DB — see eval/ for details)
 ```
@@ -167,4 +168,5 @@ CI lives in `.github/workflows/ci.yml` and runs the backend tests plus the front
 ## Conventions
 
 - Commit messages are written in Chinese; each commit is one logical unit; SSOT-affecting changes require prior user authorization and are committed atomically.
-- Runtime artifacts (`.env`, `data/`, `web/node_modules/`, `web/dist/`) are git-ignored and never committed.
+- Runtime artifacts (`.env`, `data/`, `web-next/node_modules/`, `web-next/dist/`) are git-ignored and never committed.
+- Frontend baseline (2026-09-08): `web-next/` is the only active frontend; `web/` is retired and kept for history — no further changes, and CI no longer builds it.
