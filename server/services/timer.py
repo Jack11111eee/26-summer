@@ -7,6 +7,8 @@
   close_open_interval / open_interval / advance_interval / paused_overlap_seconds /
   session_active_seconds / seal_if_question_timed_out / maybe_abandon_session /
   sweep_user_stale_sessions / touch_last_activity。
+  （sweep 第二段全场超时收尾 squash 于 api.assessment——收尾链与串行报告链同源，
+  此处函数体内延迟导入调用，2026-09-08。)
 
 interval_type ∈ {active, paused}（N11 代码校验，无 DB CHECK）；reason 敏感不进评分 prompt（D-40）。
 6h ABANDONED 惰性判定（无后台线程 D-005——A3：判定挂 answer 路径 load_owned_session 相邻）。
@@ -211,13 +213,25 @@ def maybe_abandon_session(conn, s: dict) -> None:
 
 
 def sweep_user_stale_sessions(conn, user_id: str) -> None:
-    """本人 in_progress 行 6h sweep（SSOT §12.6/§12.1 2026-09-08——挂两点：create 复用查询前 + 历史列出前）。
+    """本人 in_progress 行 sweep（SSOT §12.6/§12.1 2026-09-08 双段——挂三处：create
+    复用查询前 + 历史列出前 + 岗位列表摘要前）。
 
-    逐行复用 maybe_abandon_session（单会话 MUTATE 风格 + 逐行 SESSION_ABANDONED 事件，
-    append-only 契约不破、不删证据）；未超 6h 行 no-op。不 commit——D-06 契约
-    （事务边界由调用者持有，本模块零 commit），调用方有改动自行 conn.commit()。
-    用户中途退出后不再回来 → answer 路径的惰性判定永不触发（永挂 in_progress），
-    本函数补齐「create 再入 / 历史列出」两处触发点，防复用超时死会话。
+    顺序固定先 abandon 后收尾：**第一段**逐行复用 maybe_abandon_session（6h 惰性
+    作废，单会话 MUTATE 风格 + 逐行 SESSION_ABANDONED 事件，append-only 契约不破、
+    不删证据）；**第二段**对存活的 in_progress 行执行全场超时收尾
+    （finalize_user_timedout_sessions——Σactive > SESSION_TOTAL_MINUTES*60 走
+    GLOBAL_TIMEOUT → 0 分报告 → completed 收尾链）。超 6h 不回来的走作废（无报告），
+    40min < Σactive < 6h 的走收尾完赛；PENDING_START 行两段皆不触发（last_activity
+    不足 6h 不作废、Σactive=0 不超时收尾——重回入场确认门语义）。第二段收尾链
+    内部自理 commit（复用 answer 路径原语）；第一段不 commit——D-06 契约（事务边界
+    由调用者持有），调用方有改动自行 conn.commit()。用户中途退出后不再回来 →
+    answer 路径的惰性判定永不触发（永挂 in_progress），本函数补齐 create 再入 /
+    历史列出 / 岗位摘要三处触发点（岗位列表不回来也不留「继续测评」入口）。
+
+    收尾 squash 落在 api.assessment（_finalize_global_timeout 与串行报告链
+    _generate_report_task 同源——SSOT §12.6「同一实现提取共用」），此处函数体内
+    延迟导入调用（同 maybe_abandon_session 内 archive_superseded_banks 延迟导入
+    先例——避免 services→api 模块级环依赖）。
     """
     rows = conn.execute(
         "SELECT * FROM assessment_session WHERE user_id=? AND status='in_progress'",
@@ -225,6 +239,12 @@ def sweep_user_stale_sessions(conn, user_id: str) -> None:
     ).fetchall()
     for r in rows:
         maybe_abandon_session(conn, dict(r))
+    # 第二段（全场超时收尾，2026-09-08）：先 abandon 后收尾的固定顺序——
+    # maybe_abandon 若已把某行翻 abandoned（超 6h），下方收尾查询
+    # （status='in_progress'）自然不命中该行；未超 6h 但 Σactive 超限的行
+    # 不被第一段触碰，在此按收尾完赛处理
+    from ..api.assessment import finalize_user_timedout_sessions
+    finalize_user_timedout_sessions(conn, user_id)
 
 
 def touch_last_activity(conn, session_id: str) -> None:

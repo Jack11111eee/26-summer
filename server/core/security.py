@@ -66,9 +66,13 @@ def load_owned_session(conn, session_id: str, user: dict, *, allow_admin_read: b
     判定顺序（Pitfall 10）：owner 条件 user_id=? 命中即返回（admin 本人资源走通）；
     仅非 owner 且 allow_admin_read 且 role=admin 时放宽为仅按 session_id 查询（读豁免）。
     写路由不传 allow_admin_read（默认 False）→ admin 与其他候选人同路径 404（D-03）。
+    软隐藏（SSOT §12.1，2026-09-08）：owner 分支过滤 hidden_at IS NULL——删除后本人
+    深度链接（get/start/pause/resume/answer/forms/score/report bootstrap）全 404（预期）；
+    admin 豁免分支**不过滤**（管理端审核/trace/审计全量可见）。
     """
     row = conn.execute(
-        "SELECT * FROM assessment_session WHERE session_id=? AND user_id=?",
+        "SELECT * FROM assessment_session WHERE session_id=? AND user_id=?"
+        " AND hidden_at IS NULL",
         (session_id, user["user_id"]),
     ).fetchone()
     if row is None and allow_admin_read and user["role"] == "admin":
@@ -85,11 +89,13 @@ def load_owned_report(conn, report_id: str, user: dict, *, allow_admin_read: boo
     """按所有权加载报告（report→session join，Pitfall 5：submit_feedback 亦经此链）。
 
     admin 读豁免语义与 load_owned_session 一致：非 owner 且 allow_admin_read 且
-    role=admin 时放宽为仅按 report_id 查询；写路由不传（owner-only）。
+    role=admin 时放宽为仅按 report_id 查询；写路由不传（owner-only）。软隐藏
+    （SSOT §12.1，2026-09-08）：owner 分支 join 过滤 s.hidden_at IS NULL——删除后
+    本人报告页/by-session 轮询 404；admin 豁免分支不过滤（同上）。
     """
     row = conn.execute(
         "SELECT r.* FROM report r JOIN assessment_session s ON s.session_id=r.session_id"
-        " WHERE r.report_id=? AND s.user_id=?",
+        " WHERE r.report_id=? AND s.user_id=? AND s.hidden_at IS NULL",
         (report_id, user["user_id"]),
     ).fetchone()
     if row is None and allow_admin_read and user["role"] == "admin":
