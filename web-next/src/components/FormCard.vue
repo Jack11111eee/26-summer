@@ -38,7 +38,7 @@
           :required="f.required"
         >
           <option v-if="!f.required" value="">（未选择）</option>
-          <option v-for="o in f.options || []" :key="String(o.value)" :value="o.value">{{ o.label ?? o.value }}</option>
+          <option v-for="o in normOptions(f.options)" :key="String(o.value)" :value="o.value">{{ o.label ?? o.value }}</option>
         </select>
       </div>
 
@@ -90,6 +90,11 @@ function seedDefaults() {
     else if (f.type === 'number') payload[f.name] = null
     else payload[f.name] = ''
   }
+}
+
+// options 兼容两种形态：纯字符串数组（后端 forms.py 生成）与 {value,label} 对象数组
+function normOptions(opts) {
+  return (opts || []).map((o) => (typeof o === 'string' ? { value: o, label: o } : o))
 }
 
 function validate() {
