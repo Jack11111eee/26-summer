@@ -73,7 +73,7 @@ def check_generation(pid: str, mid: str) -> None:
     generate_question_bank(pid, mid)
     conn = get_conn()
     rows = conn.execute("SELECT * FROM question_bank").fetchall()
-    check("生成题量=5（3+2，exp/qual 不生成——SSOT §9.1）", len(rows) == 5, f"实际 {len(rows)}")
+    check("生成题量=7（3+2+2，exp/qual 不生成——SSOT §9.1）", len(rows) == 7, f"实际 {len(rows)}")
 
     by = {}
     for r in rows:
@@ -110,7 +110,7 @@ def check_generation(pid: str, mid: str) -> None:
           all(r["std_name"] and r["category"] and r["qtype"] and r["scope"] for r in rows))
 
     traces = conn.execute("SELECT COUNT(*) c FROM llm_trace WHERE call_type='question_gen'").fetchone()
-    check("question_gen 调用落 llm_trace", traces["c"] == 5, f"实际 {traces['c']}")
+    check("question_gen 调用落 llm_trace", traces["c"] == 7, f"实际 {traces['c']}")
 
 
 def check_idempotent(pid: str, mid: str) -> None:
@@ -118,7 +118,7 @@ def check_idempotent(pid: str, mid: str) -> None:
     generate_question_bank(pid, mid)
     conn = get_conn()
     n = conn.execute("SELECT COUNT(*) c FROM question_bank").fetchone()["c"]
-    check("题量不变仍为 5", n == 5, f"实际 {n}")
+    check("题量不变仍为 7", n == 7, f"实际 {n}")
 
 
 def check_selection(pid: str, mid: str, model: dict) -> None:
