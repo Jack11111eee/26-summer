@@ -191,7 +191,7 @@ def derive_gate_payload(facet_answers: dict, items: list[dict]) -> dict:
             out[std_name] = bool(tier is not None and need is not None and tier >= need)
         elif key == "school_tier":
             tier = _enum_truth(str(facet_answers.get("school_tier", "")),
-                               {"其他": 0, "211": 1, "985": 2})
+                               {"其他（非 211/985）": 0, "211": 1, "985": 2})
             need = params.get("threshold")
             out[std_name] = bool(tier is not None and need is not None and tier >= need)
         elif key == "english_level":
