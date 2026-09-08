@@ -200,6 +200,11 @@ def maybe_abandon_session(conn, s: dict) -> None:
     )
     append_event(conn, session_id=s["session_id"], event_type="SESSION_ABANDONED",
                  from_state="in_progress", to_state="abandoned", actor_type="system")
+    # 终态补刀归档（SSOT §9.2 2026-09-08 规则④）：abandoned 与 completed 同为终态——
+    # 豁免在途的旧版题库行在 6h sweep 此归档（helper 不 commit，落库由调用方既有
+    # commit 覆盖；answer 路径 write-then-raise 的 conn.commit() 同样持久化本 UPDATE）
+    from .question_bank import archive_superseded_banks
+    archive_superseded_banks(conn, s["position_id"])
     s["status"] = "abandoned"
     s["phase"] = "ABANDONED"
 
