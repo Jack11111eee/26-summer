@@ -111,12 +111,12 @@ def collect_excluded_entries(position_id: str) -> dict[tuple[str, str], list[dic
 
 
 def _map_importance(r: float, cond_req: float, occ: int, category: str) -> str:
-    """importance 三档混合口径映射（SSOT §8.1 工序⑤，2026-09-07 裁决）。
+    """importance 三档混合口径映射（SSOT §8.1 工序⑤，required 2026-09-07 / preferred 2026-09-08 裁决）。
 
     required 三重判据：条件 req（req_jds/出现 jds）≥ REQ_THRESHOLD、
     r ≥ REQ_MIN_OCCURRENCE_RATIO、出现 JD 数 ≥ REQ_MIN_OCCURRENCE，
     且仅 hard_skill 可判 required（soft_skill 上限 preferred）；
-    preferred ⇔ 未达 required 且 r ≥ R_THRESHOLD；否则 plus。
+    preferred ⇔ 未达 required 且 出现 JD 数 ≥ PREFERRED_MIN_OCCURRENCE；否则 plus。
     gate 类（experience/qualification）在调用侧不参与本分档。
     """
     if (category == "hard_skill"
@@ -124,7 +124,7 @@ def _map_importance(r: float, cond_req: float, occ: int, category: str) -> str:
             and r >= config.REQ_MIN_OCCURRENCE_RATIO
             and occ >= config.REQ_MIN_OCCURRENCE):
         return "required"
-    if r >= config.R_THRESHOLD:
+    if occ >= config.PREFERRED_MIN_OCCURRENCE:
         return "preferred"
     return "plus"
 

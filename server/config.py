@@ -39,14 +39,16 @@ CATEGORY_RATIO = {
 }
 # 类内重要性系数
 IMPORTANCE_COEF = {"required": 1.0, "preferred": 0.6, "plus": 0.3}
-# importance 混合口径（SSOT §8.1 工序⑤，2026-09-07 裁决）
+# importance 混合口径（SSOT §8.1 工序⑤；required 2026-09-07 裁决、preferred 2026-09-08 裁决）
 # required 三重判据：条件 req（req_jds/出现 jds）≥ REQ_THRESHOLD、
 # r ≥ REQ_MIN_OCCURRENCE_RATIO、出现 JD 数 ≥ REQ_MIN_OCCURRENCE；
-# 仅 hard_skill 可判 required（soft_skill 上限 preferred）。
+# 仅 hard_skill 可判 required（soft_skill 上限 preferred，2026-09-07）。
+# preferred occ 基准（2026-09-08）：未达 required 且出现 JD 数 ≥ PREFERRED_MIN_OCCURRENCE；
+# 绝对 r 阈值与样本量耦合（34 模型 15 个 preferred=0）已退役。
 REQ_THRESHOLD = 0.5  # 条件口径阈值（语义 2026-09-07 变更：标 required 的 JD 数 ÷ 出现 JD 数）
 REQ_MIN_OCCURRENCE_RATIO = 0.25
 REQ_MIN_OCCURRENCE = 3
-R_THRESHOLD = 0.5
+PREFERRED_MIN_OCCURRENCE = 3
 # LLM 校验失败重试次数
 LLM_RETRY = 2
 # 清洗时要求块最小长度（低于则 low_confidence=1）
