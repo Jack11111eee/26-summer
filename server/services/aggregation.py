@@ -91,11 +91,12 @@ def _observed_items(measurements: list[dict], model_items: dict) -> list[dict]:
 
 
 def _load_model_items(session_id: str) -> dict[str, dict]:
-    """item_id → {std_name, category, required_level, importance, weight, gate, years}"""
+    """item_id → {std_name, category, required_level, importance, weight, gate, years,
+    facet_key}（facet_key 供报告 gate 段折叠分组——SSOT §16.1，读预打标不重跑）"""
     conn = get_conn()
     rows = conn.execute(
         "SELECT ci.item_id, ci.std_name, ci.category, ci.required_level, ci.importance,"
-        " ci.weight, ci.gate, ci.years"
+        " ci.weight, ci.gate, ci.years, ci.facet_key"
         " FROM competency_item ci"
         " JOIN assessment_session s ON s.model_id=ci.model_id"
         " WHERE s.session_id=?",
@@ -252,6 +253,7 @@ def aggregate_session_scores(session_id: str) -> dict:
             gate_items.append({
                 "item_id": item_id, "std_name": item["std_name"],
                 "passed": passed, "reason": reason,
+                "facet_key": item.get("facet_key"),
             })
             item_scores.append({
                 "item_id": item_id, "std_name": item["std_name"],

@@ -375,6 +375,17 @@ body.candidate {
 .candidate .field-error { font-size: 12px; color: var(--accent); }
 .candidate .field-hint { font-size: 11.5px; color: var(--ink-3); }
 
+/* v2 facet 勾选组（FormCard checklist）：竖排勾选行，checkbox 直观勾语义 */
+.candidate .checklist { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.candidate .check-row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13.5px; color: var(--ink-1); cursor: pointer;
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--paper); transition: border-color .15s;
+}
+.candidate .check-row:hover { border-color: var(--accent); }
+.candidate .check-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+
 /* ---------- 密码显隐切换 ---------- */
 .candidate .password-wrap { position: relative; }
 .candidate .password-wrap .input { padding-right: 38px; }
@@ -508,6 +519,11 @@ body.candidate {
 .candidate .rep-table td.num, .candidate .rep-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .candidate .gap-pos { color: var(--chip-ink); font-weight: 600; }
 .candidate .gap-neg { color: var(--accent); font-weight: 600; }
+
+/* gate 段 facet 折叠行（同 facet 多 item 一行，§16.1 报告折叠） */
+.candidate .gate-sub { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
+.candidate .gate-sub .ok { color: var(--chip-ink); font-weight: 600; }
+.candidate .gate-sub .no { color: var(--accent); font-weight: 600; }
 
 .candidate .rep-quote {
   font-size: 15px; color: var(--ink-2); line-height: 1.85;
