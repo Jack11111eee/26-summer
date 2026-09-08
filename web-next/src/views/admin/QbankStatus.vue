@@ -229,10 +229,12 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref } from 'vue'
 import { adminQbank, errMsg } from '../../api'
 import { UiDrawer, UiPager, toast } from '../../components/ui'
 import { categoryLabel, formatTime } from '../../lib/labels'
+
+defineOptions({ name: 'AdminQbankStatus' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 // ---- 列表 ----
 const loading = ref(false)
@@ -393,6 +395,16 @@ onMounted(() => {
   load()
   schedulePoll() // 进页认领：列表含 RUNNING/QUEUED 行即开始轮询
 })
+
+// keep-alive（§5，2026-09-08）：激活 = 静默刷新保筛选保页码 + 复轮询（booted 守卫防
+// 首屏双拉）；失活 = 停表（keep-alive 下路由切换不触发 unmount，不停表则后台常跑）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  load()
+  schedulePoll()
+})
+onDeactivated(stopPoll)
 
 onBeforeUnmount(stopPoll)
 </script>

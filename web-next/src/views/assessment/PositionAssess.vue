@@ -1,12 +1,12 @@
 <template>
   <div class="page">
     <div class="page-inner" style="max-width: 780px">
-      <span class="back-link" @click="goBack">← 返回岗位选择</span>
+      <span class="back-link" @click="goBack">← {{ isPreview ? '返回测评历史' : '返回岗位选择' }}</span>
 
       <div class="open-head serif" style="margin-bottom: 26px">
         <div class="kicker">{{ model?.position_name || 'ASSESSMENT' }} · 模型 v{{ model?.version ?? '—' }}</div>
         <h1>{{ model?.position_name || '岗位胜任力模型' }}</h1>
-        <p>开考前请浏览该岗位考察的能力项。正式作答时我会根据你的经历动态追问，无需死记这些条目。</p>
+        <p>{{ isPreview ? '这是该岗位当前考察的能力项，仅供回看。' : '开考前请浏览该岗位考察的能力项。正式作答时我会根据你的经历动态追问，无需死记这些条目。' }}</p>
       </div>
 
       <div v-if="loading" class="empty">加载模型中…</div>
@@ -33,14 +33,19 @@
           </table>
         </div>
 
-        <hr class="divider" />
+        <!-- 预览态（§12.6，2026-09-08）：只读回看——底部开始块与时长提示整体隐藏，
+             不再作开考入口（历史 completed 行「评估模型」直达本态）；开考流程走岗位选择页 -->
+        <template v-if="!isPreview">
+          <hr class="divider" />
 
-        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
-          <p class="field-hint" style="flex: 1; min-width: 220px">共 {{ totalCount }} 项能力 · 约 40 分钟 · 从点击「开始测评」起计时</p>
-          <button class="btn-accent" style="width: auto; padding: 11px 34px" :disabled="starting" @click="startAssessment">
-            {{ starting ? '正在创建测评…' : (hasActiveResume ? '继续测评（从中断处继续）' : '开始测评') }}
-          </button>
-        </div>
+          <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+            <p class="field-hint" style="flex: 1; min-width: 220px">共 {{ totalCount }} 项能力 · 约 40 分钟 · 从点击「开始测评」起计时</p>
+            <button class="btn-accent" style="width: auto; padding: 11px 34px" :disabled="starting" @click="startAssessment">
+              {{ starting ? '正在创建测评…' : (hasActiveResume ? '继续测评（从中断处继续）' : '开始测评') }}
+            </button>
+          </div>
+        </template>
+        <p v-else class="field-hint" style="margin-top: 8px">共 {{ totalCount }} 项能力</p>
       </template>
     </div>
   </div>
@@ -48,6 +53,10 @@
 
 <script setup>
 // 岗位开考页：confirmed 模型预览 + 建会话（readiness 409 → 友好提示）。
+// preview=1 只读预览态（SSOT §12.6，2026-09-08）：历史 completed 行「评估模型」直达——
+// 隐藏底部开始块与时长提示、返回链接指向测评历史页；开考入口保持在岗位选择页
+// （预览的不是场次锚定版本而是当前最新 confirmed 模型——既有语义不变）。模型加载
+// 失败（404 岗位下架等）保持现有错误展示。
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { assessment, errMsg } from '../../api'
@@ -58,6 +67,8 @@ const CATEGORY_ORDER = CATEGORY_ORDER_HELP
 const route = useRoute()
 const router = useRouter()
 const positionId = route.params.id
+// 只读预览态：?preview=1（query 为字符串——与 resume 标记同形）
+const isPreview = computed(() => route.query.preview === '1')
 
 const model = ref(null)
 const loading = ref(false)
@@ -76,7 +87,7 @@ function catItems(cat) {
 }
 
 function goBack() {
-  router.push('/assessment/positions')
+  router.push(isPreview.value ? '/assessment/history' : '/assessment/positions')
 }
 
 async function startAssessment() {

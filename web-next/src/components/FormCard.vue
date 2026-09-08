@@ -154,15 +154,17 @@ async function onSubmit() {
   if (!validate()) return
   submitting.value = true
   try {
-    await assessment.submitForm(props.sessionId, props.formId, { ...toRaw(payload) }, 1)
+    const { data } = await assessment.submitForm(props.sessionId, props.formId, { ...toRaw(payload) }, 1)
     submitted.value = true
     toast('表单已提交')
-    emit('submitted')
+    // submit-v2 响应透传父级（action: finish/next/form——完赛收尾由 Chat 按 finish 跳报告页）
+    emit('submitted', data)
   } catch (e) {
     const code = e?.response?.data?.detail?.error_code
     if (code === 'FORM_ALREADY_SUBMITTED') {
       submitted.value = true // 幂等重放：按已提交处理
       toast('该表单已提交过')
+      emit('submitted') // 无 action 数据：父级走 refreshSession 兜底（不为幂等重放强造 finish 跳转）
     } else if (code === 'FORM_INSTANCE_REVISION_CONFLICT') {
       errorText.value = '表单已更新，正在重新加载…'
       try {

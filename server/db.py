@@ -154,7 +154,11 @@ CREATE TABLE IF NOT EXISTS assessment_session (
   last_activity_at          TEXT,
   abandoned_at              TEXT,
   policy_version            TEXT,
-  session_time_intervals_json TEXT
+  session_time_intervals_json TEXT,
+  -- ============ 候选端软隐藏列（SSOT §12.1，2026-09-08；无 DB CHECK——N11）============
+  -- DELETE /sessions/{id} 全状态可删：非空 = 本人历史/摘要/深度链接不可见（owner
+  -- 分支过滤），admin 读豁免分支不过滤（管理端审计全量可见）；单向不做取消隐藏。
+  hidden_at                 TEXT
 );
 
 CREATE TABLE IF NOT EXISTS question_bank (
@@ -1127,6 +1131,20 @@ def _migrate_competency_item_facet(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE competency_item ADD COLUMN {name} {decl}")
 
 
+def _migrate_session_hidden_at(conn: sqlite3.Connection) -> None:
+    """SSOT §12.1（2026-09-08）：assessment_session 加候选端软隐藏列 hidden_at。
+
+    存量库 PRAGMA 嗅探 ALTER（幂等，同 qbank_task_progress/competency_item_facet
+    先例）；新库表已含列（尾部 _DDL）自然跳过。存量行保持 NULL（未删除语义——
+    历史会话默认可见）；全可空无 DB CHECK（N11）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(assessment_session)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL）
+    if "hidden_at" not in cols:
+        conn.execute("ALTER TABLE assessment_session ADD COLUMN hidden_at TEXT")
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -1148,6 +1166,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (18, "qbank_task_progress", _migrate_qbank_task_progress),
     (19, "suggestion", _migrate_suggestion),
     (20, "competency_item_facet", _migrate_competency_item_facet),
+    (21, "session_hidden_at", _migrate_session_hidden_at),
 ]
 
 

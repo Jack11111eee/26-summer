@@ -1,15 +1,23 @@
 """候选端会话历史与再入测试（SSOT §12.1/§12.6/§22.1 2026-09-08，裁决链见临时讨论稿
--候选端导航与断点续测-20260908）。
+-候选端导航与断点续测-20260908；超时收尾 sweep 与软删除见同日「候选端入口整治三件套」）。
 
-覆盖矩阵（讨论稿 §五）：
+覆盖矩阵（讨论稿 §五 + 入口整治三件套）：
 - get-or-create：无在途 201 新建 / 有在途 200 同 id 行数守恒 / 复用路径跳过 readiness
   （同岗位题库清空后在途行照常复用，新用户新建照常 409）/ PENDING_START 在途复用；
   在途超 6h → sweep 后 abandoned → 允许新建新场（201 新 session_id）
-- sweep（R8）：create 与历史两挂载点生效、状态翻转、SESSION_ABANDONED 事件
+- sweep 6h 段（R8）：create 与历史两挂载点生效、状态翻转、SESSION_ABANDONED 事件
   （from in_progress → to abandoned）；岗位列表 active_session 随之作废行消失
+- 全场超时收尾 sweep（§12.6 2026-09-08）：超时会话经 positions（挂载点三）/
+  create（挂载点一）触发 → completed + 报告行 + 事件序 GLOBAL_TIMEOUT <
+  ENTERED_SCORING < COMPLETED；PENDING_START 超 6h 走 abandoned 无报告（顺序先
+  abandon 后收尾）；PENDING_START 未超时/在途未超时摘要照常（回归）
 - 历史端点：{items,total} 信封 / 分页 / status 过滤 / created_at DESC 排序 /
   行字段（position_name join、answered_count、进行中行 session_elapsed_seconds、
   ended_at/abandoned_at）/ 本人隔离（他人会话不可见）
+- 软删除（§12.1 2026-09-08）：DELETE completed（owner 历史不出/深度链接 404/
+  admin 豁免 200/事件 from=completed）；DELETE in_progress（ABANDONED+HIDDEN 双
+  事件并存、actor=candidate、摘要不给入口）；重复 DELETE 幂等；删除他人 404；
+  列表不含 hidden 行（含 total）
 - positions 摘要（§12.6）：active_session {session_id, phase, remaining_minutes}；
   无在途 null；PENDING_START 剩余 = 40 分钟满额；start 后秒级流逝仍 40
 - suggestion（§22.1）：提交校验（空文本 422 / 超长 2001 → 422；边界 2000 放行）+ 本人历史
@@ -193,6 +201,19 @@ def _age_session(sid: str, hours: float) -> None:
     _exec(
         "UPDATE assessment_session SET created_at=?, last_activity_at=? WHERE session_id=?",
         (old, old, sid),
+    )
+
+
+def _seed_overdue_active_interval(sid: str, started_hours_ago: float = 2.0,
+                                 ended_hours_ago: float = 1.0) -> None:
+    """时间旅行（超时收尾 sweep 用）：给会话直插一段已闭合的 active 区间，
+    Σactive = started-eded 差（>40min 即超时；模拟「人回来过但已超时离开」）。"""
+    started = (datetime.now(timezone.utc) - timedelta(hours=started_hours_ago)).isoformat()
+    ended = (datetime.now(timezone.utc) - timedelta(hours=ended_hours_ago)).isoformat()
+    _exec(
+        "INSERT INTO session_time_intervals(interval_id, session_id, interval_type,"
+        " started_at, ended_at) VALUES(?,?,?,?,?)",
+        (new_id("sti"), sid, "active", started, ended),
     )
 
 
@@ -569,6 +590,259 @@ def test_positions_active_session_null_after_sweep():
     assert r.status_code == 200, r.text
     r = client.get("/api/assessment/positions", headers=headers)
     assert [p for p in r.json() if p["position_id"] == pid][0]["active_session"] is None
+
+
+# ---------- 全场超时收尾 sweep（SSOT §12.6，2026-09-08）----------
+
+def _overdue_in_progress_session(headers: dict) -> tuple[str, str]:
+    """造一场 in_progress 且 Σactive 超 40 分钟的会话（active 区间 1h 前开、0.5h 前闭
+    ——Σactive=30min 不超时？不：started 2h 前 ended 1h 前即 Σ=1h>40min 超时）。"""
+    pid = _seed_position(f"岗位收尾超时{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid)
+    body = _create_session(pid, headers)
+    _seed_overdue_active_interval(body["session_id"])
+    return pid, body["session_id"]
+
+
+def test_sweep_timeout_finalizes_via_positions():
+    """超时会话（Σactive>40min，人不再回来）→ GET positions（挂载点三）→ 会话收尾
+    completed + 0 分报告 + 事件序 GLOBAL_TIMEOUT < ENTERED_SCORING < COMPLETED +
+    岗位摘要 active_session=null（「继续测评·回到中断处」入口消失——问题②）。"""
+    headers = _register_candidate(f"sweep_to_{new_id('u')[-6:]}")
+    pid, sid = _overdue_in_progress_session(headers)
+
+    # 挂载点三即首个触发点（此前 sweep 只挂 create/历史——positions 不触发时
+    # 「人不回来」的超时会话永挂 in_progress，岗位卡留「继续测评」入口——问题②）
+    r = client.get("/api/assessment/positions", headers=headers)
+    assert r.status_code == 200, r.text
+    row = [p for p in r.json() if p["position_id"] == pid][0]
+    assert row["active_session"] is None, "超时死会话收尾后岗位摘要不得留继续入口"
+
+    sess = _q("SELECT status, phase FROM assessment_session WHERE session_id=?", (sid,))[0]
+    assert sess["status"] == "completed", sess
+    assert sess["phase"] == "SCORING", sess
+    # 0 分报告行（收尾链同步 _generate_report_task——D-005 演示约定，TestClient 同步执行）
+    reports = _q("SELECT report_status FROM report WHERE session_id=?", (sid,))
+    assert reports, "超时收尾应生成报告行"
+    assert reports[0]["report_status"] in ("READY", "PROVISIONAL", "PUBLISHED"), reports[0]
+    # 事件序（与 answer 路径收尾链完全同构——Pitfall 11 GLOBAL_TIMEOUT 最先）
+    evs = _q("SELECT event_type, sequence_no FROM assessment_state_event"
+             " WHERE session_id=? ORDER BY sequence_no", (sid,))
+    gt = next(e for e in evs if e["event_type"] == "SESSION_GLOBAL_TIMEOUT")
+    es = next(e for e in evs if e["event_type"] == "SESSION_ENTERED_SCORING")
+    cp = next(e for e in evs if e["event_type"] == "SESSION_COMPLETED")
+    assert gt["sequence_no"] < es["sequence_no"] < cp["sequence_no"], \
+        f"GLOBAL_TIMEOUT < ENTERED_SCORING < COMPLETED，实得 {[e['event_type'] for e in evs]}"
+    # 0 分：超时收尾不产生已答题，total_score 保持 0 占位
+    rpt = _q("SELECT total_score FROM report WHERE session_id=?", (sid,))[0]
+    assert rpt["total_score"] == 0.0
+
+
+def test_sweep_timeout_then_create_new_session():
+    """超时会话 → POST /sessions（挂载点一 create 复用查询前）→ 不复用超时会话，
+    新建新场（201 resumed=False）——复用查询不命中自然开新，SSOT §12.6。"""
+    headers = _register_candidate(f"sweep_cr_{new_id('u')[-6:]}")
+    pid, sid = _overdue_in_progress_session(headers)
+
+    r = client.post("/api/assessment/sessions", json={"position_id": pid}, headers=headers)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["session_id"] != sid
+    assert body["resumed"] is False
+    sess = _q("SELECT status FROM assessment_session WHERE session_id=?", (sid,))[0]
+    assert sess["status"] == "completed", "sweep（挂载点一）应已把超时会话收尾 completed"
+
+
+def test_sweep_pending_start_over_6h_abandoned_not_finalized():
+    """PENDING_START 且超 6h 无活动 → 走 abandoned（不生成报告）——先 abandon 后收尾
+    的固定顺序：超 6h 的行第一段翻终态，第二段收尾查询（status='in_progress'）
+    不再命中（作废无报告，§12.6「超 6h 的走作废（无报告）」）。"""
+    pid = _seed_position(f"岗位收尾作废{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid)
+    headers = _register_candidate(f"sweep_ps_{new_id('u')[-6:]}")
+
+    body = _create_session(pid, headers)
+    _age_session(body["session_id"], hours=7)  # PENDING_START + 超 6h 无活动
+
+    r = client.get("/api/assessment/positions", headers=headers)
+    assert r.status_code == 200, r.text
+    sess = _q("SELECT status, phase FROM assessment_session WHERE session_id=?",
+              (body["session_id"],))[0]
+    assert sess["status"] == "abandoned", sess
+    assert sess["phase"] == "ABANDONED", sess
+    assert not _q("SELECT 1 FROM report WHERE session_id=?", (body["session_id"],)), \
+        "超 6h 走作废（无报告），不得走收尾完赛"
+    row = [p for p in r.json() if p["position_id"] == pid][0]
+    assert row["active_session"] is None
+
+
+def test_sweep_pending_start_not_timed_out_keeps_resume_entry():
+    """PENDING_START 未超时（Σactive=0、last_activity 新）→ 岗位摘要照常给出继续入口
+    （active_session 非 null、phase=PENDING_START）——收尾 sweep 不误伤入场确认门。"""
+    pid = _seed_position(f"岗位收尾PENDING{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid)
+    headers = _register_candidate(f"sweep_pn_{new_id('u')[-6:]}")
+    body = _create_session(pid, headers)
+
+    r = client.get("/api/assessment/positions", headers=headers)
+    assert r.status_code == 200, r.text
+    row = [p for p in r.json() if p["position_id"] == pid][0]
+    assert row["active_session"] is not None
+    assert row["active_session"]["session_id"] == body["session_id"]
+    assert row["active_session"]["phase"] == "PENDING_START"
+    # 剩余 = 全场满额 40 分钟
+    assert row["active_session"]["remaining_minutes"] == 40
+    sess = _q("SELECT status FROM assessment_session WHERE session_id=?",
+              (body["session_id"],))[0]
+    assert sess["status"] == "in_progress"
+
+
+def test_sweep_active_not_timed_out_summary_unchanged():
+    """在途未超时会话（ACTIVE、Σactive 秒级）→ 岗位摘要不变（回归：活动中的会话
+    不被 sweep 翻状态，active_session 照常给 phase 与剩余分钟）。"""
+    pid = _seed_position(f"岗位收尾在途{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid)
+    headers = _register_candidate(f"sweep_ac_{new_id('u')[-6:]}")
+    body = _create_session(pid, headers)
+    r = client.post(f"/api/assessment/sessions/{body['session_id']}/start", headers=headers)
+    assert r.status_code == 200, r.text
+
+    r = client.get("/api/assessment/positions", headers=headers)
+    assert r.status_code == 200, r.text
+    row = [p for p in r.json() if p["position_id"] == pid][0]
+    active = row["active_session"]
+    assert active is not None and active["session_id"] == body["session_id"]
+    assert active["phase"] == "ACTIVE"
+    assert 39 <= active["remaining_minutes"] <= 40
+    sess = _q("SELECT status FROM assessment_session WHERE session_id=?",
+              (body["session_id"],))[0]
+    assert sess["status"] == "in_progress"
+
+
+# ---------- 软删除（SSOT §12.1，2026-09-08）----------
+
+def test_delete_completed_session_hides_for_owner(admin_headers):
+    """DELETE completed 会话 → 200；owner 历史不出该行、GET /sessions/{id} 404、
+    GET /reports/by-session/{id} 404；admin（allow_admin_read 读豁免）仍可 200。"""
+    pid = _seed_position(f"岗位删除完赛{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid)
+    headers = _register_candidate(f"del_c_{new_id('u')[-6:]}")
+    sid = _create_session(pid, headers)["session_id"]
+    _exec("UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+          (now_iso(), sid))
+
+    r = client.delete(f"/api/assessment/sessions/{sid}", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] is True
+
+    # owner 历史不出该行（total 计数同步不含）
+    data = client.get("/api/assessment/sessions", headers=headers).json()
+    assert all(it["session_id"] != sid for it in data["items"])
+    assert data["total"] == 0
+
+    # owner 深度链接 404（会话与报告 bootstrap——load_owned_* owner 分支 hidden 过滤）
+    assert client.get(f"/api/assessment/sessions/{sid}", headers=headers).status_code == 404
+    assert client.get(f"/api/assessment/reports/by-session/{sid}",
+                      headers=headers).status_code == 404
+
+    # admin 读豁免仍可见（管理端审计全量可见——豁免分支不过滤）
+    r = client.get(f"/api/assessment/sessions/{sid}", headers=admin_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["session_id"] == sid
+
+    # 事件留痕：SESSION_HIDDEN from=completed to=hidden actor=candidate
+    evs = _q("SELECT from_state, to_state FROM assessment_state_event"
+             " WHERE session_id=? AND event_type='SESSION_HIDDEN'", (sid,))
+    assert evs and evs[0]["from_state"] == "completed"
+    assert evs[0]["to_state"] == "hidden"
+
+
+def test_delete_in_progress_session_abandons_then_hides():
+    """DELETE in_progress 会话 → 200；SESSION_ABANDONED（actor=candidate 用户主动作废）
+    与 SESSION_HIDDEN 两事件并存；status=abandoned + hidden_at 非空；岗位摘要不再给
+    继续入口。"""
+    pid = _seed_position(f"岗位删除在途{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid)
+    headers = _register_candidate(f"del_i_{new_id('u')[-6:]}")
+    sid = _create_session(pid, headers)["session_id"]
+    # start 后再删（ACTIVE 在途，验证用户主动作废覆盖计时中途态）
+    r = client.post(f"/api/assessment/sessions/{sid}/start", headers=headers)
+    assert r.status_code == 200, r.text
+
+    r = client.delete(f"/api/assessment/sessions/{sid}", headers=headers)
+    assert r.status_code == 200, r.text
+
+    sess = _q("SELECT status, phase, hidden_at, abandoned_at FROM assessment_session"
+              " WHERE session_id=?", (sid,))[0]
+    assert sess["status"] == "abandoned", sess
+    assert sess["phase"] == "ABANDONED", sess
+    assert sess["hidden_at"] is not None
+    assert sess["abandoned_at"] is not None
+
+    evs = _q("SELECT event_type, actor_type FROM assessment_state_event"
+             " WHERE session_id=? AND event_type IN"
+             " ('SESSION_ABANDONED','SESSION_HIDDEN') ORDER BY sequence_no", (sid,))
+    assert [e["event_type"] for e in evs] == ["SESSION_ABANDONED", "SESSION_HIDDEN"], evs
+    assert all(e["actor_type"] == "candidate" for e in evs)
+
+    # 岗位摘要不再给继续入口（隐藏行不计——§12.1）
+    r = client.get("/api/assessment/positions", headers=headers)
+    row = [p for p in r.json() if p["position_id"] == pid][0]
+    assert row["active_session"] is None
+
+
+def test_delete_session_idempotent():
+    """重复 DELETE 已 hidden 行 → 幂等 200（不重复写事件——同 evidence-exclusions
+    lift 先例）。"""
+    pid = _seed_position(f"岗位删除幂等{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid)
+    headers = _register_candidate(f"del_d_{new_id('u')[-6:]}")
+    sid = _create_session(pid, headers)["session_id"]
+    _exec("UPDATE assessment_session SET status='abandoned', phase='ABANDONED',"
+          " abandoned_at=? WHERE session_id=?", (now_iso(), sid))
+
+    r1 = client.delete(f"/api/assessment/sessions/{sid}", headers=headers)
+    r2 = client.delete(f"/api/assessment/sessions/{sid}", headers=headers)
+    assert r1.status_code == 200 and r2.status_code == 200, (r1.text, r2.text)
+    events = _q("SELECT COUNT(*) c FROM assessment_state_event"
+                " WHERE session_id=? AND event_type='SESSION_HIDDEN'", (sid,))[0]["c"]
+    assert events == 1, "重复 DELETE 不得重复写 SESSION_HIDDEN 事件"
+
+
+def test_delete_session_owner_isolation():
+    """删除他人会话 → 404（owner-only 写——load_owned_session 不传 allow_admin_read）。"""
+    pid = _seed_position(f"岗位删除越权{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid)
+    headers_a = _register_candidate(f"del_a_{new_id('u')[-6:]}")
+    headers_b = _register_candidate(f"del_b_{new_id('u')[-6:]}")
+    sid = _create_session(pid, headers_a)["session_id"]
+
+    r = client.delete(f"/api/assessment/sessions/{sid}", headers=headers_b)
+    assert r.status_code == 404, r.text
+    sess = _q("SELECT hidden_at FROM assessment_session WHERE session_id=?", (sid,))[0]
+    assert sess["hidden_at"] is None, "越权删除不得写 hidden_at"
+
+
+def test_history_list_excludes_hidden_rows():
+    """GET /sessions 列表不含 hidden 行（含 total 计数）——软删除行从本人历史消失。"""
+    pid_a = _seed_position(f"岗位隐藏A{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid_a)
+    pid_b = _seed_position(f"岗位隐藏B{new_id('s')[-6:]}")
+    _seed_confirmed_model(pid_b)
+    headers = _register_candidate(f"del_l_{new_id('u')[-6:]}")
+    sid_a = _create_session(pid_a, headers)["session_id"]
+    sid_b = _create_session(pid_b, headers)["session_id"]
+
+    # 删除前：2 行
+    data = client.get("/api/assessment/sessions", headers=headers).json()
+    assert data["total"] == 2
+
+    r = client.delete(f"/api/assessment/sessions/{sid_a}", headers=headers)
+    assert r.status_code == 200, r.text
+    data = client.get("/api/assessment/sessions", headers=headers).json()
+    assert data["total"] == 1
+    ids = [it["session_id"] for it in data["items"]]
+    assert sid_a not in ids and sid_b in ids
 
 
 # ---------- suggestion（§22.1）----------

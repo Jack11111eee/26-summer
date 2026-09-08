@@ -158,44 +158,53 @@ def _collect_evidence_quotes(session_id: str, item_ids: list[str]) -> dict:
     return out
 
 
-def _detect_bad_case_divergence(conn, session_id: str) -> int:
+def _detect_bad_case_divergence(session_id: str) -> int:
     """双分背离检测（REF-5.11/D-075）：|score_live - score_final| ≥ 阈值 → INSERT
     bad_case_candidate（status='pending'），永不 UPDATE question_score 的 score 字段（D-031）。
 
     阈值为 None（占位待裁决）时直接返回 0 不检测——不臆造数值。幂等：同
     (session_id, item_id, question_id) 已有 pending 候选则跳过（报告版本化重复生成不重复建）。
-    返回本次新建候选行数。调用方（generate_report）负责 conn.commit()。
+    返回本次新建候选行数。
+
+    独立小事务：函数内部自开连接、自 commit/close（不借调用方 conn）——2026-09-08
+    事故复盘（generate_report 持 RESERVED 锁进 LLM 调用 → llm_trace 落库 5s 超时
+    database is locked 全进程写库 500）：INSERT 在进 LLM 调用前必须已释放写锁。
     """
     threshold = config.BAD_CASE_DIVERGENCE_THRESHOLD
     if threshold is None:
         return 0
-    rows = conn.execute(
-        "SELECT question_id, item_id, score_live, score_final FROM question_score"
-        " WHERE session_id=? AND score_live IS NOT NULL AND score_final IS NOT NULL",
-        (session_id,),
-    ).fetchall()
-    created = 0
-    for r in rows:
-        divergence = abs((r["score_live"] or 0) - (r["score_final"] or 0))
-        if divergence < threshold:
-            continue
-        qid = r["question_id"]
-        exists = conn.execute(
-            "SELECT 1 FROM bad_case_candidate WHERE session_id=? AND item_id=?"
-            " AND status='pending' AND question_id IS ?",
-            (session_id, r["item_id"], qid),
-        ).fetchone()
-        if exists is not None:
-            continue
-        conn.execute(
-            "INSERT INTO bad_case_candidate(candidate_id, session_id, item_id, question_id,"
-            " score_live, score_final, divergence, status, detected_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?)",
-            (new_id("bc"), session_id, r["item_id"], qid,
-             r["score_live"], r["score_final"], divergence, "pending", now_iso()),
-        )
-        created += 1
-    return created
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT question_id, item_id, score_live, score_final FROM question_score"
+            " WHERE session_id=? AND score_live IS NOT NULL AND score_final IS NOT NULL",
+            (session_id,),
+        ).fetchall()
+        created = 0
+        for r in rows:
+            divergence = abs((r["score_live"] or 0) - (r["score_final"] or 0))
+            if divergence < threshold:
+                continue
+            qid = r["question_id"]
+            exists = conn.execute(
+                "SELECT 1 FROM bad_case_candidate WHERE session_id=? AND item_id=?"
+                " AND status='pending' AND question_id IS ?",
+                (session_id, r["item_id"], qid),
+            ).fetchone()
+            if exists is not None:
+                continue
+            conn.execute(
+                "INSERT INTO bad_case_candidate(candidate_id, session_id, item_id, question_id,"
+                " score_live, score_final, divergence, status, detected_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
+                (new_id("bc"), session_id, r["item_id"], qid,
+                 r["score_live"], r["score_final"], divergence, "pending", now_iso()),
+            )
+            created += 1
+        conn.commit()
+        return created
+    finally:
+        conn.close()
 
 
 def generate_report(session_id: str) -> dict:
@@ -204,110 +213,119 @@ def generate_report(session_id: str) -> dict:
     流程：聚合 → 七项一致性校验（任一失败 → report_status='FAILED' 行，不生成正常
     报告）→ 版本化 INSERT（version = session 内 MAX+1）→ report→trace trace_link 写点。
     返回 report_data 附加 report_status/version 键。
+
+    连接纪律（2026-09-08 事故复盘）：进入 LLM 调用（call_llm_json）前 conn 不得持有
+    未提交写事务（llm_trace/失败收尾都另开连接写库，撞 RESERVED 锁 5s 超时全进程
+    database is locked）；异常路径 finally 统一 rollback 清事务释放写锁（正常路径
+    末尾已 commit，rollback 为无害 no-op），不 close（现状 get_conn 靠 GC 回收）。
     """
     conn = get_conn()
-    s = conn.execute(
-        "SELECT s.session_id, p.name AS position_name FROM assessment_session s"
-        " JOIN position p ON p.position_id=s.position_id WHERE s.session_id=?",
-        (session_id,),
-    ).fetchone()
-    if s is None:
-        raise ValueError(f"会话不存在: {session_id}")
+    try:
+        s = conn.execute(
+            "SELECT s.session_id, p.name AS position_name FROM assessment_session s"
+            " JOIN position p ON p.position_id=s.position_id WHERE s.session_id=?",
+            (session_id,),
+        ).fetchone()
+        if s is None:
+            raise ValueError(f"会话不存在: {session_id}")
 
-    agg = aggregate_session_scores(session_id)
-    question_reviews = _load_question_reviews(session_id)
-    # 双分背离候选检测（REF-5.11）：评分已由 score_session 单独 commit，此处 conn 读取
-    # 已落库的 score_live/score_final，INSERT 候选随本 conn 末尾 commit 一并落库（D-031 不改分）
-    _detect_bad_case_divergence(conn, session_id)
+        agg = aggregate_session_scores(session_id)
+        question_reviews = _load_question_reviews(session_id)
+        # 双分背离候选检测（REF-5.11）：已改独立小事务（函数内部自开连接、自
+        # commit/close）——本 conn 进 LLM 调用时不再持 RESERVED 锁（D-031 不改分）
+        _detect_bad_case_divergence(session_id)
 
-    # 雷达图数据（ECharts）：required vs actual，按 item 顺序对齐；gate/无数据项跳过
-    radar_items = [it for it in agg["item_scores"]
-                   if not it.get("gate") and it.get("actual_level") is not None]
-    radar_data = {
-        "indicators": [{"name": it["std_name"], "max": 5, "imputed": bool(it.get("imputed"))} for it in radar_items],
-        "required": [it["required_level"] or 0 for it in radar_items],
-        "actual": [it["actual_level"] for it in radar_items],
-    }
+        # 雷达图数据（ECharts）：required vs actual，按 item 顺序对齐；gate/无数据项跳过
+        radar_items = [it for it in agg["item_scores"]
+                       if not it.get("gate") and it.get("actual_level") is not None]
+        radar_data = {
+            "indicators": [{"name": it["std_name"], "max": 5, "imputed": bool(it.get("imputed"))} for it in radar_items],
+            "required": [it["required_level"] or 0 for it in radar_items],
+            "actual": [it["actual_level"] for it in radar_items],
+        }
 
-    gate_passed = all(g["passed"] for g in agg["gate_items"]) if agg["gate_items"] else True
+        gate_passed = all(g["passed"] for g in agg["gate_items"]) if agg["gate_items"] else True
 
-    # LLM 生成优劣/建议文字（绑证据）；trace_out 拿 report LLM 调 trace_id（供 trace_link）
-    item_ids = [s["item_id"] for s in agg["strengths"]] + [w["item_id"] for w in agg["weaknesses"]]
-    evidence_quotes = _collect_evidence_quotes(session_id, item_ids)
-    trace_out: list[str] = []
-    llm_out = call_llm_json(
-        "report", session_id, REPORT_SYSTEM,
-        report_prompt(s["position_name"], agg["strengths"], agg["weaknesses"], evidence_quotes),
-        mock_fn=_mock_report,
-        trace_out=trace_out,
-    )
-
-    report_id = new_id("rpt")
-    report_data = {
-        "report_id": report_id,
-        "session_id": session_id,
-        "position_name": s["position_name"],
-        "total_score": agg["total_score"],
-        "gate_passed": gate_passed,
-        "gate_details": agg["gate_items"],
-        "radar_data": radar_data,
-        "item_details": [
-            {**it, "score": round(it.get("score") or 0.0, 2)}
-            for it in agg["item_scores"]
-        ],
-        "strengths": agg["strengths"],
-        "weaknesses": agg["weaknesses"],
-        "strengths_text": llm_out.get("strengths_text", ""),
-        "weaknesses_text": llm_out.get("weaknesses_text", ""),
-        "suggestions_text": llm_out.get("suggestions_text", ""),
-        "question_reviews": question_reviews,
-        "review_status": agg.get("review_status"),
-        "observation_status": agg.get("observation_status"),
-        "provisional": agg.get("provisional", False),
-        "coverage": agg.get("coverage", {}),
-        "created_at": now_iso(),
-    }
-
-    # 七项一致性校验（聚合后、版本化 INSERT 前）；⑦ 只校验 LLM 产出的文案段（不信任 LLM 文案，
-    # 而非候选人可控文本——WR-06）
-    llm_text = "\n".join(filter(None, (
-        llm_out.get("strengths_text"),
-        llm_out.get("weaknesses_text"),
-        llm_out.get("suggestions_text"),
-    )))
-    errors = _run_consistency_checks(agg, session_id, report_text=llm_text)
-    if errors:
-        _insert_report_row(
-            conn, session_id, status="FAILED",
-            report_json={"error": "; ".join(errors)[:200]},
-            review_status=agg.get("review_status"), report_id=report_id,
+        # LLM 生成优劣/建议文字（绑证据）；trace_out 拿 report LLM 调 trace_id（供 trace_link）
+        item_ids = [s["item_id"] for s in agg["strengths"]] + [w["item_id"] for w in agg["weaknesses"]]
+        evidence_quotes = _collect_evidence_quotes(session_id, item_ids)
+        trace_out: list[str] = []
+        llm_out = call_llm_json(
+            "report", session_id, REPORT_SYSTEM,
+            report_prompt(s["position_name"], agg["strengths"], agg["weaknesses"], evidence_quotes),
+            mock_fn=_mock_report,
+            trace_out=trace_out,
         )
+
+        report_id = new_id("rpt")
+        report_data = {
+            "report_id": report_id,
+            "session_id": session_id,
+            "position_name": s["position_name"],
+            "total_score": agg["total_score"],
+            "gate_passed": gate_passed,
+            "gate_details": agg["gate_items"],
+            "radar_data": radar_data,
+            "item_details": [
+                {**it, "score": round(it.get("score") or 0.0, 2)}
+                for it in agg["item_scores"]
+            ],
+            "strengths": agg["strengths"],
+            "weaknesses": agg["weaknesses"],
+            "strengths_text": llm_out.get("strengths_text", ""),
+            "weaknesses_text": llm_out.get("weaknesses_text", ""),
+            "suggestions_text": llm_out.get("suggestions_text", ""),
+            "question_reviews": question_reviews,
+            "review_status": agg.get("review_status"),
+            "observation_status": agg.get("observation_status"),
+            "provisional": agg.get("provisional", False),
+            "coverage": agg.get("coverage", {}),
+            "created_at": now_iso(),
+        }
+
+        # 七项一致性校验（聚合后、版本化 INSERT 前）；⑦ 只校验 LLM 产出的文案段（不信任 LLM 文案，
+        # 而非候选人可控文本——WR-06）
+        llm_text = "\n".join(filter(None, (
+            llm_out.get("strengths_text"),
+            llm_out.get("weaknesses_text"),
+            llm_out.get("suggestions_text"),
+        )))
+        errors = _run_consistency_checks(agg, session_id, report_text=llm_text)
+        if errors:
+            _insert_report_row(
+                conn, session_id, status="FAILED",
+                report_json={"error": "; ".join(errors)[:200]},
+                review_status=agg.get("review_status"), report_id=report_id,
+            )
+            conn.commit()
+            return {"report_id": report_id, "session_id": session_id,
+                    "report_status": "FAILED", "error": "; ".join(errors)[:200]}
+
+        # 状态机推进：provisional 或 HUMAN_REVIEW_REQUIRED → PROVISIONAL，否则 READY
+        report_status = "PROVISIONAL" if (
+            agg.get("provisional") or agg.get("review_status") == "HUMAN_REVIEW_REQUIRED"
+        ) else "READY"
+
+        _insert_report_row(
+            conn, session_id, status=report_status,
+            review_status=agg.get("review_status"),
+            total_score=agg["total_score"], gate_passed=int(gate_passed),
+            report_json=report_data, report_id=report_id,
+        )
+
+        # report→trace 运行时 trace_link 写点（D-56 闭合五要素审计链）
+        if trace_out:
+            link_entity(conn, trace_id=trace_out[0], entity_type="report",
+                        entity_id=report_id, link_role="reported")
+            link_entity(conn, trace_id=trace_out[0], entity_type="assessment_session",
+                        entity_id=session_id, link_role="source")
+
         conn.commit()
-        return {"report_id": report_id, "session_id": session_id,
-                "report_status": "FAILED", "error": "; ".join(errors)[:200]}
-
-    # 状态机推进：provisional 或 HUMAN_REVIEW_REQUIRED → PROVISIONAL，否则 READY
-    report_status = "PROVISIONAL" if (
-        agg.get("provisional") or agg.get("review_status") == "HUMAN_REVIEW_REQUIRED"
-    ) else "READY"
-
-    _insert_report_row(
-        conn, session_id, status=report_status,
-        review_status=agg.get("review_status"),
-        total_score=agg["total_score"], gate_passed=int(gate_passed),
-        report_json=report_data, report_id=report_id,
-    )
-
-    # report→trace 运行时 trace_link 写点（D-56 闭合五要素审计链）
-    if trace_out:
-        link_entity(conn, trace_id=trace_out[0], entity_type="report",
-                    entity_id=report_id, link_role="reported")
-        link_entity(conn, trace_id=trace_out[0], entity_type="assessment_session",
-                    entity_id=session_id, link_role="source")
-
-    conn.commit()
-    report_data["report_status"] = report_status
-    report_data["version"] = conn.execute(
-        "SELECT version FROM report WHERE report_id=?", (report_id,)
-    ).fetchone()[0]
-    return report_data
+        report_data["report_status"] = report_status
+        report_data["version"] = conn.execute(
+            "SELECT version FROM report WHERE report_id=?", (report_id,)
+        ).fetchone()[0]
+        return report_data
+    finally:
+        # 兜底清事务（正常路径已 commit → no-op；异常路径丢未决写、释放写锁）
+        conn.rollback()

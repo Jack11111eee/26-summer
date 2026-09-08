@@ -1,5 +1,18 @@
 <template>
   <div class="page">
+    <!-- 删除确认（§12.1 软删除：三态行均可删，文案如实——in_progress 即用户主动作废） -->
+    <UiConfirm
+      v-if="delTarget"
+      title="删除测评记录"
+      :message="delTarget.status === 'in_progress'
+        ? '删除将作废本场测评，进度不可恢复。确认删除？'
+        : '删除后该记录不再显示，报告不可再访问。确认删除？'"
+      confirm-text="删除"
+      danger
+      @close="delTarget = null"
+      @confirm="confirmDelete"
+    />
+
     <div class="page-head">
       <div class="open-head serif">
         <div class="kicker">ASSESSMENT · 测评历史</div>
@@ -46,13 +59,16 @@
           <div class="hist-actions">
             <!-- in_progress：继续直达 Chat（PAUSED/PENDING_START 由 Chat 页现有门卡处理） -->
             <button v-if="it.status === 'in_progress'" class="btn-accent hist-btn" @click="router.push(`/assessment/session/${it.session_id}`)">继续测评 →</button>
-            <!-- completed：报告 + 模型两入口（Report bootstrap 自愈无报告与 FAILED 重入队） -->
+            <!-- completed：报告 + 模型两入口（Report bootstrap 自愈无报告与 FAILED 重入队）；
+                 评估模型走 preview=1 只读预览态——不再作开考入口（2026-09-08 改） -->
             <template v-else-if="it.status === 'completed'">
               <button class="btn-accent hist-btn" @click="router.push(`/assessment/report/${it.session_id}`)">查看报告</button>
-              <button class="btn-ghost hist-btn" @click="router.push(`/assessment/positions/${it.position_id}`)">评估模型</button>
+              <button class="btn-ghost hist-btn" @click="router.push(`/assessment/positions/${it.position_id}?preview=1`)">评估模型</button>
             </template>
             <!-- abandoned：仅作废标记，无入口 -->
             <span v-else class="field-hint" style="align-self: center">超时未归，已作废</span>
+            <!-- 删除（§12.1 软删除，三态行均挂）：in_progress 删除即用户主动作废 -->
+            <button class="hist-del" type="button" :disabled="deleting" @click="delTarget = it">删除</button>
           </div>
         </div>
 
@@ -68,13 +84,16 @@
 </template>
 
 <script setup>
-// 测评历史页（§12.6）：本人会话列表（服务端分页 + status 过滤），三态行入口——
-// in_progress 继续直达 Chat（恢复链现成）；completed 报告/模型两入口；abandoned 只读。
-import { onMounted, ref } from 'vue'
+// 测评历史页（§12.1/§12.6）：本人会话列表（服务端分页 + status 过滤），三态行入口——
+// in_progress 继续直达 Chat（恢复链现成）；completed 报告/模型两入口（评估模型
+// preview=1 只读预览，2026-09-08）；abandoned 只读；三态行均挂「删除」（软删除）。
+import { onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { assessment, errMsg } from '../../api'
-import { toast, UiPager } from '../../components/ui'
+import { toast, UiConfirm, UiPager } from '../../components/ui'
 import { formatTime } from '../../lib/labels'
+
+defineOptions({ name: 'AssessmentHistory' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 const router = useRouter()
 const items = ref([])
@@ -83,6 +102,9 @@ const page = ref(1)
 const pageSize = ref(10)
 const statusFilter = ref('')
 const loading = ref(false)
+// 删除确认（UiConfirm 形态——同 Chat.vue 退出确认先例）：待删行快照 + 请求中锁
+const delTarget = ref(null)
+const deleting = ref(false)
 
 const STATUS_FILTERS = [
   { value: '', label: '全部' },
@@ -118,5 +140,30 @@ async function load() {
   }
 }
 
+async function confirmDelete() {
+  const target = delTarget.value
+  if (!target || deleting.value) return
+  deleting.value = true
+  try {
+    await assessment.deleteSession(target.session_id)
+    toast('已删除该测评记录')
+    delTarget.value = null
+    // 被删行所在页可能清空（如末页仅 1 行）——page 收缩由 UiPager 钳制，此处直接按现页重拉
+    await load()
+  } catch (e) {
+    toast(errMsg(e, '删除失败，请稍后再试'), 'error')
+  } finally {
+    deleting.value = false
+  }
+}
+
 onMounted(load)
+
+// keep-alive 激活：静默重拉保筛选保页码（booted 守卫防首屏双拉；返回自报告页时
+// sweep 已在列表端点内跑过，超时会话状态如实更新，§5，2026-09-08）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  load()
+})
 </script>

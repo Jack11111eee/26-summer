@@ -1,6 +1,9 @@
 """测评端 API（P5）：可测评岗位列表 + 测评会话/答题/表单/打分/报告（模块二 M5 + 模块三 M6）。"""
 import json
 import math
+import sys
+import threading
+from datetime import datetime, timezone
 from typing import Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -42,6 +45,11 @@ from ..services.timer import (
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
 
+# GENERATING 占位行超龄判定与后台链看门狗共用的阈值（秒）——60 分钟（用户裁决 2026-09-08：
+# 统一语义：既是前端可见的死任务接管阈值，也是后端看门狗超时）。request_report 据此
+# 放行超龄 GENERATING 行的接管重试；_generate_report_task 看门狗据此对串行链兜底。
+_STALE_GENERATING_SECONDS = 60 * 60
+
 
 def _latest_confirmed_model(conn, position_id: str):
     """取岗位最新 confirmed 模型行（WR-15：「最新 confirmed 版」唯一口径）。
@@ -63,11 +71,14 @@ def _active_session_summary(conn, position_id: str, user_id: str) -> dict | None
 
     remaining = max(0, SESSION_TOTAL_MINUTES*60 − Σactive)//60——「剩余约 X 分钟」展示口径，
     与全场超时判定（answer 点检）同源同封顶——超时读数在列表层封 0 不为负。
-    PENDING_START 行 active 区间未开 → 剩余 = 全场满额。
+    PENDING_START 行 active 区间未开 → 剩余 = 全场满额。隐藏行不计（§12.1 软隐藏——
+    删除后的会话不再给继续入口）；超时死会话由前置 sweep 收尾完成后不再命中
+    in_progress 派生源。
     """
     row = conn.execute(
         "SELECT session_id, phase FROM assessment_session"
         " WHERE user_id=? AND position_id=? AND status='in_progress'"
+        " AND hidden_at IS NULL"
         " ORDER BY created_at DESC LIMIT 1",
         (user_id, position_id),
     ).fetchone()
@@ -88,9 +99,17 @@ def list_assessable_positions(user: dict = Depends(require_login)) -> list[dict]
 
     每行附 active_session 摘要（SSOT §12.6）：本人该岗位最新 in_progress 会话派生，
     None = 该岗位无在途场次（前端按钮保持「开始测评」）；router 级 require_login 已
-    保证登录，本参数仅为取 user_id。
+    保证登录，本参数仅为取 user_id。摘要计算前先跑 §12.6 sweep（挂载点三，2026-09-08
+    增）——超时死会话当场收尾后不出现「继续测评」入口（人不回来答题永不收尾的
+    唯一缺口；answer 路径点检只在回来答题时生效）。
     """
     conn = get_conn()
+    # 前置 sweep（§12.6 挂载点三，2026-09-08 增）：摘要计算前对本人 in_progress 行
+    # 跑双段 sweep（6h 惰性作废 + 全场超时收尾；sweep 第一段不 commit——
+    # D-06 事务边界由本层持有，有改动即落库再继续，仿 create/list 两处模式）
+    sweep_user_stale_sessions(conn, user["user_id"])
+    if conn.in_transaction:
+        conn.commit()
     # WR-15：全程取每岗位最新 confirmed 版（相关子查询），岗位排序与版本号无关
     rows = conn.execute(
         "SELECT p.position_id, p.name, m.version, m.model_id,"
@@ -143,15 +162,17 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
     （HTTP 200，resumed=True，不 INSERT 新行、跳过 readiness 检查——在途豁免，
     会话锚定创建时的模型版本，动态派题不断粮）；否则照旧新建（201，resumed=False，
     readiness 检查照常）。复用取 created_at DESC 最新行；复用查询前先对本人 in_progress
-    行跑 6h sweep（§12.6——防复用超时死会话）。首题在首次 GET /answer 时由
+    行跑 §12.6 双段 sweep（6h abandon + 全场超时收尾——超时行先收尾 completed，
+    复用查询不命中自然新建新场，2026-09-08 起为双段）。首题在首次 GET /answer 时由
     select_next_question 派发（02-02，SSOT §10.6）。
     """
     position_id = body.get("position_id")
     if not position_id:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 position_id")
     conn = get_conn()
-    # 前置 sweep（§12.6 挂载点一）：复用查询前对本人 in_progress 行跑 6h 惰性作废
-    # （sweep 不 commit——D-06 事务边界由本层持有，有改动即落库再继续）
+    # 前置 sweep（§12.6 挂载点一）：复用查询前对本人 in_progress 行跑双段 sweep
+    # （6h 惰性作废 + 全场超时收尾；sweep 第一段不 commit——D-06 事务边界由本层
+    # 持有，有改动即落库再继续）
     sweep_user_stale_sessions(conn, user["user_id"])
     if conn.in_transaction:
         conn.commit()
@@ -210,7 +231,8 @@ def list_sessions(page: int = 1, page_size: int = 20,
     （WHERE user_id=当前用户）。行字段含 position_name（join position）、
     answered_count（answered_at 非空计数子查询）、session_elapsed_seconds（仅
     in_progress 行——「剩余 X 分钟」展示；其余 null）。列出前先跑 §12.6 sweep
-    （「不回来的会话」在历史如实显示已作废，不删证据）。
+    （「不回来的会话」在历史如实显示已作废，不删证据）。软隐藏行不出
+    （§12.1 hidden_at IS NULL——删除后行从本人历史消失）。
     """
     if status not in (None, "", "in_progress", "completed", "abandoned"):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -219,11 +241,11 @@ def list_sessions(page: int = 1, page_size: int = 20,
     page_size = clamp_pagination_limit(page_size)
     offset = (page - 1) * page_size
     conn = get_conn()
-    # 前置 sweep（§12.6 挂载点二）：本人 in_progress 行 6h 惰性作废（sweep 不 commit）
+    # 前置 sweep（§12.6 挂载点二）：本人 in_progress 行双段 sweep（6h 作废 + 全场超时收尾）
     sweep_user_stale_sessions(conn, user["user_id"])
     if conn.in_transaction:
         conn.commit()
-    where = "s.user_id=?"
+    where = "s.user_id=? AND s.hidden_at IS NULL"
     params: list = [user["user_id"]]
     if status:
         where += " AND s.status=?"
@@ -249,6 +271,55 @@ def list_sessions(page: int = 1, page_size: int = 20,
                                         if d["status"] == "in_progress" else None)
         items.append(d)
     return {"items": items, "total": total}
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(session_id: str, user: dict = Depends(require_login)) -> dict:
+    """候选端软删除（SSOT §12.1，2026-09-08）：全状态可删——owner-only 写。
+
+    completed/abandoned 行：直写 hidden_at + SESSION_HIDDEN 事件（from_state=当前
+    status，to_state='hidden'，actor_type='candidate'）；in_progress 行：先按用户
+    主动作废写 SESSION_ABANDONED（actor=candidate——用户主动作废，abandonment 留痕；
+    不调 maybe_abandon_session——那是不足 6h 时的 no-op，此处无条件作废）+ 直接
+    UPDATE（无 6h 判定 / 终态补刀归档——归档谓词只认 status='in_progress' 行的
+    在途豁免，行即将 hidden 保持快照即可），再同事务写 hidden_at + SESSION_HIDDEN。
+    幂等（同 evidence-exclusions lift 先例）：重复 DELETE 已 hidden 行 → 200 直返，
+    不重复写事件。owner 判定不走 load_owned_session（其 owner 分支已滤 hidden——
+    已删行会先 404 到不了幂等分支），此处自带同键查询不滤 hidden。返回体最小化。
+    不做取消隐藏（本期单向；admin 读豁免分支不过滤 hidden——管理端审计全量可见，
+    append-only 不破）。
+    """
+    conn = get_conn()
+    # owner-only 写：自带 owner 判定（session_id+user_id 双键、不滤 hidden——幂等须
+    # 读得到已删行）；admin 与其他候选人同路径 404（D-03，写路径无读豁免）
+    s = conn.execute(
+        "SELECT status, hidden_at FROM assessment_session WHERE session_id=? AND user_id=?",
+        (session_id, user["user_id"]),
+    ).fetchone()
+    if s is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+    if s["hidden_at"] is not None:
+        return {"session_id": session_id, "deleted": True}
+    now = now_iso()
+    if s["status"] == "in_progress":
+        # 用户主动作废（区别于 6h 系统惰性作废的事件 actor=system）：无条件翻终态
+        conn.execute(
+            "UPDATE assessment_session SET status='abandoned', phase='ABANDONED',"
+            " abandoned_at=? WHERE session_id=?",
+            (now, session_id),
+        )
+        append_event(conn, session_id=session_id, event_type="SESSION_ABANDONED",
+                     from_state="in_progress", to_state="abandoned",
+                     actor_type="candidate", actor_id=user["user_id"])
+    conn.execute(
+        "UPDATE assessment_session SET hidden_at=? WHERE session_id=?",
+        (now, session_id),
+    )
+    append_event(conn, session_id=session_id, event_type="SESSION_HIDDEN",
+                 from_state="abandoned" if s["status"] == "in_progress" else s["status"],
+                 to_state="hidden", actor_type="candidate", actor_id=user["user_id"])
+    conn.commit()
+    return {"session_id": session_id, "deleted": True}
 
 
 @router.get("/sessions/{session_id}")
@@ -535,6 +606,65 @@ def _render_form_branch(conn, session_id: str, question_id: str, decision: dict)
     )
 
 
+def _finalize_global_timeout(conn, s: dict) -> None:
+    """全场超时收尾链（SSOT §12.6「同一实现提取共用」，2026-09-08）：answer 路径点检
+    与 sweep（不回来的超时会话）共用——事件序 GLOBAL_TIMEOUT → ENTERED_SCORING →
+    COMPLETED 逐字节保持（Pitfall 11：GLOBAL_TIMEOUT 独立小事务先落，sequence_no
+    顺序断言 GLOBAL_TIMEOUT 最先）。
+
+    链体：GLOBAL_TIMEOUT 事件 + phase=SCORING → commit → _generate_report_task
+    同步串行链（D-005 单进程演示，内部 ENTERED_SCORING 事件自然靠后）→
+    status=completed + SESSION_COMPLETED → 终态补刀归档（§9.2 规则④）→ commit。
+    s 为 assessment_session 行 dict（仅需 session_id/position_id 两键）。
+    answer 路径特有的 finish_decision / 幂等 finalize / SSE 响应不在本函数——
+    由 submit_answer 原位拼接（报告生成失败走后台链既有 FAILED 行自愈，SSOT §12.6）。
+    """
+    session_id = s["session_id"]
+    append_event(conn, session_id=session_id, event_type="SESSION_GLOBAL_TIMEOUT",
+                 from_state="ACTIVE", to_state="SCORING", actor_type="system")
+    conn.execute("UPDATE assessment_session SET phase='SCORING' WHERE session_id=?", (session_id,))
+    conn.commit()
+    # 串行链（同步——D-005 单进程演示；_generate_report_task 纯函数入口，其内部
+    # ENTERED_SCORING 事件自然靠后）
+    _generate_report_task(session_id)
+    # 正常收尾口径（phase 承载 SCORING 态，status 枚举无 SCORING——Anti-pattern 4）
+    conn.execute(
+        "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
+        (now_iso(), session_id),
+    )
+    append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
+                 from_state="in_progress", to_state="completed", actor_type="system")
+    # 终态补刀归档（SSOT §9.2 2026-09-08 规则④，全场超时收尾路径）
+    archive_superseded_banks(conn, s["position_id"])
+    conn.commit()
+
+
+def finalize_user_timedout_sessions(conn, user_id: str) -> None:
+    """全场超时收尾 sweep（SSOT §12.6，2026-09-08）：本人 in_progress 且未隐藏行中
+    Σactive > SESSION_TOTAL_MINUTES*60 者，走 _finalize_global_timeout（GLOBAL_TIMEOUT
+    → 0 分报告 → completed → 终态补刀归档）——与答题路径收尾完全同构（报告生成失败
+    走既有 FAILED 行 + Report bootstrap 自愈，sweep 不重试不阻塞；首次触发同步等待
+    数秒 by-design，D-005 单进程演示约定）。
+
+    事务边界：收尾链内部自理 commit（Pitfall 11 独立小事务 + 串行报告链各自的
+    事务——复用 answer 路径原语，不引入第二套事务形态）；无命中行零写入零 commit
+    （timer.py 零 commit 契约调用方 sweep_user_stale_sessions 随后判
+    conn.in_transaction 再决定是否落库）。PENDING_START 行不特判：Σactive=0 自然
+    不超限（§12.6 重回入场确认门语义）；hidden 行不收尾（已删会话保持删除时的
+    快照，不再翻状态）。与 6h abandon 的先后顺序由 sweep_user_stale_sessions
+    固定（先 abandon 后收尾——超 6h 的走作废无报告，40min<Σactive<6h 的走收尾完赛）。
+    """
+    rows = conn.execute(
+        "SELECT session_id, position_id FROM assessment_session"
+        " WHERE user_id=? AND status='in_progress' AND hidden_at IS NULL",
+        (user_id,),
+    ).fetchall()
+    for r in rows:
+        if session_active_seconds(conn, r["session_id"]) <= _config.SESSION_TOTAL_MINUTES * 60:
+            continue
+        _finalize_global_timeout(conn, dict(r))
+
+
 @router.post("/sessions/{session_id}/answer")
 def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(require_login)) -> StreamingResponse:
     """提交回答：精炼落库 → interview 决策 → 落 assistant 消息 → 推进题目/会话状态。
@@ -648,24 +778,10 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
         )
     # (5) 全场超时点检（Σactive > SESSION_TOTAL_MINUTES → 收尾；Pitfall 11 先因后果）
     if session_active_seconds(conn, session_id) > _config.SESSION_TOTAL_MINUTES * 60:
-        # GLOBAL_TIMEOUT 独立小事务先落（Pitfall 11——sequence_no 顺序断言 GLOBAL_TIMEOUT 最先）
-        append_event(conn, session_id=session_id, event_type="SESSION_GLOBAL_TIMEOUT",
-                     from_state="ACTIVE", to_state="SCORING", actor_type="system")
-        conn.execute("UPDATE assessment_session SET phase='SCORING' WHERE session_id=?", (session_id,))
-        conn.commit()
-        # 串行链（同步——D-005 单进程演示；_generate_report_task 纯函数入口，其内部
-        # ENTERED_SCORING 事件自然靠后）
-        _generate_report_task(session_id)
-        # 正常收尾口径（phase 承载 SCORING 态，status 枚举无 SCORING——Anti-pattern 4）
-        conn.execute(
-            "UPDATE assessment_session SET status='completed', ended_at=? WHERE session_id=?",
-            (now_iso(), session_id),
-        )
-        append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
-                     from_state="in_progress", to_state="completed", actor_type="system")
-        # 终态补刀归档（SSOT §9.2 2026-09-08 规则④，全场超时收尾路径）
-        archive_superseded_banks(conn, s["position_id"])
-        conn.commit()
+        # 收尾链与 sweep 共用同一实现（SSOT §12.6「同一实现提取共用」——
+        # answer 路径与不回来的会话行为完全同构）；finish_decision / 幂等 /
+        # SSE 响应为 answer 路径特有，留在本函数原位
+        _finalize_global_timeout(conn, s)
         finish_decision = {
             "action": "finish",
             "reason": "全场超时收尾",
@@ -1204,8 +1320,8 @@ def _write_failed_report(session_id: str, error: str) -> None:
         conn.close()
 
 
-def _generate_report_task(session_id: str) -> None:
-    """后台任务：评分→报告串行链（D-08 方案 B，SSOT §21.1 前端完成后由服务端执行）。
+def _run_report_task(session_id: str) -> None:
+    """后台任务内层：评分→报告串行链本体（D-08 方案 B，SSOT §21.1 前端完成后由服务端执行）。
 
     异常 → 写 FAILED 行 + TASK_FAILED 事件（REF-8.3 失败显式可见，不再静默）。
     completed 会话评分经 allow_completed 内部链豁免（D-03：串行链语义，不经候选人端点）。
@@ -1228,7 +1344,32 @@ def _generate_report_task(session_id: str) -> None:
             _write_failed_report(session_id, str(e))
             _append_task_event(session_id, "TASK_FAILED", payload={"error": str(e)[:200]})
         except Exception:  # noqa: BLE001
-            pass  # 事件/FAILED 行写入失败不改变后台任务静默现状
+            # 内层兜底写 FAILED 行/TASK_FAILED 事件本身失败——至少留进程日志
+            # （uvicorn stderr 可见），不再彻底静默吞掉事故现场
+            print(f"[report-task] session={session_id} FAILED 行/TASK_FAILED 事件写入失败："
+                  f"{e!r}", file=sys.stderr)
+
+
+def _generate_report_task(session_id: str) -> None:
+    """后台任务包装器（BackgroundTasks 同步任务跑在线程池，此函数内阻塞 join 安全）：
+    启动内层线程跑串行链本体，join(_STALE_GENERATING_SECONDS) 看门狗——超时则写
+    FAILED 行 + TASK_FAILED 事件（文案注明任务超时），不让任务静默死亡毒化会话。
+
+    内层 daemon 线程不因看门狗超时被杀（Python 无安全 kill）：它自然结束后若再写
+    终态，按报告版本化语义以新行覆盖最新行展示，无数据竞争损坏。
+    """
+    worker = threading.Thread(target=_run_report_task, args=(session_id,), daemon=True)
+    worker.start()
+    worker.join(timeout=_STALE_GENERATING_SECONDS)
+    if worker.is_alive():
+        _timeout_msg = f"报告生成任务超时（看门狗 {_STALE_GENERATING_SECONDS // 60} 分钟），请重试"
+        try:
+            _write_failed_report(session_id, _timeout_msg)
+            _append_task_event(session_id, "TASK_FAILED",
+                               payload={"error": _timeout_msg[:200]})
+        except Exception:  # noqa: BLE001
+            print(f"[report-task] session={session_id} 看门狗超时后 FAILED 行/TASK_FAILED"
+                  f" 事件写入失败", file=sys.stderr)
 
 
 @router.post("/sessions/{session_id}/report", status_code=status.HTTP_202_ACCEPTED)
@@ -1236,8 +1377,10 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
     """触发报告生成（异步，前端轮询 GET /reports/by-session/ 获取结果）。
 
     三分支裁决：(a) 会话非 completed → 409 SESSION_NOT_COMPLETED；
-    (b) 最新行 report_status=='GENERATING' → 409 REPORT_GENERATING（生成中拒绝重复触发）；
-    (c) 其余（无行 / 已有 FAILED/READY/PUBLISHED 行）→ 写 GENERATING 占位行 + 202 入队。
+    (b) 最新行 report_status=='GENERATING' → 409 REPORT_GENERATING（生成中拒绝重复触发；
+    超龄 60 分钟视为死任务 → 放行接管，见 _STALE_GENERATING_SECONDS）；
+    (c) 其余（无行 / 已有 FAILED/READY/PUBLISHED 行 / 超龄 GENERATING）→ 写 GENERATING
+    占位行（版本化不覆盖旧行）+ 202 入队。
     评分→报告由服务端串行链执行（D-08 方案 B），前端无需再显式调 POST /score。
     """
     conn = get_conn()
@@ -1248,14 +1391,26 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
                             detail={"error_code": "SESSION_NOT_COMPLETED",
                                     "message": "会话未完成，不能请求报告"})
     report_row = conn.execute(
-        "SELECT report_status FROM report WHERE session_id=?"
+        "SELECT report_status, created_at FROM report WHERE session_id=?"
         " ORDER BY created_at DESC, version DESC LIMIT 1",
         (session_id,),
     ).fetchone()
     if report_row is not None and report_row["report_status"] == "GENERATING":
-        raise HTTPException(status.HTTP_409_CONFLICT,
-                            detail={"error_code": "REPORT_GENERATING",
-                                    "message": "报告生成中，请勿重复触发"})
+        # 超龄接管（2026-09-08 用户裁决）：GENERATING 占位行已超 60 分钟视为死任务
+        # （后台线程已死亡/进程重启丢任务），放行接管重试（写新 version 行，不覆盖旧行）；
+        # 60 分钟内维持 409。created_at 解析失败按保守处理（不接管，仍 409）。
+        stale = False
+        try:
+            age = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(report_row["created_at"])).total_seconds()
+            stale = age > _STALE_GENERATING_SECONDS
+        except (ValueError, TypeError):
+            stale = False
+        if not stale:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                detail={"error_code": "REPORT_GENERATING",
+                                        "message": "报告生成中，请勿重复触发"})
+        # 超龄 → 视同无 GENERATING 行，落入下方 (c) 分支接管（版本化写新行不覆盖旧行）
     # 终态报告（PROVISIONAL/READY/PUBLISHED）已生成 → 409 拒绝重复触发（P0 成功标准 5）
     if report_row is not None and report_row["report_status"] in ("PROVISIONAL", "READY", "PUBLISHED"):
         raise HTTPException(status.HTTP_409_CONFLICT,

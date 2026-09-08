@@ -11,14 +11,18 @@ const routes = [
     component: () => import('../components/AdminShell.vue'),
     meta: { role: 'admin' },
     children: [
-      { path: 'positions', name: 'AdminPositions', component: () => import('../views/admin/Positions.vue') },
+      // meta.keepAlive：进入页面缓存白名单（§5 前端列表页状态缓存，2026-09-08）——
+      // 组件名必须 = 路由名（壳内 keep-alive include 以此匹配，页面用 defineOptions 显式命名）
+      { path: 'positions', name: 'AdminPositions', component: () => import('../views/admin/Positions.vue'), meta: { keepAlive: true } },
+      // 模型聚合（SSOT §8.6，2026-09-08）：跨岗位聚合任务与模型总览，替换原侧栏「岗位详情」死链项
+      { path: 'models', name: 'AdminModelAggregation', component: () => import('../views/admin/ModelAggregation.vue'), meta: { keepAlive: true } },
       { path: 'positions/:id', name: 'AdminPositionDetail', component: () => import('../views/admin/PositionDetail.vue') },
       { path: 'positions/:id/review', name: 'AdminModelReview', component: () => import('../views/admin/ModelReview.vue') },
       { path: 'positions/:id/versions', name: 'VersionHistory', component: () => import('../views/admin/VersionHistory.vue') },
-      { path: 'qbank', name: 'AdminQbankStatus', component: () => import('../views/admin/QbankStatus.vue') },
-      { path: 'dict', name: 'AdminDict', component: () => import('../views/admin/Dict.vue') },
-      { path: 'users', name: 'AdminUsers', component: () => import('../views/admin/Users.vue') },
-      { path: 'test-center', name: 'AdminTestCenter', component: () => import('../views/admin/TestCenter.vue') }
+      { path: 'qbank', name: 'AdminQbankStatus', component: () => import('../views/admin/QbankStatus.vue'), meta: { keepAlive: true } },
+      { path: 'dict', name: 'AdminDict', component: () => import('../views/admin/Dict.vue'), meta: { keepAlive: true } },
+      { path: 'users', name: 'AdminUsers', component: () => import('../views/admin/Users.vue'), meta: { keepAlive: true } },
+      { path: 'test-center', name: 'AdminTestCenter', component: () => import('../views/admin/TestCenter.vue'), meta: { keepAlive: true } }
     ]
   },
   // 测评端（暖纸对话，登录即可）——四页挂 CandidateShell 壳（§12.6 导航壳）；
@@ -29,10 +33,10 @@ const routes = [
     component: () => import('../components/CandidateShell.vue'),
     meta: { requiresAuth: true },
     children: [
-      { path: 'positions', name: 'AssessmentPositions', component: () => import('../views/assessment/Positions.vue'), meta: { requiresAuth: true } },
+      { path: 'positions', name: 'AssessmentPositions', component: () => import('../views/assessment/Positions.vue'), meta: { requiresAuth: true, keepAlive: true } },
       { path: 'positions/:id', name: 'PositionAssess', component: () => import('../views/assessment/PositionAssess.vue'), meta: { requiresAuth: true } },
-      { path: 'history', name: 'AssessmentHistory', component: () => import('../views/assessment/History.vue'), meta: { requiresAuth: true } },
-      { path: 'feedback', name: 'AssessmentFeedback', component: () => import('../views/assessment/Feedback.vue'), meta: { requiresAuth: true } }
+      { path: 'history', name: 'AssessmentHistory', component: () => import('../views/assessment/History.vue'), meta: { requiresAuth: true, keepAlive: true } },
+      { path: 'feedback', name: 'AssessmentFeedback', component: () => import('../views/assessment/Feedback.vue'), meta: { requiresAuth: true, keepAlive: true } }
     ]
   },
   { path: '/assessment/session/:session_id', name: 'AssessmentChat', component: () => import('../views/assessment/Chat.vue'), meta: { requiresAuth: true } },
@@ -44,11 +48,23 @@ const routes = [
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
+  // 滚动行为（§5 前端列表页状态缓存）：物理前进/后退优先 savedPosition；「返回」均为
+  // push 正向导航（savedPosition 恒 undefined），keepAlive 页恢复离开时记录的滚动、
+  // 其余新页面一律回顶（修正从长列表进详情停在半空的问题）
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (to.meta.keepAlive && scrollMemory.has(to.name)) return { top: scrollMemory.get(to.name) }
+    return { top: 0 }
+  }
 })
 
-// 全局前置守卫：未登录 -> /login；角色不符 -> 按角色回各自首页
-router.beforeEach((to) => {
+// keepAlive 页滚动记录：离开（该页 → 任意路由）时记下 scrollY，返回时由 scrollBehavior 恢复
+const scrollMemory = new Map()
+
+router.beforeEach((to, from) => {
+  if (from.meta.keepAlive) scrollMemory.set(from.name, window.scrollY)
+
   const auth = useAuthStore()
 
   if (to.meta.public) {

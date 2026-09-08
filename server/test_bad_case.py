@@ -70,9 +70,8 @@ def test_bad_case_divergence_creates_candidate_and_never_rescores(monkeypatch):
         )
         conn.commit()
 
-        created = _detect_bad_case_divergence(conn, sid)
+        created = _detect_bad_case_divergence(sid)  # 独立小事务，内部自 commit
         assert created == 1  # 仅发散 4.0 那行建候选
-        conn.commit()
     finally:
         conn.close()
 
@@ -100,12 +99,8 @@ def test_bad_case_divergence_creates_candidate_and_never_rescores(monkeypatch):
 
 def test_bad_case_threshold_unset_skips(monkeypatch):
     monkeypatch.setattr(C, "BAD_CASE_DIVERGENCE_THRESHOLD", None)
-    conn = get_conn()
-    try:
-        # 阈值显式置 None（部署方关闭检测）时直接跳过，不误建候选
-        assert _detect_bad_case_divergence(conn, "no-such-session") == 0
-    finally:
-        conn.close()
+    # 阈值显式置 None（部署方关闭检测）时直接跳过，不误建候选
+    assert _detect_bad_case_divergence("no-such-session") == 0
 
 
 def test_bad_case_threshold_production_default():

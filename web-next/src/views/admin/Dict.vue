@@ -167,10 +167,12 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onActivated, reactive, ref } from 'vue'
 import { adminDict, errMsg } from '../../api'
 import { UiPager, UiDrawer, UiModal, UiConfirm, toast } from '../../components/ui'
 import { CATEGORY_LABELS, categoryLabel } from '../../lib/labels'
+
+defineOptions({ name: 'AdminDict' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 const loading = ref(false)
 const saving = ref(false)
@@ -354,6 +356,14 @@ async function doRemove() {
 
 load()
 loadPendingCount()
+
+// keep-alive 激活：静默重拉保筛选保页码（booted 守卫防首屏双拉，§5，2026-09-08）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  load()
+  loadPendingCount()
+})
 </script>
 
 <style scoped>

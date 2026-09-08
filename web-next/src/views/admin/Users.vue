@@ -93,11 +93,13 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { onActivated, reactive, ref } from 'vue'
 import { adminUsers, errMsg } from '../../api'
 import { UiPager, UiModal, toast } from '../../components/ui'
 import { useAuthStore } from '../../stores/auth'
 import { formatTime } from '../../lib/labels'
+
+defineOptions({ name: 'AdminUsers' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 const auth = useAuthStore()
 
@@ -185,4 +187,11 @@ async function toggleActive(u) {
 }
 
 load()
+
+// keep-alive 激活：静默重拉保页码（booted 守卫防首屏双拉，§5，2026-09-08）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  load()
+})
 </script>

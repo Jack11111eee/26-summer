@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from ...core.security import require_admin
 from ...db import get_conn
 from ...services.aggregate import run_aggregate
+from ...services.input_limits import clamp_pagination_limit
 from ...services.pipeline import now_iso
 
 router = APIRouter(prefix="/api/admin", tags=["admin-models"], dependencies=[Depends(require_admin)])
@@ -33,17 +34,29 @@ class ModelUpdateBody(BaseModel):
     items: list[ModelItem] = Field(min_length=1)
 
 
+def _running_task_or_none(conn, position_id: str):
+    """该岗位是否有 RUNNING 聚合任务行（409 守卫与收尾共用的单点查询）。"""
+    return conn.execute(
+        "SELECT task_id FROM aggregate_task WHERE position_id=? AND status='RUNNING' LIMIT 1",
+        (position_id,),
+    ).fetchone()
+
+
 @router.post("/positions/{position_id}/aggregate")
 def trigger_aggregate(position_id: str, background: BackgroundTasks) -> dict:
     """手动触发聚合（自动触发的兜底）。仅 active 岗位可聚合（WR-08）：
     pending_review 岗位聚合会产生 competency_model 行，使后续 reject 撞 FK（CR-03）；
-    自动链（pipeline）同样只在 active 时触发，手动入口保持一致。"""
+    自动链（pipeline）同样只在 active 时触发，手动入口保持一致。
+    并发守卫（SSOT §8.4，2026-09-08）：已有 RUNNING 任务行时 409——防双击/跨页并发
+    撞版本号（run_aggregate 内部守卫为静默兜底，主动路径要显式回错）。"""
     conn = get_conn()
     pos = conn.execute("SELECT status FROM position WHERE position_id=?", (position_id,)).fetchone()
     if pos is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "岗位不存在")
     if pos["status"] != "active":
         raise HTTPException(status.HTTP_409_CONFLICT, "仅上架岗位可触发聚合")
+    if _running_task_or_none(conn, position_id) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "该岗位聚合进行中，请等待完成后再触发")
     background.add_task(run_aggregate, position_id, "manual")
     return {"position_id": position_id, "aggregating": True}
 
@@ -389,6 +402,10 @@ def retry_level(position_id: str, body: dict, background: BackgroundTasks) -> di
     """stalled 处理：action=retry 重跑聚合；action=manual 由前端编辑后走 PUT，此处仅重试。"""
     action = body.get("action")
     conn = get_conn()
+    # 并发守卫（SSOT §8.4，2026-09-08）先于删除 stalled 模型——防「删了模型却因
+    # RUNNING 撞守卫没跑起来」的不可恢复态
+    if _running_task_or_none(conn, position_id) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "该岗位聚合进行中，请等待完成后再重试")
     row = conn.execute(
         "SELECT model_id FROM competency_model WHERE position_id=? AND status='stalled'"
         " ORDER BY version DESC LIMIT 1",
@@ -452,3 +469,146 @@ def diff_models(new_id: str, against: str) -> dict:
             changes.append({"std_name": oitem["std_name"], "category": oitem["category"],
                             "change": "removed", "old": oitem})
     return {"new_id": new_id, "against": against, "changes": changes}
+
+
+# ---------- §8.6 聚合管理页列表（2026-09-08，与 §9.5 题库任务列表形态对齐） ----------
+
+# 同岗位最新聚合任务行子句（NOT EXISTS 口径与 question_bank_tasks._latest_row_where 同构）
+_AGG_LATEST_WHERE = (
+    " NOT EXISTS (SELECT 1 FROM aggregate_task a2"
+    " WHERE a2.position_id = at.position_id"
+    " AND (a2.created_at > at.created_at"
+    " OR (a2.created_at = at.created_at AND a2.rowid > at.rowid)))"
+)
+
+# 最新模型优先序：stalled > draft > confirmed（与 GET /positions/{id}/model 同口径）
+_MODEL_LATEST_ROW = (
+    "SELECT model_id, version, status FROM competency_model WHERE position_id=?"
+    " ORDER BY CASE status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,"
+    " version DESC LIMIT 1"
+)
+
+
+@router.get("/aggregate-tasks")
+def list_aggregate_tasks(page: int = 1, page_size: int = 20,
+                         model_status: str | None = None,
+                         task_status: str | None = None,
+                         q: str | None = None) -> dict:
+    """聚合管理页列表（SSOT §8.6）：行源 active 岗位 × 最新聚合任务行 + 左连最新模型。
+
+    「有模型或有任务行」即入列——首次聚合进行中（模型行未落库）可见；两者皆无的
+    岗位不出现在任何列表。筛选：model_status（draft/confirmed/stalled）、task_status
+    （RUNNING/SUCCEEDED/FAILED）、q（岗位名子串）。响应附 summary 计数（不随筛选变）
+    供 KPI 与侧栏徽标。
+    """
+    page = max(1, page)
+    page_size = clamp_pagination_limit(page_size)
+    offset = (page - 1) * page_size
+
+    # 筛选子句（挂在 position 主表上）：模型状态筛「最新模型命中该状态」的岗位；
+    # 任务状态筛「最新任务行命中该状态」的岗位——与行内取数口径一致，筛出即所见的
+    where = ["p.status='active'"]
+    params: list = []
+    has_model = " EXISTS (SELECT 1 FROM competency_model m WHERE m.position_id=p.position_id)"
+    has_task = " EXISTS (SELECT 1 FROM aggregate_task at2 WHERE at2.position_id=p.position_id)"
+    if model_status in ("draft", "confirmed", "stalled"):
+        # 最新模型命中筛选状态（与 _MODEL_LATEST_ROW 的 ORDER BY 完全镜像：「状态
+        # 优先序 stalled>draft>confirmed 先分组、组内 version/rowid 取新」——低优先
+        # 序状态的高版本不夺取最新资格）。m 合格 ⇔ 不存在排序更前的 m2。
+        where.append(
+            " EXISTS (SELECT 1 FROM competency_model m WHERE m.position_id=p.position_id"
+            f" AND m.status=? AND NOT EXISTS ("
+            "   SELECT 1 FROM competency_model m2 WHERE m2.position_id=m.position_id"
+            "   AND ((CASE m2.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
+            "        < CASE m.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END)"
+            "    OR (CASE m2.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
+            "        = CASE m.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
+            "        AND (m2.version > m.version"
+            "            OR (m2.version = m.version AND m2.rowid > m.rowid))))))"
+        )
+        params.append(model_status)
+    if task_status in ("RUNNING", "SUCCEEDED", "FAILED"):
+        where.append(
+            " EXISTS (SELECT 1 FROM aggregate_task at3 WHERE at3.position_id=p.position_id"
+            f" AND at3.status=?"
+            " AND NOT EXISTS (SELECT 1 FROM aggregate_task at4"
+            " WHERE at4.position_id=at3.position_id"
+            " AND (at4.created_at>at3.created_at"
+            " OR (at4.created_at=at3.created_at AND at4.rowid>at3.rowid))))"
+        )
+        params.append(task_status)
+    if q:
+        where.append(" p.name LIKE ?")
+        params.append(f"%{q}%")
+    where.append(f" ({has_model} OR {has_task})")
+
+    where_clause = " WHERE " + " AND ".join(where)
+    conn = get_conn()
+    # 行源以岗位为主表（每岗位一行）；最新模型/最新任务行在 Python 侧按岗位取——
+    # 本页规模（±百岗位、页 20）下每行常数主键查询，可读性优先于 NOT EXISTS join
+    position_rows = conn.execute(
+        "SELECT p.position_id, p.name FROM position p"
+        + where_clause +
+        " ORDER BY p.created_at DESC, p.position_id DESC LIMIT ? OFFSET ?",
+        (*params, page_size, offset),
+    ).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) c FROM position p" + where_clause, params
+    ).fetchone()["c"]
+
+    items = []
+    for r in position_rows:
+        pid = r["position_id"]
+        model = conn.execute(_MODEL_LATEST_ROW, (pid,)).fetchone()
+        task = conn.execute(
+            "SELECT task_id, status, trigger_source, total, done, llm_total, llm_done,"
+            " current_item, model_id, error, created_at, started_at, finished_at"
+            f" FROM aggregate_task at WHERE at.position_id=? AND{_AGG_LATEST_WHERE}",
+            (pid,),
+        ).fetchone()
+        jd_count = conn.execute(
+            "SELECT COUNT(*) c FROM jd_record WHERE position_id=? AND status='parsed'",
+            (pid,),
+        ).fetchone()["c"]
+        item_count = 0
+        if model is not None:
+            item_count = conn.execute(
+                "SELECT COUNT(*) c FROM competency_item WHERE model_id=?",
+                (model["model_id"],),
+            ).fetchone()["c"]
+        d = {
+            "position_id": pid,
+            "position_name": r["name"],
+            "jd_count": jd_count,
+            "model": ({"model_id": model["model_id"], "version": model["version"],
+                       "status": model["status"]} if model else None),
+            "item_count": item_count,
+        }
+        if task is not None:
+            d["task"] = {
+                "task_id": task["task_id"], "status": task["status"],
+                "trigger_source": task["trigger_source"],
+                "progress": {"done": task["done"], "total": task["total"],
+                             "llm_done": task["llm_done"], "llm_total": task["llm_total"],
+                             "current_item": task["current_item"]},
+                "error": task["error"],
+                "created_at": task["created_at"], "finished_at": task["finished_at"],
+            }
+        else:
+            d["task"] = None
+        items.append(d)
+
+    # summary（不随筛选变——KPI/徽标要的是全库口径）
+    def _count_positions(sql: str) -> int:
+        return conn.execute(sql).fetchone()["c"]
+    summary = {
+        "draft_positions": _count_positions(
+            "SELECT COUNT(DISTINCT position_id) c FROM competency_model WHERE status='draft'"),
+        "confirmed_positions": _count_positions(
+            "SELECT COUNT(DISTINCT position_id) c FROM competency_model WHERE status='confirmed'"),
+        "stalled_positions": _count_positions(
+            "SELECT COUNT(DISTINCT position_id) c FROM competency_model WHERE status='stalled'"),
+        "running_tasks": _count_positions(
+            "SELECT COUNT(*) c FROM aggregate_task WHERE status='RUNNING'"),
+    }
+    return {"items": items, "total": total, "summary": summary}

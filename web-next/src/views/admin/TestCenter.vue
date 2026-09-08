@@ -133,9 +133,18 @@
         <div class="pager">
           <span>{{ traceTotal }} 条</span>
           <div class="pages">
-            <button :disabled="traceOffset === 0" @click="pageTrace(-1)">‹</button>
-            <button :disabled="traceOffset + TRACE_LIMIT >= traceTotal" @click="pageTrace(1)">›</button>
+            <button :disabled="tracePage <= 1" @click="pageTrace(-1)">‹</button>
+            <button :disabled="tracePage >= traceMaxPage" @click="pageTrace(1)">›</button>
           </div>
+          <span v-if="traceMaxPage > 1" class="jump">跳至 <input
+            v-model="traceJumpRaw"
+            class="input"
+            type="number"
+            min="1"
+            :max="traceMaxPage"
+            @keyup.enter="onTraceJump"
+            @blur="onTraceJump"
+          /> / {{ traceMaxPage }} 页</span>
         </div>
       </section>
 
@@ -260,10 +269,12 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { admin, adminPositions, errMsg } from '../../api'
 import { UiTabs, UiDrawer, UiConfirm, toast } from '../../components/ui'
 import { categoryLabel, formatTime } from '../../lib/labels'
+
+defineOptions({ name: 'AdminTestCenter' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 const CALL_TYPES = ['extract', 'disambiguate', 'aggregate_level', 'question_gen', 'interviewer', 'refine', 'score', 'report']
 const TRACE_LIMIT = 50
@@ -284,9 +295,12 @@ const history = ref([])
 const traceFilters = reactive({ call_type: '', ref_id: '', success: '' })
 const traces = ref([])
 const traceTotal = ref(0)
-const traceOffset = ref(0)
+const tracePage = ref(1)
+const traceJumpRaw = ref('')
+watch(tracePage, (p) => { traceJumpRaw.value = String(p) }, { immediate: true })
 const traceLoading = ref(false)
 const traceDetail = ref(null)
+const traceMaxPage = computed(() => Math.max(1, Math.ceil(traceTotal.value / TRACE_LIMIT) || 1))
 
 const feedbackKind = ref('objection') // 反馈区切换：objection（逐分异议）/ suggestion（意见反馈 §22.1）
 const feedbackStatus = ref('pending')
@@ -403,13 +417,15 @@ async function pollTask() {
 async function loadTraces() {
   traceLoading.value = true
   try {
-    const params = { limit: TRACE_LIMIT, offset: traceOffset.value }
+    const params = { limit: TRACE_LIMIT, offset: (tracePage.value - 1) * TRACE_LIMIT }
     if (traceFilters.call_type) params.call_type = traceFilters.call_type
     if (traceFilters.ref_id.trim()) params.ref_id = traceFilters.ref_id.trim()
     if (traceFilters.success !== '') params.success = traceFilters.success === '1'
     const { data } = await admin.trace.list(params)
     traces.value = data.traces
     traceTotal.value = data.total
+    // 过滤后总页数变小时把当前页钳回末页，避免落在空页
+    if (tracePage.value > traceMaxPage.value) tracePage.value = traceMaxPage.value
   } catch (e) {
     toast(errMsg(e, 'trace 加载失败'), 'error')
   } finally {
@@ -418,13 +434,25 @@ async function loadTraces() {
 }
 
 function resetTrace() {
-  traceOffset.value = 0
+  tracePage.value = 1
   loadTraces()
 }
 
 function pageTrace(dir) {
-  traceOffset.value = Math.max(0, traceOffset.value + dir * TRACE_LIMIT)
+  tracePage.value = Math.min(Math.max(1, tracePage.value + dir), traceMaxPage.value)
   loadTraces()
+}
+
+// 跳转：回车/失焦触发，空/越界回退当前页；页码同步进输入框
+function onTraceJump() {
+  const n = parseInt(traceJumpRaw.value, 10)
+  if (Number.isFinite(n) && n >= 1 && n <= traceMaxPage.value) {
+    tracePage.value = n
+    traceJumpRaw.value = String(n)
+    loadTraces()
+  } else {
+    traceJumpRaw.value = String(tracePage.value)
+  }
 }
 
 async function openTrace(t) {
@@ -515,8 +543,17 @@ async function onConfirm() {
   }
 }
 
-import { onBeforeUnmount } from 'vue'
+import { onBeforeUnmount, onActivated, onDeactivated } from 'vue'
 onBeforeUnmount(stopPoll)
+
+// keep-alive（§5，2026-09-08）：激活 = 静默刷新保筛选保 tab（booted 守卫防首屏双拉）；
+// 失活 = 停轮询（keep-alive 下路由切换不触发 unmount，不停表则后台常跑）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  reloadAll()
+})
+onDeactivated(stopPoll)
 
 reloadAll()
 </script>

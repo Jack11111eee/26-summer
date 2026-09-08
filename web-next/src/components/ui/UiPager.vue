@@ -9,6 +9,15 @@
       </template>
       <button type="button" :disabled="page >= maxPage" @click="go(page + 1)">›</button>
     </div>
+    <span v-if="maxPage > 1" class="jump">跳至 <input
+      v-model="jumpRaw"
+      class="input"
+      type="number"
+      min="1"
+      :max="maxPage"
+      @keyup.enter="onJump"
+      @blur="onJump"
+    /> / {{ maxPage }} 页</span>
     <select class="select" :value="pageSize" aria-label="每页条数" @change="onSize">
       <option v-for="s in sizeOptions" :key="s" :value="s">{{ s }} / 页</option>
     </select>
@@ -18,8 +27,8 @@
 <script setup>
 // 分页器：{items,total} 契约（后端 clamp 上限 100）。
 // 页码窗口：{1,2,3} ∪ {cur-1,cur,cur+1} ∪ {末3页} 合并，组间不连续处插省略号；
-// 总页数 ≤ 7 时全部平铺无省略。
-import { computed } from 'vue'
+// 总页数 ≤ 7 时全部平铺无省略。总页数 > 1 时提供「跳至 xx / N 页」输入跳转。
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   page: { type: Number, required: true },
@@ -28,6 +37,8 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:page', 'update:page-size', 'change'])
 
+const jumpRaw = ref('')
+watch(() => props.page, (p) => { jumpRaw.value = String(p) }, { immediate: true })
 const sizeOptions = [10, 20, 50, 100]
 const maxPage = computed(() => Math.max(1, Math.ceil(props.total / props.pageSize) || 1))
 
@@ -56,6 +67,18 @@ function go(p) {
     emit('update:page', clamped)
     emit('change')
   }
+}
+
+// 跳转：回车或失焦触发；空/非法输入回退显示当前页，越界钳制到 [1, maxPage]
+function onJump() {
+  const n = parseInt(jumpRaw.value, 10)
+  if (!Number.isFinite(n)) { jumpRaw.value = String(props.page); return }
+  if (n < 1 || n > maxPage.value) { jumpRaw.value = String(props.page); return }
+  if (n !== props.page) {
+    emit('update:page', n)
+    emit('change')
+  }
+  jumpRaw.value = String(n)
 }
 
 function onSize(e) {

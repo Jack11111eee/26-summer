@@ -627,7 +627,16 @@ async function onSend() {
 }
 
 // ---- 表单（gate 分支）----
-function onFormSubmitted() {
+// FormCard 透传 submit-v2 响应：action='finish'（池耗尽完赛）与答题完赛路径对齐跳报告页，
+// 跳过「本场测评已完成」停留；其余（next/幂等重放无数据）维持 refreshSession 继续作答
+function onFormSubmitted(data) {
+  if (data?.action === 'finish') {
+    session.value.status = 'completed'
+    statusText.value = '本场测评完成 · 正在生成报告'
+    toast('本场测评完成，正在生成报告')
+    router.push(`/assessment/report/${sessionId}`)
+    return
+  }
   statusText.value = '表单已提交 · 继续作答'
   refreshSession()
 }

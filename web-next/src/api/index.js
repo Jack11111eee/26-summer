@@ -50,6 +50,8 @@ export const assessment = {
   createSession: (positionId) => api.post('/assessment/sessions', { position_id: positionId }),
   // 历史端点（SSOT §12.6）：本人会话列表，服务端分页 {items,total} + status 过滤
   listSessions: (params) => api.get('/assessment/sessions', { params }),
+  // 软删除（SSOT §12.1，2026-09-08）：全状态可删，隐藏后本人列表/深度链接不可见；重复删幂等 200
+  deleteSession: (sessionId) => api.delete(`/assessment/sessions/${sessionId}`),
   // 入场确认（SC-5 计时起算锚）：PENDING_START → ACTIVE；409 SESSION_ALREADY_ACTIVE 幂等
   startSession: (sessionId) => api.post(`/assessment/sessions/${sessionId}/start`),
   // 暂停/继续（03-05 交付，web-next 首次接线）：409 SESSION_ALREADY_PAUSED / SESSION_NOT_PAUSED 幂等护栏
@@ -102,6 +104,8 @@ export const adminPositions = {
 export const adminModels = {
   aggregate: (positionId) => api.post(`/admin/positions/${positionId}/aggregate`),
   getAggregateProgress: (positionId) => api.get(`/admin/positions/${positionId}/aggregate/progress`),
+  // 聚合管理页列表（SSOT §8.6）：岗位 × 最新聚合任务行 + 最新模型，分页/筛选/summary
+  listAggregations: (params) => api.get('/admin/aggregate-tasks', { params }),
   getModel: (positionId) => api.get(`/admin/positions/${positionId}/model`),
   updateModel: (modelId, items) => api.put(`/admin/models/${modelId}`, { items }),
   confirmModel: (modelId) => api.post(`/admin/models/${modelId}/confirm`),
