@@ -1,6 +1,9 @@
 """测评端 API（P5）：可测评岗位列表 + 测评会话/答题/表单/打分/报告（模块二 M5 + 模块三 M6）。"""
 import json
 import math
+import sys
+import threading
+from datetime import datetime, timezone
 from typing import Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -41,6 +44,11 @@ from ..services.timer import (
 )
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"], dependencies=[Depends(require_login)])
+
+# GENERATING 占位行超龄判定与后台链看门狗共用的阈值（秒）——60 分钟（用户裁决 2026-09-08：
+# 统一语义：既是前端可见的死任务接管阈值，也是后端看门狗超时）。request_report 据此
+# 放行超龄 GENERATING 行的接管重试；_generate_report_task 看门狗据此对串行链兜底。
+_STALE_GENERATING_SECONDS = 60 * 60
 
 
 def _latest_confirmed_model(conn, position_id: str):
@@ -1204,8 +1212,8 @@ def _write_failed_report(session_id: str, error: str) -> None:
         conn.close()
 
 
-def _generate_report_task(session_id: str) -> None:
-    """后台任务：评分→报告串行链（D-08 方案 B，SSOT §21.1 前端完成后由服务端执行）。
+def _run_report_task(session_id: str) -> None:
+    """后台任务内层：评分→报告串行链本体（D-08 方案 B，SSOT §21.1 前端完成后由服务端执行）。
 
     异常 → 写 FAILED 行 + TASK_FAILED 事件（REF-8.3 失败显式可见，不再静默）。
     completed 会话评分经 allow_completed 内部链豁免（D-03：串行链语义，不经候选人端点）。
@@ -1228,7 +1236,32 @@ def _generate_report_task(session_id: str) -> None:
             _write_failed_report(session_id, str(e))
             _append_task_event(session_id, "TASK_FAILED", payload={"error": str(e)[:200]})
         except Exception:  # noqa: BLE001
-            pass  # 事件/FAILED 行写入失败不改变后台任务静默现状
+            # 内层兜底写 FAILED 行/TASK_FAILED 事件本身失败——至少留进程日志
+            # （uvicorn stderr 可见），不再彻底静默吞掉事故现场
+            print(f"[report-task] session={session_id} FAILED 行/TASK_FAILED 事件写入失败："
+                  f"{e!r}", file=sys.stderr)
+
+
+def _generate_report_task(session_id: str) -> None:
+    """后台任务包装器（BackgroundTasks 同步任务跑在线程池，此函数内阻塞 join 安全）：
+    启动内层线程跑串行链本体，join(_STALE_GENERATING_SECONDS) 看门狗——超时则写
+    FAILED 行 + TASK_FAILED 事件（文案注明任务超时），不让任务静默死亡毒化会话。
+
+    内层 daemon 线程不因看门狗超时被杀（Python 无安全 kill）：它自然结束后若再写
+    终态，按报告版本化语义以新行覆盖最新行展示，无数据竞争损坏。
+    """
+    worker = threading.Thread(target=_run_report_task, args=(session_id,), daemon=True)
+    worker.start()
+    worker.join(timeout=_STALE_GENERATING_SECONDS)
+    if worker.is_alive():
+        _timeout_msg = f"报告生成任务超时（看门狗 {_STALE_GENERATING_SECONDS // 60} 分钟），请重试"
+        try:
+            _write_failed_report(session_id, _timeout_msg)
+            _append_task_event(session_id, "TASK_FAILED",
+                               payload={"error": _timeout_msg[:200]})
+        except Exception:  # noqa: BLE001
+            print(f"[report-task] session={session_id} 看门狗超时后 FAILED 行/TASK_FAILED"
+                  f" 事件写入失败", file=sys.stderr)
 
 
 @router.post("/sessions/{session_id}/report", status_code=status.HTTP_202_ACCEPTED)
@@ -1236,8 +1269,10 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
     """触发报告生成（异步，前端轮询 GET /reports/by-session/ 获取结果）。
 
     三分支裁决：(a) 会话非 completed → 409 SESSION_NOT_COMPLETED；
-    (b) 最新行 report_status=='GENERATING' → 409 REPORT_GENERATING（生成中拒绝重复触发）；
-    (c) 其余（无行 / 已有 FAILED/READY/PUBLISHED 行）→ 写 GENERATING 占位行 + 202 入队。
+    (b) 最新行 report_status=='GENERATING' → 409 REPORT_GENERATING（生成中拒绝重复触发；
+    超龄 60 分钟视为死任务 → 放行接管，见 _STALE_GENERATING_SECONDS）；
+    (c) 其余（无行 / 已有 FAILED/READY/PUBLISHED 行 / 超龄 GENERATING）→ 写 GENERATING
+    占位行（版本化不覆盖旧行）+ 202 入队。
     评分→报告由服务端串行链执行（D-08 方案 B），前端无需再显式调 POST /score。
     """
     conn = get_conn()
@@ -1248,14 +1283,26 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
                             detail={"error_code": "SESSION_NOT_COMPLETED",
                                     "message": "会话未完成，不能请求报告"})
     report_row = conn.execute(
-        "SELECT report_status FROM report WHERE session_id=?"
+        "SELECT report_status, created_at FROM report WHERE session_id=?"
         " ORDER BY created_at DESC, version DESC LIMIT 1",
         (session_id,),
     ).fetchone()
     if report_row is not None and report_row["report_status"] == "GENERATING":
-        raise HTTPException(status.HTTP_409_CONFLICT,
-                            detail={"error_code": "REPORT_GENERATING",
-                                    "message": "报告生成中，请勿重复触发"})
+        # 超龄接管（2026-09-08 用户裁决）：GENERATING 占位行已超 60 分钟视为死任务
+        # （后台线程已死亡/进程重启丢任务），放行接管重试（写新 version 行，不覆盖旧行）；
+        # 60 分钟内维持 409。created_at 解析失败按保守处理（不接管，仍 409）。
+        stale = False
+        try:
+            age = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(report_row["created_at"])).total_seconds()
+            stale = age > _STALE_GENERATING_SECONDS
+        except (ValueError, TypeError):
+            stale = False
+        if not stale:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                detail={"error_code": "REPORT_GENERATING",
+                                        "message": "报告生成中，请勿重复触发"})
+        # 超龄 → 视同无 GENERATING 行，落入下方 (c) 分支接管（版本化写新行不覆盖旧行）
     # 终态报告（PROVISIONAL/READY/PUBLISHED）已生成 → 409 拒绝重复触发（P0 成功标准 5）
     if report_row is not None and report_row["report_status"] in ("PROVISIONAL", "READY", "PUBLISHED"):
         raise HTTPException(status.HTTP_409_CONFLICT,

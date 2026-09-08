@@ -7,6 +7,8 @@ import json
 import os
 import sys
 import tempfile
+import time
+from datetime import datetime, timedelta, timezone
 
 # 必须在 import server 之前设环境变量（config 在 import 时读取）
 _tmp_db = os.path.join(tempfile.mkdtemp(), "test_m5.db")
@@ -345,3 +347,119 @@ def test_form_submission():
 
 def test_config_refine_min_tokens():
     assert config.REFINE_MIN_TOKENS == 500
+
+
+# ---------- 报告守卫回归（2026-09-08：GENERATING 超龄接管 + 任务看门狗） ----------
+
+def _seed_report_generating_row(username: str, *, stale: bool) -> tuple[str, str]:
+    """直插 completed 会话 + 一行 report_status='GENERATING' 报告行，返回 (session_id, token)。
+
+    stale=True → created_at 回拨 61 分钟（超 _STALE_GENERATING_SECONDS 60 分钟）；
+    stale=False → created_at=now（60 分钟内，占位行视为在途）。
+    """
+    headers = _auth_headers(username)
+    conn = get_conn()
+    uid = conn.execute("SELECT user_id FROM user WHERE username=?",
+                       (username,)).fetchone()["user_id"]
+    pid, mid = new_id("pos"), new_id("cm")
+    now = now_iso()
+    conn.execute(
+        "INSERT INTO position(position_id, name, status, created_at) VALUES(?,?,?,?)",
+        (pid, "后端开发工程师", "active", now),
+    )
+    conn.execute(
+        "INSERT INTO competency_model(model_id, position_id, version, status, model_json, created_at)"
+        " VALUES(?,?,?,?,?,?)",
+        (mid, pid, 1, "confirmed", "{}", now),
+    )
+    conn.execute(
+        "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
+        " importance, weight, gate) VALUES(?,?,?,?,?,?,?,?)",
+        (new_id("c"), mid, "Python", "hard_skill", 3, "preferred", 1.0, 0),
+    )
+    sid = new_id("sess")
+    conn.execute(
+        "INSERT INTO assessment_session(session_id, user_id, position_id, model_id, model_version,"
+        " status, started_at, ended_at, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+        (sid, uid, pid, mid, 1, "completed", now, now, now),
+    )
+    created = (datetime.now(timezone.utc) - timedelta(minutes=61)).isoformat() if stale else now
+    conn.execute(
+        "INSERT INTO report(report_id, session_id, total_score, gate_passed, report_json,"
+        " report_status, version, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (new_id("rpt"), sid, 0.0, 0, "{}", "GENERATING", 1, created),
+    )
+    conn.commit()
+    conn.close()
+    return sid, headers["Authorization"]
+
+
+def test_report_stale_generating_takeover():
+    """超龄 GENERATING 行（>60 分钟）视为死任务：POST /report → 202 接管（新 version
+    行不覆盖旧行——事故复盘：26 分钟死占位行导致重生成永不生效）。"""
+    from server.api import assessment as assessment_mod
+
+    assert assessment_mod._STALE_GENERATING_SECONDS == 60 * 60  # 用户裁决阈值
+
+    sid, auth = _seed_report_generating_row("m5_takeover_user", stale=True)
+
+    r = client.post(f"/api/assessment/sessions/{sid}/report",
+                    headers={"Authorization": auth})
+    assert r.status_code == 202, f"超龄 GENERATING 应 202 接管，实得 {r.status_code}"
+
+    # 接管 = 版本化写新行（v1 旧行残留、不覆盖）；TestClient 下后台链同步跑完，
+    # mock 同步链落终态（PROVISIONAL/READY/FAILED 之一），latest 行必不再 GENERATING
+    rows = _q("SELECT version, report_status FROM report WHERE session_id=? ORDER BY version",
+              (sid,))
+    assert [r["version"] for r in rows] == [1, 2], f"应写 v2 新行（不覆盖 v1），实得 {rows}"
+    assert rows[0]["report_status"] == "GENERATING"  # 旧行原样残留
+    assert rows[1]["report_status"] in ("PROVISIONAL", "READY", "FAILED")
+
+    # 接管生成的终态行同样受 REPORT_ALREADY_GENERATED 护栏（不重复触发）
+    r = client.post(f"/api/assessment/sessions/{sid}/report",
+                    headers={"Authorization": auth})
+    assert r.status_code == 409
+    assert r.json()["detail"]["error_code"] == "REPORT_ALREADY_GENERATED", r.text
+
+
+def test_report_fresh_generating_still_rejected():
+    """60 分钟内 GENERATING 行仍在途：POST /report → 409 REPORT_GENERATING（不误伤真在途）。"""
+    sid, auth = _seed_report_generating_row("m5_fresh_user", stale=False)
+
+    r = client.post(f"/api/assessment/sessions/{sid}/report",
+                    headers={"Authorization": auth})
+    assert r.status_code == 409, f"在途 GENERATING 应 409，实得 {r.status_code}"
+    assert r.json()["detail"]["error_code"] == "REPORT_GENERATING", r.text
+    # 占位行原样（无接管写行）
+    rows = _q("SELECT COUNT(*) c FROM report WHERE session_id=?", (sid,))[0]
+    assert rows["c"] == 1
+
+
+def test_report_watchdog_timeout(monkeypatch):
+    """看门狗：串行链超 _STALE_GENERATING_SECONDS 未归 → TASK_FAILED 事件 + FAILED 行
+    （文案注明任务超时）——兜底不再静默（评分成功/报告死亡的事故形态）。"""
+    from server.api import assessment as assessment_mod
+
+    sid, auth = _seed_report_generating_row("m5_watchdog_user", stale=False)
+    # 清掉直插占位行（看门狗单测只验超时兜底，不叠加接管语义）
+    conn = get_conn()
+    conn.execute("DELETE FROM report WHERE session_id=?", (sid,))
+    conn.commit()
+    conn.close()
+
+    def _hang(sid):
+        time.sleep(1.5)  # 超过下方改成 0.2s 的看门狗阈值
+
+    monkeypatch.setattr(assessment_mod, "_run_report_task", _hang)
+    monkeypatch.setattr(assessment_mod, "_STALE_GENERATING_SECONDS", 0.2)
+
+    assessment_mod._generate_report_task(sid)
+
+    events = _q("SELECT event_type, payload_json FROM assessment_state_event"
+                " WHERE session_id=? ORDER BY sequence_no DESC LIMIT 1", (sid,))
+    assert events and events[0]["event_type"] == "TASK_FAILED", "应发 TASK_FAILED 事件"
+    assert "超时" in (events[0]["payload_json"] or "")
+
+    rows = _q("SELECT report_status, report_json FROM report WHERE session_id=?", (sid,))
+    assert rows and rows[0]["report_status"] == "FAILED", f"应写 FAILED 行，实得 {rows}"
+    assert "超时" in json.dumps(json.loads(rows[0]["report_json"]), ensure_ascii=False)
