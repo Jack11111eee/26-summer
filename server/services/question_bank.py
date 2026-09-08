@@ -30,6 +30,28 @@ def _question_plan(item: dict) -> list[tuple[str, str]]:
     return []  # experience/qualification：走表单链，不生成题
 
 
+def _as_text(value: str | list | None, sep: str) -> str | None:
+    """LLM 产出形态归一化（2026-09-08，qbt_74fedfff3a23 故障）。
+
+    question_gen 的 SYSTEM JSON 模板声明 rubric 为字符串，出题要求又写「rubric 给
+    3~5 条可观察的评分要点」——LLM 合理返回 list[str]，而 sqlite3 参数绑定不支持
+    list 直插 TEXT 列（Error binding parameter 14）。prompt 不动（产出质量良好），
+    在 CR-01/WR-06 判断之前把 rubric/answer_key 归一为 str，后续 .strip() 全部安全：
+    - str 原样返回；None → None；
+    - list → 过滤非空字符串元素后 join（rubric 用 \n 每条一行，answer_key 用 |
+      ——scoring._looks_like_regex 认 | 为分支，与实测 answer_key 形态一致）；
+    - 其余标量 → str(value)；全空 list → None（与 LLM 返回 null 的空值语义一致）。
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts = [p for p in value if isinstance(p, str) and p.strip()]
+        return sep.join(parts) if parts else None
+    return str(value)
+
+
 def _mock_question_gen(system_prompt: str, user_prompt: str) -> dict:
     """离线 mock：从 user prompt 中解析能力项/难度/题型，生成模板题。"""
     lines = dict(
@@ -149,22 +171,25 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                     mock_fn=_mock_question_gen,
                 )
                 for q in result.get("questions", []):
+                    # 2026-09-08 归一化先于 CR-01：LLM 可能返回 list[str]（见 _as_text），
+                    # 之后的 .strip()/入库消费全部按 str 处理
+                    q_rubric = _as_text(q.get("rubric"), "\n")
+                    q_answer_key = _as_text(q.get("answer_key"), "|")
                     # CR-01：objective 题缺 answer_key 时降级为 subjective（rubric 兜底），
                     # 阻断"无 answer_key 客观题入库后空正则恒命中"的评分缺陷
                     q_qtype = q.get("qtype", qtype)
-                    q_answer_key = q.get("answer_key")
                     if q_qtype == "objective" and not (q_answer_key or "").strip():
                         q_qtype = "subjective"
                         q_answer_key = None
                         # WR-06：降级后的主观题需 rubric 判据——LLM 可能 answer_key/rubric
                         # 均为空，此时补默认 rubric，避免主观评分缺判据
-                        if not (q.get("rubric") or "").strip():
-                            q["rubric"] = f"能结合实例说明{item['std_name']}的应用；思路清晰；有结果数据"
+                        if not (q_rubric or "").strip():
+                            q_rubric = f"能结合实例说明{item['std_name']}的应用；思路清晰；有结果数据"
                     _insert_question(
                         conn, scope="position",
                         position_id=position_id,
                         item=item, difficulty=difficulty, qtype=q_qtype,
-                        stem=q["stem"], answer_key=q_answer_key, rubric=q.get("rubric"),
+                        stem=q["stem"], answer_key=q_answer_key, rubric=q_rubric,
                         chain_key=chain_key, chain_seq=seq if chain_key else None,
                         model_id=model_id, model_version=model_version, item_id=item["item_id"],
                     )
