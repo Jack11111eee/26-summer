@@ -37,6 +37,7 @@ from .api import assessment  # noqa: E402
 from .api.admin import jds as admin_jds  # noqa: E402
 from .api.admin import models as admin_models  # noqa: E402
 from .api.admin import positions as admin_positions  # noqa: E402
+from .api.admin import question_bank_tasks as admin_qbank_tasks  # noqa: E402
 from .api.admin import dict as admin_dict  # noqa: E402
 from .api.admin import users as admin_users  # noqa: E402
 from .api.admin import trace as admin_trace  # noqa: E402
@@ -76,6 +77,7 @@ app.include_router(auth.router)
 app.include_router(admin_jds.router)
 app.include_router(admin_models.router)
 app.include_router(admin_positions.router)
+app.include_router(admin_qbank_tasks.router)
 app.include_router(admin_dict.router)
 app.include_router(admin_users.router)
 app.include_router(admin_trace.router)

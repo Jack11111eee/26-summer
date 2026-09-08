@@ -65,6 +65,7 @@ const auth = useAuthStore()
 const navItems = [
   { path: '/admin/positions', label: '岗位库', cntKey: 'pending_positions', cntHot: true },
   { path: '/admin/positions/detail', label: '岗位详情' },
+  { path: '/admin/qbank', label: '题库状态' },
   { path: '/admin/dict', label: '能力词典', cntKey: 'dict_llm_pending', cntHot: true },
   { path: '/admin/users', label: '用户管理', cntKey: 'user_total' },
   { path: '/admin/test-center', label: '测试中心', cntKey: 'feedback_pending', cntHot: true }

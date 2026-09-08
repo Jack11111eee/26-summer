@@ -402,7 +402,12 @@ CREATE TABLE IF NOT EXISTS question_bank_task (
   created_at   TEXT NOT NULL,
   started_at   TEXT,
   finished_at  TEXT,
-  error_msg    TEXT
+  error_msg    TEXT,
+  -- ============ §9.5 进度三列（2026-09-08）：total 循环前写 / done 逐档 +1（含幂等
+  -- 跳过档）/ current_item liveness 信号 (std_name, category, difficulty)。===========
+  total        INTEGER,
+  done         INTEGER,
+  current_item TEXT
 );
 
 -- ============ 幂等记录表（SSOT §13.4/D-36~D-38——03-03 三键作用域 + 两阶段）============
@@ -1040,6 +1045,25 @@ def _migrate_evidence_exclusion(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_qbank_task_progress(conn: sqlite3.Connection) -> None:
+    """SSOT §9.5（2026-09-08）：question_bank_task 补进度三列 total/done/current_item。
+
+    存量库 PRAGMA 嗅探逐列 ALTER（幂等）；新库表已含三列（尾部 _DDL）自然跳过。
+    全可空无 DEFAULT——存量行无可信进度值（既无总数也无完成数），NULL 语义
+    「未记录」，列表端点按 0/None 展示，不虚构。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(question_bank_task)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL）
+    for name, decl in (
+        ("total", "INTEGER"),
+        ("done", "INTEGER"),
+        ("current_item", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE question_bank_task ADD COLUMN {name} {decl}")
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -1058,6 +1082,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (15, "aggregate_task", _migrate_aggregate_task),
     (16, "jd_position_index", _migrate_jd_position_index),
     (17, "evidence_exclusion", _migrate_evidence_exclusion),
+    (18, "qbank_task_progress", _migrate_qbank_task_progress),
 ]
 
 
@@ -1121,6 +1146,16 @@ def init_db() -> None:
         conn.execute(
             "UPDATE aggregate_task SET status='FAILED', error='进程重启中断',"
             " finished_at=? WHERE status='RUNNING'",
+            (datetime.now(timezone.utc).isoformat(),),
+        )
+        # 启动 sweep（SSOT §9.5，2026-09-08）：题库生成同为 BackgroundTasks，重启后
+        # RUNNING/QUEUED 残留行即孤儿职位。与 aggregate_task 不同点多一个 QUEUED 态
+        # （confirm/retry 事务先插行再调度，进程崩溃时可能停在 QUEUED）。置 FAILED
+        # （error=进程重启中断）收尸，不自动重启——人工 retry 补跑（与 §5 一致）；
+        # 无残留则零行、幂等。
+        conn.execute(
+            "UPDATE question_bank_task SET status='FAILED', error_msg='进程重启中断',"
+            " finished_at=? WHERE status IN ('RUNNING','QUEUED')",
             (datetime.now(timezone.utc).isoformat(),),
         )
         conn.commit()

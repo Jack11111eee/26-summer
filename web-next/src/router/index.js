@@ -15,6 +15,7 @@ const routes = [
       { path: 'positions/:id', name: 'AdminPositionDetail', component: () => import('../views/admin/PositionDetail.vue') },
       { path: 'positions/:id/review', name: 'AdminModelReview', component: () => import('../views/admin/ModelReview.vue') },
       { path: 'positions/:id/versions', name: 'VersionHistory', component: () => import('../views/admin/VersionHistory.vue') },
+      { path: 'qbank', name: 'AdminQbankStatus', component: () => import('../views/admin/QbankStatus.vue') },
       { path: 'dict', name: 'AdminDict', component: () => import('../views/admin/Dict.vue') },
       { path: 'users', name: 'AdminUsers', component: () => import('../views/admin/Users.vue') },
       { path: 'test-center', name: 'AdminTestCenter', component: () => import('../views/admin/TestCenter.vue') }
