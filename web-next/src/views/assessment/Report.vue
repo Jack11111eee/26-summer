@@ -13,7 +13,7 @@
       <div v-else-if="phase === 'failed'" class="generating">
         <p class="serif">报告生成失败</p>
         <p class="field-hint">{{ failText }}</p>
-        <button class="btn-ghost" style="margin-top: 8px" @click="bootstrap">重新生成</button>
+        <button class="btn-ghost" style="margin-top: 8px" @click="regenerate">重新生成</button>
       </div>
 
       <div v-else-if="phase === 'loading'" class="generating">
@@ -429,6 +429,32 @@ async function bootstrap() {
     } else {
       phase.value = 'failed'
       failText.value = errMsg(e, '报告加载失败')
+    }
+  }
+}
+
+// 重新生成：POST 才能触发后端超龄 GENERATING 接管 / FAILED 重生成（bootstrap 只 GET，会原样读回旧状态）。
+async function regenerate() {
+  stopPoll()
+  try {
+    await assessment.generateReport(sessionId)
+    phase.value = 'generating'
+    startPoll()
+  } catch (err) {
+    const code = err?.response?.data?.detail?.error_code
+    if (err?.response?.status === 409 && code === 'REPORT_GENERATING') {
+      // 真实在途（未超龄）→ 与在途状态合并，进入轮询
+      phase.value = 'generating'
+      startPoll()
+    } else if (code === 'REPORT_ALREADY_GENERATED') {
+      // 极端时序：并发已生成 → 直接重取
+      bootstrap()
+    } else if (err?.response?.status === 409 && code === 'SESSION_NOT_COMPLETED') {
+      phase.value = 'failed'
+      failText.value = '会话尚未完成，暂不能生成报告'
+    } else {
+      phase.value = 'failed'
+      failText.value = errMsg(err, '重新生成失败')
     }
   }
 }
