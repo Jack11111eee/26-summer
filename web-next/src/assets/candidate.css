@@ -624,3 +624,14 @@ body.candidate {
   .candidate .app { grid-template-columns: 1fr; }
   body.candidate { background: #fff; }
 }
+
+/* ---------- 历史行删除按钮（§12.1 软删除，2026-09-08；文件末尾追加新 class，
+   不动既有行——同会话另有未提交改动规避约定） ---------- */
+.candidate .hist-del {
+  align-self: center; border: 1px solid var(--line); background: var(--paper);
+  color: var(--accent); font-family: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 8px 16px; border-radius: 10px; cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.candidate .hist-del:hover:not(:disabled) { border-color: var(--accent); }
+.candidate .hist-del:disabled { opacity: .5; cursor: not-allowed; }
