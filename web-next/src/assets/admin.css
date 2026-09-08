@@ -152,6 +152,7 @@ body.admin {
   height: 26px; padding: 0 12px; font-size: 12px; font-weight: 600; border-radius: 8px;
   border: 1px solid #d8d8d4; background: #fff; color: var(--ink-2);
   opacity: .45; transition: opacity .15s ease;
+  white-space: nowrap; /* 窄列下逐字换行会呈竖排且溢出 26px 固定高 */
 }
 .admin tbody tr:hover .row-btn { opacity: 1; }
 .admin .row-actions .row-btn { opacity: 1; } /* 非表格上下文（按钮组/列表行）保持实显 */
