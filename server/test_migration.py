@@ -234,6 +234,49 @@ def test_evidence_exclusion_migration():
     assert len(_q("PRAGMA table_info(evidence_exclusion)")) == 11
 
 
+def test_competency_item_facet_migration():
+    """migration 19（SSOT §8.1/§16.1，2026-09-08）：competency_item 补 facet 打标两列。
+    存量旧表（无两列）迁移补列 + 存量行值保留；新库 _DDL 直接含两列，两路径一致、二次 init 幂等。"""
+    from server.db import _DDL  # 旁证：新库路径 _DDL 的 competency_item 已含两列
+
+    assert "facet_params_json TEXT" in _DDL.split("CREATE TABLE IF NOT EXISTS competency_item")[1]
+
+    # 存量库路径：手造 12 列旧表（migration 19 时代之前）+ 一行存量 gate item
+    conn = get_conn()
+    try:
+        conn.execute(
+            "CREATE TABLE competency_item("
+            " item_id TEXT PRIMARY KEY, model_id TEXT NOT NULL,"
+            " std_name TEXT NOT NULL, category TEXT NOT NULL, required_level INTEGER,"
+            " importance TEXT, weight REAL, years REAL, gate INTEGER NOT NULL DEFAULT 0,"
+            " level_reason TEXT, occurrence_json TEXT, evidence_json TEXT)"
+        )
+        conn.execute("CREATE TABLE competency_model(model_id TEXT PRIMARY KEY,"
+                     " position_id TEXT, version INTEGER, status TEXT, model_json TEXT,"
+                     " confirmed_by TEXT, confirmed_at TEXT, created_at TEXT)")
+        conn.execute(
+            "INSERT INTO competency_item VALUES('ci_1', 'm_1', '本科及以上学历',"
+            " 'qualification', NULL, 'required', 0.0, NULL, 1, 'r', NULL, NULL)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    cols = {r["name"] for r in _q("PRAGMA table_info(competency_item)")}
+    assert {"facet_key", "facet_params_json"} <= cols
+    # 存量行值原样保留、facet 两列为 NULL（confirmed 模型不回填不重打标）
+    row = _q("SELECT * FROM competency_item WHERE item_id='ci_1'")[0]
+    assert row["std_name"] == "本科及以上学历" and row["gate"] == 1
+    assert row["facet_key"] is None and row["facet_params_json"] is None
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    assert [r["version"] for r in rows] == list(range(1, 20))
+
+    init_db()  # 二次 init：嗅探幂等，登记簿不重放、两列不重复 ALTER
+    assert len(_q("PRAGMA table_info(competency_item)")) == 14
+
+
 def test_qbank_task_progress_migration():
     """migration 18（SSOT §9.5）：question_bank_task 补进度三列。
     存量旧表（无三列）迁移补列 + 存量行值保留；新库 _DDL 直接含三列，两路径一致、二次 init 幂等。"""

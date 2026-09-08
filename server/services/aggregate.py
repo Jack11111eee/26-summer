@@ -14,6 +14,7 @@ from collections import Counter, defaultdict
 from .. import config
 from ..db import get_conn
 from ..schemas import AggregateLevelResult
+from .facet import classify_facet
 from .llm import call_llm_json
 from .pipeline import new_id, now_iso
 from .prompts.aggregate_level import AGGREGATE_LEVEL_SYSTEM, build_aggregate_level_user
@@ -183,6 +184,68 @@ def _needs_llm(category: str, g: dict) -> bool:
     return len({ev["level"] for ev in g["evidences"]}) > 1
 
 
+# 有序 facet（SSOT §8.1 工序⑤ A 类合并限定面）：同 facet 且派生参数完全一致才合并；
+# major_group / 复合断言（classify=None）/ 长尾不参与（临时讨论稿 §3.1.1）
+_ORDERED_FACET_KEYS = ("education_degree", "school_tier", "english_level", "number_range")
+
+
+def _label_facets(groups: dict[tuple[str, str], dict]) -> dict[tuple[str, str], dict]:
+    """gate qualification 组打 facet 标：就地写 g['facet']（classify_facet 结果 dict 或 None）。
+
+    非 qualification 组不进分类器（experience 一律 None——年限由 base 字段承载，
+    classify_facet 内同口径拒绝）。打标只供本工序分组与 item 落库消费，不改组键。
+    """
+    for (std_name, category), g in groups.items():
+        if category == "qualification":
+            g["facet"] = classify_facet(std_name, category)
+        else:
+            g["facet"] = None
+    return groups
+
+
+def _merge_equivalent_gate_groups(
+    groups: dict[tuple[str, str], dict],
+) -> dict[tuple[str, str], dict]:
+    """A 类断言等价合并（SSOT §8.1 工序⑤，2026-09-08）：同有序 facet 且派生参数
+    完全一致的 gate qualification 组合并为一组。
+
+    - 合并谓词：facet_key ∈ 有序四类 且 params 完全一致（如都推导为 degree ≥ 本科）。
+    - 合并行为：保留一组（std_name 取更窄措辞 = 词更长者），evidences/jds/req_jds/
+      years_list 并集；被吸收组从 groups 删除——不进 LLM#3 视野，从根上省掉同断言
+      多行产物（合并先于分档，§8.1 顺序要求）。
+    - 不参与：major_group、复合断言（「211硕士及以上学历」横跨学历+院校两轴）、
+      长尾未分类、任意非 gate 项——跨 JD 词面近重复（B 类）一律不合并（裁决 8：缓，
+      词典第 3 层冻结裁决有效）。
+    """
+    targets: dict[tuple[str, str], tuple[str, str]] = {}  # (facet_key, params 指纹) → 保留组键
+    for key in list(groups.keys()):
+        std_name, category = key
+        if category != "qualification":
+            continue
+        facet = groups[key].get("facet")
+        if not facet or facet["facet_key"] not in _ORDERED_FACET_KEYS:
+            continue
+        fingerprint = (facet["facet_key"], json.dumps(facet["params"], sort_keys=True))
+        target_key = targets.get(fingerprint)
+        if target_key is None:
+            targets[fingerprint] = key
+            continue
+        # 保留组取更窄措辞（词更长者）；被吸收组数据并集后从 groups 删除
+        if len(std_name) > len(target_key[0]):
+            keep_key, drop_key = key, target_key
+        else:
+            keep_key, drop_key = target_key, key
+        keep, drop = groups[keep_key], groups[drop_key]
+        keep["jds"] |= drop["jds"]
+        keep["req_jds"] |= drop["req_jds"]
+        keep["evidences"] = keep["evidences"] + drop["evidences"]
+        if drop.get("years_list"):
+            keep.setdefault("years_list", []).extend(drop["years_list"])
+        del groups[drop_key]
+        targets[fingerprint] = keep_key
+    return groups
+
+
 def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
     """聚合成模型草稿。返回 model_id；LLM#3 失败时模型 status=stalled。
 
@@ -200,6 +263,11 @@ def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
         raise ValueError(f"岗位不存在: {position_id}")
 
     groups = _collect_items(position_id)
+    # facet 打标 + A 类断言等价合并（SSOT §8.1 工序⑤，2026-09-08）：分组后、任务行
+    # total 计数与 LLM#3 分档之前——被合并项不进 LLM#3 视野，total/llm_total 口径
+    # 自然按合并后组数计（与 _needs_llm 同源谓词，无第二次分组）。
+    _label_facets(groups)
+    groups = _merge_equivalent_gate_groups(groups)
     total_jds = conn.execute(
         "SELECT COUNT(*) c FROM jd_record WHERE position_id=? AND status='parsed'",
         (position_id,),
@@ -280,6 +348,7 @@ def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
                     level, reason = None, f"等级裁决失败：{e}"
 
             years = max(g["years_list"]) if g.get("years_list") else None  # 年限取最高要求
+            facet = g.get("facet") if is_gate and category == "qualification" else None
             items.append({
                 "std_name": std_name,
                 "category": category,
@@ -292,6 +361,10 @@ def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
                 # 存量模型无此键不受影响）
                 "occurrence": {"r": round(r, 4), "req": round(req, 4), "occ": n_jds},
                 "evidence": g["evidences"],
+                # facet 打标（SSOT §8.1 工序⑤）：qualification 组随行落库，渲染/报告
+                # 端只读不重跑分类（classify=None → 两列 NULL，勾选组 fallback）
+                "facet_key": facet["facet_key"] if facet else None,
+                "facet_params": facet["params"] if facet else None,
             })
             done += 1
 
@@ -316,11 +389,14 @@ def run_aggregate(position_id: str, trigger_source: str = "manual") -> str:
         for it in items:
             conn.execute(
                 "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
-                " importance, weight, years, gate, level_reason, occurrence_json, evidence_json)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                " importance, weight, years, gate, level_reason, occurrence_json, evidence_json,"
+                " facet_key, facet_params_json)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (new_id("c"), model_id, it["std_name"], it["category"], it["required_level"],
                  it["importance"], it["weight"], it["years"], it["gate"], it["level_reason"],
-                 json.dumps(it["occurrence"]), json.dumps(it["evidence"], ensure_ascii=False)),
+                 json.dumps(it["occurrence"]), json.dumps(it["evidence"], ensure_ascii=False),
+                 it.get("facet_key"),
+                 json.dumps(it["facet_params"], ensure_ascii=False) if it.get("facet_params") is not None else None),
             )
         conn.commit()
         if stalled:
