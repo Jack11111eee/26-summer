@@ -21,8 +21,15 @@
             <span class="tb-badge">模型 v{{ p.version }}</span>
             <span class="tb-badge">{{ p.item_count }} 项能力</span>
           </div>
-          <p class="field-hint" style="color: var(--ink-3)">约 40 分钟 · 中途可暂停</p>
-          <button class="go" type="button" @click="goAssess(p)">查看并开始 →</button>
+          <!-- 在途摘要（§12.6）：有 active_session 则提示继续 + 剩余时间（get-or-create 保证直达依旧语义等价） -->
+          <template v-if="p.active_session">
+            <p class="field-hint" style="color: var(--chip-amber-ink)">进行中 · 剩余约 {{ p.active_session.remaining_minutes }} 分钟，可回来继续</p>
+            <button class="go" type="button" @click="goSession(p.active_session.session_id)">继续测评 · 回到中断处 →</button>
+          </template>
+          <template v-else>
+            <p class="field-hint" style="color: var(--ink-3)">约 40 分钟 · 中途可暂停</p>
+            <button class="go" type="button" @click="goAssess(p)">查看并开始 →</button>
+          </template>
         </div>
       </div>
     </div>
@@ -43,7 +50,17 @@ const positions = ref([])
 const loading = ref(false)
 
 function goAssess(p) {
-  router.push(`/assessment/positions/${p.position_id}`)
+  // 带进行中摘要标记（§12.6）：PositionAssess 按钮态显示「继续测评（从中断处继续）」；
+  // 后端 get-or-create 已保证两种点击语义等价（无 query 时回退「开始测评」标注）
+  router.push({
+    path: `/assessment/positions/${p.position_id}`,
+    query: p.active_session ? { resume: 1 } : {}
+  })
+}
+
+// 在途摘要直达（Chat 页恢复链现成；PENDING_START/PAUSED 由其现有门卡处理）
+function goSession(sessionId) {
+  router.push(`/assessment/session/${sessionId}`)
 }
 
 onMounted(async () => {

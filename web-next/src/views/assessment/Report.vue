@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="report-body">
-      <span class="back-link" @click="goBack">← 返回岗位选择</span>
+      <span class="back-link" @click="goBack">← 返回测评历史</span>
 
       <!-- 生成中 / 失败 -->
       <div v-if="phase === 'generating'" class="generating">
@@ -441,7 +441,8 @@ async function submitFeedback() {
 
 // ---- 操作 ----
 function goBack() {
-  router.push('/assessment/positions')
+  // §12.6：完成测评后的「返回」落历史页（刚完成这场 + 全部过往，语义顺）
+  router.push('/assessment/history')
 }
 function printReport() {
   window.print()

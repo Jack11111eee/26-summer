@@ -5,7 +5,8 @@
   （实验 5 实证 SQL SUM 跨行双计 8 vs 6——Anti-pattern 3 禁 SQL SUM 求和，仅 Python merge）；
 - 接 conn 区（不 commit——D-06 契约：事务边界由调用者持有，本模块零 commit）：
   close_open_interval / open_interval / advance_interval / paused_overlap_seconds /
-  session_active_seconds / seal_if_question_timed_out / maybe_abandon_session / touch_last_activity。
+  session_active_seconds / seal_if_question_timed_out / maybe_abandon_session /
+  sweep_user_stale_sessions / touch_last_activity。
 
 interval_type ∈ {active, paused}（N11 代码校验，无 DB CHECK）；reason 敏感不进评分 prompt（D-40）。
 6h ABANDONED 惰性判定（无后台线程 D-005——A3：判定挂 answer 路径 load_owned_session 相邻）。
@@ -207,6 +208,23 @@ def maybe_abandon_session(conn, s: dict) -> None:
     archive_superseded_banks(conn, s["position_id"])
     s["status"] = "abandoned"
     s["phase"] = "ABANDONED"
+
+
+def sweep_user_stale_sessions(conn, user_id: str) -> None:
+    """本人 in_progress 行 6h sweep（SSOT §12.6/§12.1 2026-09-08——挂两点：create 复用查询前 + 历史列出前）。
+
+    逐行复用 maybe_abandon_session（单会话 MUTATE 风格 + 逐行 SESSION_ABANDONED 事件，
+    append-only 契约不破、不删证据）；未超 6h 行 no-op。不 commit——D-06 契约
+    （事务边界由调用者持有，本模块零 commit），调用方有改动自行 conn.commit()。
+    用户中途退出后不再回来 → answer 路径的惰性判定永不触发（永挂 in_progress），
+    本函数补齐「create 再入 / 历史列出」两处触发点，防复用超时死会话。
+    """
+    rows = conn.execute(
+        "SELECT * FROM assessment_session WHERE user_id=? AND status='in_progress'",
+        (user_id,),
+    ).fetchall()
+    for r in rows:
+        maybe_abandon_session(conn, dict(r))
 
 
 def touch_last_activity(conn, session_id: str) -> None:

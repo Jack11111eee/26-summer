@@ -292,6 +292,57 @@ body.candidate {
 .candidate .page-head { max-width: 560px; width: 100%; margin-bottom: 28px; }
 .candidate .page-inner { max-width: 560px; width: 100%; }
 
+/* ---------- 候选端导航壳（SSOT §12.6 2026-09-08，镜像 admin drawer 力学） ---------- */
+.candidate .candidate-shell-root { min-height: 100vh; }
+
+.candidate .edge { position: fixed; left: 0; top: 0; bottom: 0; width: 12px; z-index: 40; }
+.candidate .edge::before {
+  content: ""; position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 58px; border-radius: 3px; background: rgba(60,50,30,.16);
+}
+.candidate .sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0; width: 216px; z-index: 30;
+  background: var(--paper); box-shadow: 18px 0 40px rgba(60,50,30,.09);
+  transform: translateX(-112%); transition: transform .32s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--line);
+}
+.candidate .edge:hover + .sidebar,
+.candidate .sidebar:hover,
+.candidate .sidebar:focus-within { transform: translateX(0); }
+
+.candidate .side-head { padding: 24px 22px 16px; }
+.candidate .side-chip {
+  display: inline-block; padding: 2px 9px; font-size: 10px; font-weight: 600;
+  border-radius: 7px; background: var(--chip-bg); color: var(--chip-ink); letter-spacing: .06em;
+}
+.candidate .side-kicker { font-size: 9px; letter-spacing: .16em; color: var(--ink-3); margin-top: 14px; text-transform: uppercase; }
+.candidate .side-name { font-size: 21px; font-weight: 700; margin-top: 4px; }
+.candidate .side-name em { font-style: normal; color: var(--ink-3); }
+
+.candidate .nav { padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
+.candidate .nav-item {
+  padding: 10px 14px; border-radius: 10px; font-size: 13.5px; color: var(--ink-2); font-weight: 500;
+}
+.candidate .nav-item:hover { background: var(--hover); color: var(--ink-1); }
+.candidate .nav-item.active { background: var(--accent); color: #fff; font-weight: 600; }
+
+.candidate .side-foot { margin-top: auto; padding: 16px 20px; display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); }
+.candidate .avatar {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+  font-weight: 700; display: flex; align-items: center; justify-content: center;
+}
+.candidate .side-user { font-size: 13px; font-weight: 600; }
+.candidate .side-role { font-size: 10px; color: var(--ink-3); margin-top: 1px; }
+.candidate .row-btn {
+  border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+  font-family: inherit; font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 8px;
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+.candidate .row-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.candidate .shell-main { position: relative; z-index: 1; }
+
 .candidate .paper-card {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -367,6 +418,47 @@ body.candidate {
   text-align: center; color: var(--ink-3); padding: 60px 0; font-size: 14px;
 }
 .candidate .empty .serif { font-size: 18px; color: var(--ink-2); margin-bottom: 8px; }
+
+/* ---------- 测评历史页（§12.6） ---------- */
+.candidate .hist-inner { max-width: 860px; }
+.candidate .hist-filter { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.candidate .filter-btn {
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink-2);
+  font-family: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 16px; border-radius: 999px;
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+.candidate .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+.candidate .filter-btn.active { background: var(--ink-1); border-color: var(--ink-1); color: var(--bg); }
+.candidate .hist-card {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px 22px; display: flex; gap: 18px; align-items: center; margin-bottom: 12px;
+  transition: border-color .15s;
+}
+.candidate .hist-card:hover { border-color: var(--accent); }
+.candidate .hist-row-main { flex: 1; min-width: 0; }
+.candidate .hist-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.candidate .hist-title-row h3 { font-size: 16.5px; font-weight: 600; }
+.candidate .hist-actions { display: flex; gap: 10px; flex: none; align-items: flex-start; }
+.candidate .hist-btn { width: auto; padding: 9px 20px; white-space: nowrap; }
+.candidate .chip-done { background: var(--chip-bg); color: var(--chip-ink); }
+
+/* ---------- 意见反馈页（§22.1） ---------- */
+.candidate .feedback-inner { max-width: 640px; }
+.candidate .fb-submit { width: auto; padding: 10px 28px; margin-top: 4px; }
+.candidate .hist-section { margin-top: 30px; }
+.candidate .hist-section h4 { font-size: 16px; font-weight: 600; margin-bottom: 14px; }
+.candidate .sug-list { display: flex; flex-direction: column; gap: 12px; }
+.candidate .sug-item {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px;
+}
+.candidate .sug-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; justify-content: space-between; }
+.candidate .sug-text { font-size: 14px; white-space: pre-line; }
+.candidate .sug-note {
+  margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--bg-rail);
+  font-size: 13px; display: flex; flex-direction: column; gap: 6px;
+}
+.candidate .sug-note b { font-size: 11.5px; color: var(--ink-3); font-weight: 600; letter-spacing: .04em; }
+.candidate .sug-note p { color: var(--ink-2); }
 
 /* ---------- 模型预览（分块只读表） ---------- */
 .candidate .model-block { margin-bottom: 22px; }

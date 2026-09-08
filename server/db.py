@@ -354,6 +354,23 @@ CREATE TABLE IF NOT EXISTS eval_results (
   completed_at TEXT
 );
 
+-- ============ 意见反馈表（SSOT §22.1，2026-09-08 新增）============
+-- 通用系统建议通道，独立于 feedback 逐分异议管道（feedback 的 report_id/item_id
+-- NOT NULL 列 SQLite 不可 ALTER 放开，复用需 12 步表重建且 JOIN/事件挂靠/bad_case
+-- 管道对建议形态全不适配——2026-09-08 已裁决独立表）。status 只两值：建议无
+-- bad_case 沉淀语义；审计三列（review_note/reviewer_id/reviewed_at）与 feedback
+-- Phase 5 模式对齐。
+CREATE TABLE IF NOT EXISTS suggestion (
+  suggestion_id TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES user,
+  text          TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed')),
+  created_at    TEXT NOT NULL,
+  review_note   TEXT,
+  reviewer_id   TEXT,
+  reviewed_at   TEXT
+);
+
 -- ============ 状态事件表（SSOT §13.1，v2.0 新增契约）============
 -- append-only：禁止 UPDATE/DELETE（触发器 ase_no_update/ase_no_delete 强制，D-06）；
 -- actor_type 枚举（candidate/system/admin）代码校验、无 DB CHECK（N11）；
@@ -1064,6 +1081,27 @@ def _migrate_qbank_task_progress(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE question_bank_task ADD COLUMN {name} {decl}")
 
 
+def _migrate_suggestion(conn: sqlite3.Connection) -> None:
+    """SSOT §22.1（2026-09-08）：建 suggestion 意见反馈表。
+
+    新表无存量迁移语义（不 ALTER、不重建既有表），CREATE TABLE IF NOT EXISTS 幂等；
+    新库由尾部 _DDL 直接建表，本迁移对纯新库是 no-op 嗅探跳过（同 aggregate_task/
+    evidence_exclusion 先例语义）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS suggestion (
+      suggestion_id TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL REFERENCES user,
+      text          TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed')),
+      created_at    TEXT NOT NULL,
+      review_note   TEXT,
+      reviewer_id   TEXT,
+      reviewed_at   TEXT
+    );
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -1083,6 +1121,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (16, "jd_position_index", _migrate_jd_position_index),
     (17, "evidence_exclusion", _migrate_evidence_exclusion),
     (18, "qbank_task_progress", _migrate_qbank_task_progress),
+    (19, "suggestion", _migrate_suggestion),
 ]
 
 

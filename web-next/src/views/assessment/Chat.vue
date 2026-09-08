@@ -1,10 +1,10 @@
 <template>
   <div class="app">
-    <!-- 退出确认 -->
+    <!-- 退出确认（§12.6 R1：退出 = 暂停计时，文案如实） -->
     <UiConfirm
       v-if="exitConfirm"
       title="退出测评"
-      message="退出后本场测评不会作废，回来后可从中断处继续。确认退出？"
+      message="退出将暂停本场计时，已作答内容已保存，回来后可从中断处继续。确认退出？"
       confirm-text="退出"
       @close="exitConfirm = false"
       @confirm="confirmExit"
@@ -632,12 +632,24 @@ function onFormSubmitted() {
   refreshSession()
 }
 
-// ---- 退出 ----
+// ---- 退出（§12.6 R1：确认退出 = abort SSE → pause（409 容忍集静默）→ 跳岗位页）----
 function onExit() {
   exitConfirm.value = true
 }
 async function confirmExit() {
   exitConfirm.value = false
+  if (abortStream) abortStream() // 先断进行中的 SSE 流（暂停窗口不打断流会撕断消费合同）
+  try {
+    await assessment.pauseSession(sessionId)
+  } catch (e) {
+    const code = e?.response?.data?.detail?.error_code
+    if (e?.response?.status === 409 && (code === 'SESSION_ALREADY_PAUSED' || code === 'SESSION_NOT_ACTIVE')) {
+      /* 幂等容忍：已在暂停态 / PENDING_START 未开始计时——静默 */
+    } else {
+      // 其余错误（网络/4xx）提示后仍跳转：消息已逐条落库，回来恢复依旧可能，不困死用户
+      toast('暂停失败，计时仍在进行', 'error')
+    }
+  }
   router.push('/assessment/positions')
 }
 

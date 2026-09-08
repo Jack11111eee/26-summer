@@ -19,6 +19,7 @@ from ..services.forms import (
 )
 from ..services.interview import decide_next_action
 from ..services.idempotency import check_idempotency, finalize_idempotency, request_hash_of
+from ..services.input_limits import clamp_pagination_limit
 from ..services.pipeline import new_id, now_iso
 from ..services.question_bank import archive_superseded_banks
 from ..services.question_selection import exception_granted_items, select_next_question
@@ -35,6 +36,7 @@ from ..services.timer import (
     question_elapsed_seconds,
     seal_if_question_timed_out,
     session_active_seconds,
+    sweep_user_stale_sessions,
     touch_last_activity,
 )
 
@@ -56,9 +58,38 @@ def _latest_confirmed_model(conn, position_id: str):
     ).fetchone()
 
 
+def _active_session_summary(conn, position_id: str, user_id: str) -> dict | None:
+    """本人该岗位最新 in_progress 会话摘要（SSOT §12.6 岗位列表 active_session 字段）。
+
+    remaining = max(0, SESSION_TOTAL_MINUTES*60 − Σactive)//60——「剩余约 X 分钟」展示口径，
+    与全场超时判定（answer 点检）同源同封顶： Pediatrics 超时读数在列表层封 0 不为负。
+    PENDING_START 行 active 区间未开 → 剩余 = 全场满额。
+    """
+    row = conn.execute(
+        "SELECT session_id, phase FROM assessment_session"
+        " WHERE user_id=? AND position_id=? AND status='in_progress'"
+        " ORDER BY created_at DESC LIMIT 1",
+        (user_id, position_id),
+    ).fetchone()
+    if row is None:
+        return None
+    remaining = max(0.0, _config.SESSION_TOTAL_MINUTES * 60
+                   - session_active_seconds(conn, row["session_id"]))
+    return {
+        "session_id": row["session_id"],
+        "phase": row["phase"],
+        "remaining_minutes": int(remaining // 60),
+    }
+
+
 @router.get("/positions")
-def list_assessable_positions() -> list[dict]:
-    """可测评岗位：active 且存在 confirmed 模型（附版本号与能力项数）。"""
+def list_assessable_positions(user: dict = Depends(require_login)) -> list[dict]:
+    """可测评岗位：active 且存在 confirmed 模型（附版本号与能力项数）。
+
+    每行附 active_session 摘要（SSOT §12.6）：本人该岗位最新 in_progress 会话派生，
+    None = 该岗位无在途场次（前端按钮保持「开始测评」）；router 级 require_login 已
+    保证登录，本参数仅为取 user_id。
+    """
     conn = get_conn()
     # WR-15：全程取每岗位最新 confirmed 版（相关子查询），岗位排序与版本号无关
     rows = conn.execute(
@@ -71,7 +102,12 @@ def list_assessable_positions() -> list[dict]:
         "                WHERE m2.position_id=m.position_id AND m2.status='confirmed')"
         " ORDER BY p.created_at DESC"
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["active_session"] = _active_session_summary(conn, d["position_id"], user["user_id"])
+        out.append(d)
+    return out
 
 
 @router.get("/positions/{position_id}/model")
@@ -98,16 +134,37 @@ def get_confirmed_model(position_id: str) -> dict:
 
 # ---------- 会话 ----------
 
-@router.post("/sessions", status_code=status.HTTP_201_CREATED)
+@router.post("/sessions")
 def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
-    """创建测评会话：锚定 confirmed 模型最新版（动态选题——SC-1 零预选）。
+    """创建测评会话（get-or-create，SSOT §12.1 2026-09-08 裁决）：锚定 confirmed 模型最新版
+    （动态选题——SC-1 零预选）。
 
-    首题在首次 GET /answer 时由 select_next_question 派发（02-02，SSOT §10.6）。
+    同 (user_id, position_id) 存在 status='in_progress' 会话 → 直接返回该会话
+    （HTTP 200，resumed=True，不 INSERT 新行、跳过 readiness 检查——在途豁免，
+    会话锚定创建时的模型版本，动态派题不断粮）；否则照旧新建（201，resumed=False，
+    readiness 检查照常）。复用取 created_at DESC 最新行；复用查询前先对本人 in_progress
+    行跑 6h sweep（§12.6——防复用超时死会话）。首题在首次 GET /answer 时由
+    select_next_question 派发（02-02，SSOT §10.6）。
     """
     position_id = body.get("position_id")
     if not position_id:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少 position_id")
     conn = get_conn()
+    # 前置 sweep（§12.6 挂载点一）：复用查询前对本人 in_progress 行跑 6h 惰性作废
+    # （sweep 不 commit——D-06 事务边界由本层持有，有改动即落库再继续）
+    sweep_user_stale_sessions(conn, user["user_id"])
+    if conn.in_transaction:
+        conn.commit()
+    # 再入复用：同 (user, position) 在途 → 直接返回（200；PENDING_START/PAUSED/ACTIVE 同样复用）
+    existing = conn.execute(
+        "SELECT session_id FROM assessment_session"
+        " WHERE user_id=? AND position_id=? AND status='in_progress'"
+        " ORDER BY created_at DESC LIMIT 1",
+        (user["user_id"], position_id),
+    ).fetchone()
+    if existing is not None:
+        return JSONResponse(status_code=200,
+                            content={"session_id": existing["session_id"], "resumed": True})
     model = _latest_confirmed_model(conn, position_id)
     if model is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该岗位暂无已确认模型，无法开考")
@@ -137,8 +194,61 @@ def create_session(body: dict, user: dict = Depends(require_login)) -> dict:
                  actor_type="candidate", actor_id=user["user_id"])
     conn.commit()
     # estimated_duration_minutes 由 SESSION_TOTAL_MINUTES 派生（IN-06 魔数 20 退役——A5 前端无消费）
-    return {"session_id": session_id,
-            "estimated_duration_minutes": _config.SESSION_TOTAL_MINUTES}
+    # 装饰器不再固定 201（get-or-create 双态：复用 200 / 新建 201），此处显式 201 保持既有契约
+    return JSONResponse(status_code=201, content={
+        "session_id": session_id, "resumed": False,
+        "estimated_duration_minutes": _config.SESSION_TOTAL_MINUTES})
+
+
+@router.get("/sessions")
+def list_sessions(page: int = 1, page_size: int = 20,
+                  status: str | None = None, user: dict = Depends(require_login)) -> dict:
+    """本人会话历史（SSOT §12.1/§12.6 2026-09-08——候选端测评历史页数据面）。
+
+    服务端分页 {items,total}（page/page_size 沿用 MAX_PAGINATION_LIMIT 钳制惯例）+
+    status 过滤（in_progress/completed/abandoned；空=全部）；所有权 §7 列表级
+    （WHERE user_id=当前用户）。行字段含 position_name（join position）、
+    answered_count（answered_at 非空计数子查询）、session_elapsed_seconds（仅
+    in_progress 行——「剩余 X 分钟」展示；其余 null）。列出前先跑 §12.6 sweep
+    （「不回来的会话」在历史如实显示已作废，不删证据）。
+    """
+    if status not in (None, "", "in_progress", "completed", "abandoned"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"非法 status 过滤值：{status}")
+    page = max(1, page)
+    page_size = clamp_pagination_limit(page_size)
+    offset = (page - 1) * page_size
+    conn = get_conn()
+    # 前置 sweep（§12.6 挂载点二）：本人 in_progress 行 6h 惰性作废（sweep 不 commit）
+    sweep_user_stale_sessions(conn, user["user_id"])
+    if conn.in_transaction:
+        conn.commit()
+    where = "s.user_id=?"
+    params: list = [user["user_id"]]
+    if status:
+        where += " AND s.status=?"
+        params.append(status)
+    total = conn.execute(
+        f"SELECT COUNT(*) c FROM assessment_session s WHERE {where}", params
+    ).fetchone()["c"]
+    rows = conn.execute(
+        "SELECT s.session_id, s.position_id, p.name AS position_name, s.model_version,"
+        " s.status, s.phase, s.created_at, s.ended_at, s.abandoned_at,"
+        " (SELECT COUNT(*) FROM assessment_question aq"
+        "  WHERE aq.session_id=s.session_id AND aq.answered_at IS NOT NULL) AS answered_count"
+        f" FROM assessment_session s LEFT JOIN position p ON p.position_id=s.position_id"
+        f" WHERE {where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
+        [*params, page_size, offset],
+    ).fetchall()
+    items = []
+    for r in rows:
+        d = dict(r)
+        # 进行中行才有读数（session_active_seconds open 区间截到 now——「剩余」展示）；
+        # PENDING_START 行无 active 区间自然为 0.0（满额剩余）
+        d["session_elapsed_seconds"] = (session_active_seconds(conn, d["session_id"])
+                                        if d["status"] == "in_progress" else None)
+        items.append(d)
+    return {"items": items, "total": total}
 
 
 @router.get("/sessions/{session_id}")
@@ -1225,3 +1335,45 @@ def submit_feedback(report_id: str, body: dict, user: dict = Depends(require_log
                  payload={"report_id": report_id, "item_id": item_id, "feedback_id": feedback_id})
     conn.commit()
     return {"feedback_id": feedback_id, "status": "pending"}
+
+
+# ---------- 意见反馈（SSOT §22.1，2026-09-08——独立于 feedback 逐分异议通道）----------
+
+@router.post("/suggestions", status_code=status.HTTP_201_CREATED)
+def submit_suggestion(body: dict, user: dict = Depends(require_login)) -> dict:
+    """候选人提交通用意见反馈（SSOT §22.1）：text 必填、≤MAX_SUGGESTION_LENGTH。
+
+    进 suggestion 表（status='pending'），不挂会话事件（suggestion 行无所属会话，
+    D-67 事件挂靠对建议形态不适用——2026-09-08 裁决）；bad_case 沉淀语义不适用。
+    """
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "反馈内容不能为空")
+    if len(text) > _config.MAX_SUGGESTION_LENGTH:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"反馈内容过长（>{_config.MAX_SUGGESTION_LENGTH} 字符），请精简后提交")
+    conn = get_conn()
+    suggestion_id = new_id("sug")
+    conn.execute(
+        "INSERT INTO suggestion(suggestion_id, user_id, text, status, created_at)"
+        " VALUES(?,?,?,?,?)",
+        (suggestion_id, user["user_id"], text, "pending", now_iso()),
+    )
+    conn.commit()
+    return {"suggestion_id": suggestion_id, "status": "pending"}
+
+
+@router.get("/suggestions")
+def list_my_suggestions(user: dict = Depends(require_login)) -> list[dict]:
+    """本人意见反馈历史（含 status——让用户看到「已处理/待处理」进度 + 处理备注）。
+
+    所有权 §7 列表级（WHERE user_id=当前用户）；created_at DESC（最新在前）。
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT suggestion_id, text, status, created_at, review_note, reviewed_at"
+        " FROM suggestion WHERE user_id=? ORDER BY created_at DESC",
+        (user["user_id"],),
+    ).fetchall()
+    return [dict(r) for r in rows]

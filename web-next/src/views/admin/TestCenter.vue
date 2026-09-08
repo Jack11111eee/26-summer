@@ -159,18 +159,34 @@
       </UiDrawer>
     </template>
 
-    <!-- Tab 3 反馈管理 -->
+    <!-- Tab 3 反馈管理（异议反馈 / 意见反馈切换——SSOT §22.1） -->
     <template v-else>
       <div class="filters">
-        <select v-model="feedbackStatus" class="select" @change="loadFeedback">
+        <div class="tabs" style="margin-right: 12px">
+          <button
+            v-for="t in FEEDBACK_KINDS"
+            :key="t.key"
+            type="button"
+            class="tab"
+            :class="{ active: feedbackKind === t.key }"
+            @click="onFeedbackKind(t.key)"
+          >{{ t.label }}</button>
+        </div>
+        <select v-if="feedbackKind === 'objection'" v-model="feedbackStatus" class="select" @change="loadFeedback">
           <option value="">全部状态</option>
           <option value="pending">待处理</option>
           <option value="reviewed">已处理</option>
           <option value="bad_case">bad case</option>
         </select>
+        <select v-else v-model="suggestionStatus" class="select" @change="loadSuggestions">
+          <option value="">全部状态</option>
+          <option value="pending">待处理</option>
+          <option value="reviewed">已处理</option>
+        </select>
       </div>
 
-      <section class="block n2">
+      <!-- 异议反馈（逐分异议——feedback 通道） -->
+      <section v-if="feedbackKind === 'objection'" class="block n2">
         <div class="block-head">
           <span class="block-title">候选人异议</span>
           <span class="block-cnt">{{ feedbacks.length }} 条</span>
@@ -202,6 +218,40 @@
               </tr>
             </template>
             <tr v-if="!feedbacks.length && !feedbackLoading"><td colspan="7" class="empty-row">暂无反馈</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- 意见反馈（通用系统建议——suggestion 通道，§22.1） -->
+      <section v-else class="block n2">
+        <div class="block-head">
+          <span class="block-title">意见反馈</span>
+          <span class="block-cnt">{{ suggestions.length }} 条</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th style="width: 14%">用户</th><th style="width: 16%">时间</th><th style="width: 32%">内容</th><th style="width: 10%">status</th><th style="width: 16%">处理备注</th><th style="width: 12%; text-align: right">action</th></tr>
+          </thead>
+          <tbody>
+            <template v-for="s in suggestions" :key="s.suggestion_id">
+              <tr>
+                <td><span class="cell-main">{{ s.username || '—' }}</span></td>
+                <td>{{ formatTime(s.created_at) }}</td>
+                <td v-clip class="cell-sub">{{ s.text || '—' }}</td>
+                <td>
+                  <span v-if="s.status === 'pending'" class="tag warm">待处理</span>
+                  <span v-else class="tag tag-solid">已处理</span>
+                </td>
+                <td v-clip class="cell-sub">{{ s.review_note || '—' }}</td>
+                <td>
+                  <div class="row-actions">
+                    <button v-if="s.status === 'pending'" class="row-btn" @click="askSuggestion(s)">标记已处理</button>
+                    <span v-else class="cell-sub" style="font-size: 11px">{{ formatTime(s.reviewed_at) }}</span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+            <tr v-if="!suggestions.length && !suggestionLoading"><td colspan="6" class="empty-row">暂无意见反馈</td></tr>
           </tbody>
         </table>
       </section>
@@ -238,11 +288,27 @@ const traceOffset = ref(0)
 const traceLoading = ref(false)
 const traceDetail = ref(null)
 
+const feedbackKind = ref('objection') // 反馈区切换：objection（逐分异议）/ suggestion（意见反馈 §22.1）
 const feedbackStatus = ref('pending')
 const feedbacks = ref([])
 const feedbackLoading = ref(false)
+const suggestionStatus = ref('pending')
+const suggestions = ref([])
+const suggestionLoading = ref(false)
 
-const confirmState = reactive({ show: false, kind: '', feedback: null })
+const FEEDBACK_KINDS = [
+  { key: 'objection', label: '异议反馈' },
+  { key: 'suggestion', label: '意见反馈' }
+]
+
+function onFeedbackKind(kind) {
+  if (feedbackKind.value === kind) return
+  feedbackKind.value = kind
+  if (kind === 'suggestion') loadSuggestions()
+  else loadFeedback()
+}
+
+const confirmState = reactive({ show: false, kind: '', feedback: null, suggestion: null })
 
 const prettyResult = computed(() =>
   current.value?.result ? JSON.stringify(current.value.result, null, 2) : '— 生成中 —'
@@ -261,7 +327,10 @@ async function reloadAll() {
     toast(errMsg(e, '加载失败'), 'error')
   }
   if (tab.value === 'trace') loadTraces()
-  if (tab.value === 'feedback') loadFeedback()
+  if (tab.value === 'feedback') {
+    if (feedbackKind.value === 'suggestion') loadSuggestions()
+    else loadFeedback()
+  }
 }
 
 // ---- 评测运行 ----
@@ -381,6 +450,25 @@ async function loadFeedback() {
   }
 }
 
+// ---- 意见反馈（§22.1，镜像异议区交互）----
+async function loadSuggestions() {
+  suggestionLoading.value = true
+  try {
+    const { data } = await admin.suggestions.list(suggestionStatus.value || undefined)
+    suggestions.value = data
+  } catch (e) {
+    toast(errMsg(e, '意见反馈加载失败'), 'error')
+  } finally {
+    suggestionLoading.value = false
+  }
+}
+
+function askSuggestion(s) {
+  confirmState.kind = 'suggestion_review'
+  confirmState.suggestion = s
+  confirmState.show = true
+}
+
 function askFeedback(f, kind) {
   confirmState.kind = kind
   confirmState.feedback = f
@@ -394,26 +482,34 @@ function askPublish(f) {
 }
 
 const CONFIRM_META = {
-  review: { title: '标记已处理', act: (f) => admin.feedback.review(f.feedback_id), ok: '已标记处理' },
-  'bad_case': { title: '标 bad case', act: (f) => admin.feedback.badCase(f.feedback_id), ok: '已标 bad case' },
-  publish: { title: '发布报告', act: (f) => admin.reports.publish(f.report_id), ok: '报告已发布' }
+  review: { title: '标记已处理', act: (f) => admin.feedback.review(f.feedback_id), ok: '已标记处理', reload: loadFeedback },
+  'bad_case': { title: '标 bad case', act: (f) => admin.feedback.badCase(f.feedback_id), ok: '已标 bad case', reload: loadFeedback },
+  publish: { title: '发布报告', act: (f) => admin.reports.publish(f.report_id), ok: '报告已发布', reload: loadFeedback },
+  suggestion_review: {
+    title: '标记已处理',
+    // 意见反馈经 suggestion 通道（§22.1）——note 留空与异议 review 动作同形态
+    act: (s) => admin.suggestions.review(s.suggestion_id),
+    ok: '已标记处理',
+    reload: loadSuggestions
+  }
 }
 
 const confirmTextMap = computed(() => ({
   review: '确认标记「' + confirmState.feedback?.std_name + '」异议为已处理？（不改分，仅留痕）',
   'bad_case': '确认标「' + confirmState.feedback?.std_name + '」异议为 bad case？（沉淀为评测素材）',
-  publish: '确认为该反馈所属报告执行发布？（发布后考生可见最终报告）'
+  publish: '确认为该反馈所属报告执行发布？（发布后考生可见最终报告）',
+  suggestion_review: '确认标记用户「' + confirmState.suggestion?.username + '」的意见反馈为已处理？（reviewed + 处理留痕）'
 }))
 
 async function onConfirm() {
   const meta = CONFIRM_META[confirmState.kind]
-  const f = confirmState.feedback
+  const target = confirmState.kind === 'suggestion_review' ? confirmState.suggestion : confirmState.feedback
   confirmState.show = false
-  if (!meta || !f) return
+  if (!meta || !target) return
   try {
-    await meta.act(f)
+    await meta.act(target)
     toast(meta.ok)
-    await loadFeedback()
+    await meta.reload()
   } catch (e) {
     toast(errMsg(e, '操作失败'), 'error')
   }
