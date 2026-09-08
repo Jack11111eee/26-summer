@@ -39,8 +39,13 @@ CATEGORY_RATIO = {
 }
 # 类内重要性系数
 IMPORTANCE_COEF = {"required": 1.0, "preferred": 0.6, "plus": 0.3}
-# importance 聚合双比率阈值
-REQ_THRESHOLD = 0.5
+# importance 混合口径（SSOT §8.1 工序⑤，2026-09-07 裁决）
+# required 三重判据：条件 req（req_jds/出现 jds）≥ REQ_THRESHOLD、
+# r ≥ REQ_MIN_OCCURRENCE_RATIO、出现 JD 数 ≥ REQ_MIN_OCCURRENCE；
+# 仅 hard_skill 可判 required（soft_skill 上限 preferred）。
+REQ_THRESHOLD = 0.5  # 条件口径阈值（语义 2026-09-07 变更：标 required 的 JD 数 ÷ 出现 JD 数）
+REQ_MIN_OCCURRENCE_RATIO = 0.25
+REQ_MIN_OCCURRENCE = 3
 R_THRESHOLD = 0.5
 # LLM 校验失败重试次数
 LLM_RETRY = 2

@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS user (
 CREATE TABLE IF NOT EXISTS position (
   position_id TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
-  status      TEXT NOT NULL CHECK(status IN ('pending_review','active')),
+  -- 2026-09-07 岗位审核轮：加 'inactive'（空巢 active 岗批量下架，migration 14 重建放宽）
+  status      TEXT NOT NULL CHECK(status IN ('pending_review','active','inactive')),
   created_at  TEXT NOT NULL
 );
 
@@ -70,6 +71,9 @@ CREATE TABLE IF NOT EXISTS jd_record (
   error_msg      TEXT,
   created_at     TEXT NOT NULL
 );
+-- 管理端岗位列表 jd_count 相关子查询 / 孤儿计数 / 详情页 JD 清单 / 聚合 parsed 计数
+-- 均按 position_id 查 jd_record，无索引时全表 SCAN（迁移 #16，2026-09-07）
+CREATE INDEX IF NOT EXISTS idx_jd_position ON jd_record(position_id);
 
 CREATE TABLE IF NOT EXISTS competency_model (
   model_id     TEXT PRIMARY KEY,
@@ -450,6 +454,50 @@ CREATE TABLE IF NOT EXISTS bad_case_candidate (
   review_note  TEXT,
   reviewed_by  TEXT,
   reviewed_at  TEXT
+);
+
+-- ============ 聚合任务表（SSOT §8.4——聚合进度反馈与全程可追溯，2026-09-07）============
+-- 每次触发一行、不清理；status 枚举 RUNNING/SUCCEEDED/FAILED、trigger_source 枚举
+-- manual/retry/auto:jd-parse 代码校验、无 DB CHECK（N11）；不设 QUEUED（BackgroundTasks
+-- 触发即执行）。溯源链：aggregate_task(task_id) → competency_model(model_id) →
+-- llm_trace(ref_id=model_id, call_type=aggregate_level)；RUNNING 残留行由 init_db
+-- 尾部启动 sweep 收尸（每次启动执行，见 init_db）。
+CREATE TABLE IF NOT EXISTS aggregate_task (
+  task_id        TEXT PRIMARY KEY,
+  position_id    TEXT NOT NULL,
+  status         TEXT NOT NULL,
+  trigger_source TEXT NOT NULL,
+  total          INTEGER,
+  done           INTEGER DEFAULT 0,
+  llm_total      INTEGER,
+  llm_done       INTEGER DEFAULT 0,
+  current_item   TEXT,
+  model_id       TEXT,
+  error          TEXT,
+  created_at     TEXT NOT NULL,
+  started_at     TEXT,
+  finished_at    TEXT
+);
+
+-- ============ 证据排除表（SSOT §8.5——证据可标记排除/留痕/重聚合同再生效，2026-09-07）============
+-- 语句粒度软排除：主键 (position_id, jd_id, std_name, category, text)——排除的是
+-- 「某条 JD 对某能力项的一条证据摘录」；岗位维度持久、不随聚合重建（穿越重聚合）。
+-- 解除不删行（status active→lifted 留 lifted_by/lifted_at 审计）；再标记复活 active。
+-- status 枚举代码校验、无 DB CHECK（N11 口径）。生效规则见 SSOT §8.5 三级：
+-- 证据级滤除 / 全排除的 JD-项不计 r/req 分子 / 消项级权重重算。
+CREATE TABLE IF NOT EXISTS evidence_exclusion (
+  position_id  TEXT NOT NULL REFERENCES position,
+  jd_id        TEXT NOT NULL REFERENCES jd_record,
+  std_name     TEXT NOT NULL,
+  category     TEXT NOT NULL,
+  text         TEXT NOT NULL,
+  reason       TEXT,
+  excluded_by  TEXT NOT NULL REFERENCES user,
+  excluded_at  TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'active',
+  lifted_by    TEXT REFERENCES user,
+  lifted_at    TEXT,
+  PRIMARY KEY(position_id, jd_id, std_name, category, text)
 );
 """
 
@@ -895,6 +943,103 @@ def _migrate_feedback_phase5(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE feedback ADD COLUMN {name} {decl}")
 
 
+def _migrate_position_inactive(conn: sqlite3.Connection) -> None:
+    """岗位审核轮（2026-09-07）：position.status CHECK 加 'inactive'（空巢 active 批量下架）。
+
+    - 重建表放宽 CHECK（同 llm_trace/feedback 迁移思路——SQLite CHECK 无法 ALTER）。
+    - 只加枚举位，不改现有行状态（353 空巢岗的 status 翻转由本轮运维 SQL 单独执行）。
+    - 存量库才有此迁移；新库 _DDL 已含 'inactive'，嗅探跳过（幂等）。
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='position'"
+    ).fetchone()
+    if row is None or "'inactive'" in (row[0] or ""):
+        return  # 表不存在（新建走 _DDL）或已是含 inactive 的约束
+    conn.executescript("""
+    BEGIN;
+    CREATE TABLE position_new (
+      position_id TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      status      TEXT NOT NULL CHECK(status IN ('pending_review','active','inactive')),
+      created_at  TEXT NOT NULL
+    );
+    INSERT INTO position_new SELECT * FROM position;
+    DROP TABLE position;
+    ALTER TABLE position_new RENAME TO position;
+    COMMIT;
+    """)
+
+
+def _migrate_aggregate_task(conn: sqlite3.Connection) -> None:
+    """SSOT §8.4（2026-09-07）：建 aggregate_task 聚合任务表。
+
+    新表无存量迁移语义（不 ALTER、不重建既有表），CREATE TABLE IF NOT EXISTS 幂等；
+    新库由尾部 _DDL 直接建表，本迁移对纯新库是 no-op 嗅探跳过（同 idempotent 语义）。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS aggregate_task (
+      task_id        TEXT PRIMARY KEY,
+      position_id    TEXT NOT NULL,
+      status         TEXT NOT NULL,
+      trigger_source TEXT NOT NULL,
+      total          INTEGER,
+      done           INTEGER DEFAULT 0,
+      llm_total      INTEGER,
+      llm_done       INTEGER DEFAULT 0,
+      current_item   TEXT,
+      model_id       TEXT,
+      error          TEXT,
+      created_at     TEXT NOT NULL,
+      started_at     TEXT,
+      finished_at    TEXT
+    );
+    """)
+
+
+def _migrate_jd_position_index(conn: sqlite3.Connection) -> None:
+    """jd_record.position_id 补索引（2026-09-07）：管理端列表 jd_count 相关子查询等
+    按 position_id 查 jd_record 的路径此前后全表 SCAN（每请求 ~0.7-1s）。
+
+    CREATE INDEX IF NOT EXISTS 幂等；全新库 jd_record 由尾部 _DDL 建表并带索引，
+    本迁移嗅探表不存在即跳过（迁移先于 _DDL 执行——init_db 顺序，同 no-op 语义）。
+    """
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jd_record'"
+    ).fetchone()
+    if has_table is None:
+        return
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jd_position ON jd_record(position_id)")
+    conn.commit()
+
+
+def _migrate_evidence_exclusion(conn: sqlite3.Connection) -> None:
+    """SSOT §8.5（2026-09-07）：建 evidence_exclusion 证据排除表。
+
+    新表无存量迁移语义（无历史排除可回填），CREATE TABLE IF NOT EXISTS 幂等；
+    新库由尾部 _DDL 直接建表，本迁移对纯新库是 no-op 嗅探跳过（同 idempotent 语义）。
+
+    注：本表在 web-next 整合分支上曾占迁移 #16；并入 m5 时因主线已将 #16 用于
+    jd_position_index（SSOT §14 已登记），统一改号为 #17——登记簿无历史应用记录，
+    改号无兼容性影响。
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS evidence_exclusion (
+      position_id  TEXT NOT NULL REFERENCES position,
+      jd_id        TEXT NOT NULL REFERENCES jd_record,
+      std_name     TEXT NOT NULL,
+      category     TEXT NOT NULL,
+      text         TEXT NOT NULL,
+      reason       TEXT,
+      excluded_by  TEXT NOT NULL REFERENCES user,
+      excluded_at  TEXT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'active',
+      lifted_by    TEXT REFERENCES user,
+      lifted_at    TEXT,
+      PRIMARY KEY(position_id, jd_id, std_name, category, text)
+    );
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -909,6 +1054,10 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (11, "question_score_phase5", _migrate_question_score_phase5),
     (12, "report_phase5", _migrate_report_phase5),
     (13, "feedback_phase5", _migrate_feedback_phase5),
+    (14, "position_inactive", _migrate_position_inactive),
+    (15, "aggregate_task", _migrate_aggregate_task),
+    (16, "jd_position_index", _migrate_jd_position_index),
+    (17, "evidence_exclusion", _migrate_evidence_exclusion),
 ]
 
 
@@ -966,6 +1115,14 @@ def init_db() -> None:
             )
             conn.commit()
         conn.executescript(_DDL)
+        # 启动 sweep（SSOT §8.4）：进程重启后 BackgroundTasks 任务已死，RUNNING 残留行
+        # 一次性置 FAILED 收尸（前端认领 RUNNING 行才不会永远等一个不存在的任务）；
+        # 无残留则零行、幂等。置于此处因 sweep 依赖表已存在（迁移+DDL 之后）。
+        conn.execute(
+            "UPDATE aggregate_task SET status='FAILED', error='进程重启中断',"
+            " finished_at=? WHERE status='RUNNING'",
+            (datetime.now(timezone.utc).isoformat(),),
+        )
         conn.commit()
     finally:
         conn.close()

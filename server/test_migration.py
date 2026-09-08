@@ -29,7 +29,7 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 def test_fresh_replay():
     init_db()
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 14))
+    assert [r["version"] for r in rows] == list(range(1, 18))
     # REF-2.1 parity：用户表名集合 == 从 _DDL 动态提取的 CREATE TABLE 集合（不硬编码数量）
     ddl_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _DDL))
     actual = {
@@ -47,7 +47,7 @@ def test_idempotent():
     init_db()
     init_db()  # 二次 init_db 应 no-op：登记簿行数不变
     rows = _q("SELECT COUNT(*) c FROM schema_version")
-    assert rows[0]["c"] == 13
+    assert rows[0]["c"] == 17
 
 
 def test_old_db_migration():
@@ -87,4 +87,148 @@ def test_old_db_migration():
     qb_cols = {r["name"] for r in _q("PRAGMA table_info(question_bank)")}
     assert {"model_id", "model_version"} <= qb_cols
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 14))
+    assert [r["version"] for r in rows] == list(range(1, 18))
+
+
+def test_position_inactive_migration():
+    """migration 14 岗位审核轮：老 position CHECK 无 'inactive' 时重建放宽，存量行原样保留。"""
+    conn = get_conn()
+    try:
+        # 手造旧 schema（两态 CHECK）+ 双岗存量行
+        conn.execute(
+            "CREATE TABLE position(position_id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+            " status TEXT NOT NULL CHECK(status IN ('pending_review','active')),"
+            " created_at TEXT NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO position VALUES(?,?,?,?)",
+            [("pos_a1", "算法", "active", "2026-01-01"),
+             ("pos_p1", "算法专家", "pending_review", "2026-01-02")],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    pos_sql = _q("SELECT sql FROM sqlite_master WHERE name='position'")[0]["sql"]
+    assert "'inactive'" in pos_sql
+    # 存量行的 status 与 PK 迁移后原样保留
+    rows = _q("SELECT position_id, name, status FROM position ORDER BY position_id")
+    assert rows == [
+        {"position_id": "pos_a1", "name": "算法", "status": "active"},
+        {"position_id": "pos_p1", "name": "算法专家", "status": "pending_review"},
+    ]
+    # 放宽后 inactive 可写（下架语义载体）
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE position SET status='inactive' WHERE position_id='pos_a1'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert _q("SELECT status FROM position WHERE position_id='pos_a1'")[0]["status"] == "inactive"
+
+
+def test_aggregate_task_migration():
+    """migration 15（SSOT §8.4）：聚合任务表。存量库迁移建表 + 新库 _DDL 直接含表，
+    两路径表结构一致、二次 init 幂等。"""
+    from server.db import _DDL  # 旁证：新库路径 _DDL 直接含 aggregate_task
+
+    assert "CREATE TABLE IF NOT EXISTS aggregate_task" in _DDL
+
+    # 存量库路径：先建到最新（含登记簿 15 行），再把登记簿回拨到 14 模拟「migration 14
+    # 时代的存量库」（aggregate_task 由尾部 _DDL IF NOT EXISTS 建过也无妨——迁移幂等）
+    init_db()
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM schema_version WHERE version >= 15")
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    cols = {r["name"] for r in _q("PRAGMA table_info(aggregate_task)")}
+    assert cols == {
+        "task_id", "position_id", "status", "trigger_source", "total", "done",
+        "llm_total", "llm_done", "current_item", "model_id", "error",
+        "created_at", "started_at", "finished_at",
+    }
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    # 回拨到 14 后重放会连 15/16/17（aggregate_task/jd_position_index/evidence_exclusion）
+    # 一并补齐（登记簿始终到最新）
+    assert [r["version"] for r in rows] == list(range(1, 18))
+
+    init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
+    assert len(_q("PRAGMA table_info(aggregate_task)")) == 14
+
+
+def test_jd_position_index():
+    """migration 16：存量库自动补建 idx_jd_position（无索引旧库 → 迁移后出现）。"""
+    conn = get_conn()
+    try:
+        # 手造旧 schema（无 position_id 索引）+ 存量行
+        conn.execute(
+            "CREATE TABLE jd_record(jd_id TEXT PRIMARY KEY,"
+            " position_id TEXT REFERENCES position, job_title TEXT, company TEXT,"
+            " source_type TEXT NOT NULL, raw_text TEXT NOT NULL, cleaned_text TEXT,"
+            " raw_items_json TEXT, std_items_json TEXT, low_confidence INTEGER NOT NULL DEFAULT 0,"
+            " status TEXT NOT NULL, error_msg TEXT, created_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "CREATE TABLE position(position_id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+            " status TEXT NOT NULL, created_at TEXT NOT NULL)"
+        )
+        conn.execute("INSERT INTO position VALUES('pos_1', '算法', 'active', '2026-01-01')")
+        conn.execute(
+            "INSERT INTO jd_record VALUES('jd_1', 'pos_1', 't', 'c', 'paste', 'raw',"
+            " NULL, NULL, NULL, 0, 'parsed', NULL, '2026-01-02')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    idx = _q(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_jd_position'"
+    )
+    assert idx and idx[0]["name"] == "idx_jd_position"
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    assert [r["version"] for r in rows] == list(range(1, 18))
+
+    init_db()  # 二次 init：幂等，索引已存在不重复建
+    assert len(_q("SELECT name FROM sqlite_master WHERE type='index' AND"
+                " name='idx_jd_position'")) == 1
+
+
+def test_evidence_exclusion_migration():
+    """migration 17（SSOT §8.5）：证据排除表。存量库迁移建表 + 新库 _DDL 直接含表，
+    两路径表结构一致、二次 init 幂等。注意 #17 为并入 m5 时的改号（原线曾占 #16，
+    与主线 jd_position_index 冲突；登记簿无历史应用记录，改号无兼容性影响）。"""
+    from server.db import _DDL  # 旁证：新库路径 _DDL 直接含 evidence_exclusion
+
+    assert "CREATE TABLE IF NOT EXISTS evidence_exclusion" in _DDL
+
+    # 存量库路径：先建到最新（含登记簿 17 行），再把登记簿回拨到 16 模拟「migration 17
+    # 之前的存量库」（表由尾部 _DDL IF NOT EXISTS 建过也无妨——迁移幂等）
+    init_db()
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM schema_version WHERE version >= 17")
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    cols = {r["name"] for r in _q("PRAGMA table_info(evidence_exclusion)")}
+    assert cols == {
+        "position_id", "jd_id", "std_name", "category", "text", "reason",
+        "excluded_by", "excluded_at", "status", "lifted_by", "lifted_at",
+    }
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    assert [r["version"] for r in rows] == list(range(1, 18))
+
+    init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
+    assert len(_q("PRAGMA table_info(evidence_exclusion)")) == 11

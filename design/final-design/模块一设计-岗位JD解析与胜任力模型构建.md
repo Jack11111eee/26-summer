@@ -2,7 +2,7 @@
 
 > 本文档为《design/final-design/总设计文档.md》（唯一 SSOT）**第二部分的分块摘录**，聚焦模块一阅读。
 > 状态：**已实现（M1~M3）**；§8 M1 回归已落地为 `server/test_m1_regression.py`（八项脆弱点回归锁）。
-> 2026-09-07 与 SSOT v2.0（含 §14 变更日志至 2026-09-06）全量核对同步；同日随 SSOT 2026-09-07「源标题优先归岗」条目同步本文件 §2/§3/§9。
+> 2026-09-07 与 SSOT v2.0（含 §14 变更日志至 2026-09-06）全量核对同步；同日随 SSOT 2026-09-07「源标题优先归岗」条目同步本文件 §2/§3/§9，随「聚合任务可观测」条目同步本文件 §2/§5/§7/§10。
 > 维护规则：任何设计变更，先更新《总设计文档.md》（正文 + §14 变更日志），再动代码。
 
 ---
@@ -22,7 +22,7 @@
 - confirmed 后新增 JD / 重解析 → 产出新 draft → **diff 审阅流**（逐项三选一：保留人工值/采用新值/再编辑）升 v{n+1}；
 - 标题源优先：JSONL 行内 `job_title`（兼容 `position` 键名）入库即存 `jd_record.job_title`；pipeline 与 reparse 不覆写已存标题，仅库内标题为空时以 LLM#1 抽取兜底；
 - 归岗：取标题（上述源标题优先）→ 规范化（去空格/大小写/常见后缀）→ position 精确匹配（`COLLATE NOCASE`，大小写不敏感；存量岗位名不迁移）→ 别名表 → 未命中建 `pending_review` 岗位（人工审核激活；不聚合、不对测评端可见）；
-- 异步：导入/聚合不在请求内同步执行；前端列表轮询（5s）；聚合自动触发钩子独立于解析异常处理（聚合自身异常不连累 JD 状态）。
+- 异步：导入/聚合不在请求内同步执行；前端列表轮询（5s）；聚合任务进度反馈与任务行追溯见 SSOT §8.4（`aggregate_task` 表）；聚合自动触发钩子独立于解析异常处理（聚合自身异常不连累 JD 状态）。
 
 ## 3. 工序实现约束
 
@@ -31,7 +31,7 @@
 | ② 清洗 | 纯规则按标题词切段，职责块/要求块分离；要求块空或 <30 字 → `low_confidence=1` 但**继续流程**；无 LLM 兜底；header 与内容同行时保留内容段 |
 | ③ 抽取 | LLM#1，JSON 模式 + 强 Schema（items[]：name/category/required_level/importance/evidence/years?/job_title）；校验失败带错误重试 ×2 → `failed`；四条硬约束（原子化/抄录证据/三档措辞映射/1–5 级措辞映射）写入 prompt；job_title 仅当库内标题为空时兜底（源标题优先——见 §2，导入行内 job_title 直接入库） |
 | ④ 消歧 | 词典候选 = 同 category 相似度过滤（difflib 编辑距离 ratio + 子串包含，归一化 lowercase/strip，阈值 `DICT_MATCH_THRESHOLD=0.5`）取 top10 → LLM#2 裁决同义/包含/重合；失败重试 ×2 → 降级代码精确去重；新标准名写词典 `llm_pending`；词典为空跳过 LLM#2。拼音匹配未启用（干净语料收益低，避免 pypinyin 依赖——§31-4 裁决） |
-| ⑤ 聚合 | 纯代码频次（r、req）→ importance 阈值映射（配置项）→ level 冲突交 LLM#3（**无自动取众数后门**）→ 权重纯代码；LLM#3 重试 ×2 仍败 → 模型 `stalled`（管理员 P1 待办） |
+| ⑤ 聚合 | 纯代码频次（r/req/occ——req 为**条件口径**：「标 required 的 JD 数 ÷ 该能力**出现**的 JD 数」，绝对口径废弃）→ importance 三档映射：`required ⇔ 条件req ≥ REQ_THRESHOLD(0.5) 且 r ≥ REQ_MIN_OCCURRENCE_RATIO(0.25) 且 出现 JD 数 ≥ REQ_MIN_OCCURRENCE(3)`（仅 hard_skill 可判 required，soft_skill 上限 preferred——2026-09-07 裁决；条件 req 修正单 JD 措辞泛滥，r/occ 双门槛保岗位共识与统计证据下限）；`preferred ⇔ 未达 required 且 r ≥ R_THRESHOLD(0.5)`；否则 `plus`（裸条件口径实测否决：图像算法 271/306 泛滥）→ level 冲突交 LLM#3（**无自动取众数后门**）→ 权重纯代码；LLM#3 重试 ×2 仍败 → 模型 `stalled`（管理员 P1 待办） |
 | ⑥ 人审 | PUT 编辑草稿 → confirm 升版本；编辑 stalled 模型后自动转 draft 并清 stall_reason（与"重试 LLM"并列的手动定级恢复路径） |
 
 ## 4. 权重口径（v2.0 关键修正）
@@ -57,11 +57,12 @@ hard_skill : soft_skill = 0.70 : 0.30（Σ 各大类 item.weight 分别 = 0.70 /
 - 人工唯一权威：confirmed 模型不被静默覆盖；分数是历史事实；
 - 每道工序中间产物（raw_items / std_items / cleaned_text）落 `jd_record` 可查；
 - 能力词典独立管理：被引用条目停用/合并而非删除；`llm_pending` 标签醒目待审；
+- 聚合任务全程可观测：每次触发落 `aggregate_task` 行（双计数进度+当前项+成败+error，任务态与模型态并存），溯源链 `aggregate_task → competency_model → llm_trace`（SSOT §8.4）；
 - trace：LLM#1/#2/#3 每次调用 prompt+response 落 `llm_trace`。
 
 ## 6. 可配置常量（config.py）
 
-`IMPORTANCE_COEF={required:1.0, preferred:0.6, plus:0.3}`、`REQ_THRESHOLD=0.5`、`R_THRESHOLD=0.5`、`LLM_RETRY=2`、`CLEAN_MIN_REQ_LEN=30`、`DICT_MATCH_THRESHOLD=0.5`（§31-4，2026-09-06 裁决）、`MAX_JD_LENGTH=10000`、`MAX_JD_FILE_LINES=500`。（旧 `CATEGORY_RATIO=5.5:2:2:0.5` 由 7:3 + gate 不占权重的新口径取代。）
+`IMPORTANCE_COEF={required:1.0, preferred:0.6, plus:0.3}`、`REQ_THRESHOLD=0.5`（2026-09-07 语义变更：条件 req 口径阈值）、`REQ_MIN_OCCURRENCE_RATIO=0.25`、`REQ_MIN_OCCURRENCE=3`（新增，required 双支撑门槛；soft_skill 不可判 required）、`R_THRESHOLD=0.5`、`LLM_RETRY=2`、`CLEAN_MIN_REQ_LEN=30`、`DICT_MATCH_THRESHOLD=0.5`（§31-4，2026-09-06 裁决）、`MAX_JD_LENGTH=10000`、`MAX_JD_FILE_LINES=500`。（旧 `CATEGORY_RATIO=5.5:2:2:0.5` 由 7:3 + gate 不占权重的新口径取代。）
 
 清洗噪声词表走 pipeline 内置硬编码表（`NOISE_HEADERS`），配置词表**不启用**（2026-09-06 演示期裁决，`TITLE_CLEAN_WORDS` 占位摘除——§31-4）。
 
@@ -71,7 +72,7 @@ hard_skill : soft_skill = 0.70 : 0.30（Σ 各大类 item.weight 分别 = 0.70 /
 |---|---|---|
 | /admin/positions | P1 岗位库 | 待办条（新岗位审核/stalled/待归属）+ 岗位卡片 + 导入弹窗（粘贴/文件） |
 | /admin/positions/:id | P2 岗位详情 | JD 列表轮询、工序留档抽屉、重新聚合 |
-| /admin/positions/:id/review | P3 模型审核 | 左右双栏：证据面板（原文高亮+出现率+LLM#3 理由）+ 模型树（Σ=100% 校验）+ 确认模型 |
+| /admin/positions/:id/review | P3 模型审核 | 左右双栏：证据面板（原文高亮+出现率+LLM#3 理由）+ 模型树（Σ=100% 校验）+ 确认模型 + 聚合进度条（双计数+当前项，SSOT §8.4） |
 | /admin/positions/:id/versions | P4 版本 diff | 版本列表 + 逐项三选一审阅 |
 | /admin/dict | P6 能力词典 | 表格 + 编辑抽屉 + 合并对话框 |
 | /admin/users | P7 用户管理 | 建号/停用/重置密码 |
@@ -95,4 +96,4 @@ SSOT §8.1 八项脆弱点回归锁已实现为 `server/test_m1_regression.py`�
 
 ## 10. 本文依据
 
-《总设计文档.md》§8–§8.3、§27、§28、§31（开放参数裁决）；变更日志条目 2026-09-06（词典阈值/管理员分页）、2026-09-07（源标题优先归岗）；差异登记见总文档 §30。
+《总设计文档.md》§8–§8.4、§27、§28、§31（开放参数裁决）；变更日志条目 2026-09-06（词典阈值/管理员分页）、2026-09-07（源标题优先归岗、聚合任务可观测）；差异登记见总文档 §30。
