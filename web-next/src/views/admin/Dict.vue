@@ -45,9 +45,9 @@
       <table>
         <thead>
           <tr>
-            <th style="width: 13%">std_name</th><th style="width: 8%">category</th><th style="width: 22%">definition</th>
-            <th style="width: 15%">aliases</th><th style="width: 14%">exclusions</th><th style="width: 8%">source</th><th style="width: 8%">status</th>
-            <th style="width: 12%; text-align: right">action</th>
+            <th style="width: 13%">std_name</th><th style="width: 8%">category</th><th style="width: 19%">definition</th>
+            <th style="width: 14%">aliases</th><th style="width: 12%">exclusions</th><th style="width: 7%">source</th><th style="width: 7%">status</th>
+            <th style="width: 20%; text-align: right">action</th>
           </tr>
         </thead>
         <tbody>
