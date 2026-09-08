@@ -322,6 +322,11 @@ def confirm_model(model_id: str, background: BackgroundTasks, admin: dict = Depe
         " status, created_at) VALUES(?,?,?,?,?,?)",
         (new_id("qbt"), row["position_id"], model_id, row["version"], "QUEUED", now_iso()),
     )
+    # 旧版题库归档（SSOT §9.2 2026-09-08）：本 confirm 即「同岗位存在更新 confirmed
+    # 模型」的成立时刻——同事务顺带归档旧版题库行（被 in_progress 会话引用的
+    # model_id 由 helper 内部豁免；归档不依赖新库生成结果，正交于 readiness）
+    from ...services.question_bank import archive_superseded_banks
+    archive_superseded_banks(conn, row["position_id"])
     conn.commit()
 
     from ...services.question_bank import generate_question_bank
@@ -348,6 +353,22 @@ def retry_question_bank_task(task_id: str, background: BackgroundTasks) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
     if row["status"] != "FAILED":
         raise HTTPException(status.HTTP_409_CONFLICT, "仅失败任务可重试")
+    # 归档护栏（SSOT §9.2 2026-09-08 规则⑤）：该岗位已存在更新 confirmed 模型时，
+    # 旧模型的 FAILED 任务不可重试——重跑会经幂等查重「复活」出新的 active 行，
+    # 污染归档标记与管理端计数。判定基准取岗位最新 confirmed 的 model_id
+    # （version 高者为新，同 version 取 rowid 最新），!= 本 task 行的 model_id
+    # 即视为已被取代（判定与归档行无关，无时序竞争窗口，讨论稿 C2）。
+    latest = conn.execute(
+        "SELECT model_id FROM competency_model"
+        " WHERE position_id=? AND status='confirmed'"
+        " ORDER BY version DESC, rowid DESC LIMIT 1",
+        (row["position_id"],),
+    ).fetchone()
+    if latest is not None and latest["model_id"] != row["model_id"]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "该岗位已存在更新的已确认模型，旧版题库任务不可重试",
+        )
 
     from ...services.pipeline import new_id
     conn.execute(

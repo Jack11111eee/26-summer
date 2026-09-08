@@ -20,6 +20,7 @@ from ..services.forms import (
 from ..services.interview import decide_next_action
 from ..services.idempotency import check_idempotency, finalize_idempotency, request_hash_of
 from ..services.pipeline import new_id, now_iso
+from ..services.question_bank import archive_superseded_banks
 from ..services.question_selection import exception_granted_items, select_next_question
 from ..services.readiness import check_session_readiness
 from ..services.refine import refine_user_input
@@ -512,6 +513,9 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
             )
             append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                          from_state="in_progress", to_state="completed", actor_type="system")
+            # 终态补刀归档（SSOT §9.2 2026-09-08 规则④）：豁免在途的旧版题库行
+            # 在其最后一个会话终态后归档（helper 自取该岗位最新 confirmed 作 keep）
+            archive_superseded_banks(conn, s["position_id"])
             conn.commit()
             if body.idempotency_key:
                 finalize_idempotency(session_id=session_id, endpoint="answer",
@@ -549,6 +553,8 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
         )
         append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                      from_state="in_progress", to_state="completed", actor_type="system")
+        # 终态补刀归档（SSOT §9.2 2026-09-08 规则④，全场超时收尾路径）
+        archive_superseded_banks(conn, s["position_id"])
         conn.commit()
         finish_decision = {
             "action": "finish",
@@ -744,6 +750,8 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
             )
             append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                          from_state="in_progress", to_state="completed", actor_type="system")
+            # 终态补刀归档（SSOT §9.2 2026-09-08 规则④，池耗尽 finish 路径）
+            archive_superseded_banks(conn, s["position_id"])
             conn.commit()
             if body.idempotency_key:
                 finalize_idempotency(session_id=session_id, endpoint="answer",
@@ -776,6 +784,8 @@ def submit_answer(session_id: str, body: AnswerRequest, user: dict = Depends(req
                 )
                 append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                              from_state="in_progress", to_state="completed", actor_type="system")
+                # 终态补刀归档（SSOT §9.2 2026-09-08 规则④，legacy 会话 finish 路径）
+                archive_superseded_banks(conn, s["position_id"])
                 conn.commit()
                 if body.idempotency_key:
                     finalize_idempotency(session_id=session_id, endpoint="answer",
@@ -957,7 +967,7 @@ def submit_form_v2(session_id: str, body: FormSubmitRequest,
     FORM_ALREADY_SUBMITTED 不触发）。
     """
     conn = get_conn()
-    load_owned_session(conn, session_id, user)
+    session = load_owned_session(conn, session_id, user)
     # 幂等前置（endpoint='form_submit'——与 answer 三键隔离）：命中且 hash 一致 → 快照 200 直返
     if body.idempotency_key:
         snap = check_idempotency(conn, session_id=session_id, endpoint="form_submit",
@@ -1002,6 +1012,8 @@ def submit_form_v2(session_id: str, body: FormSubmitRequest,
             )
             append_event(conn, session_id=session_id, event_type="SESSION_COMPLETED",
                          from_state="in_progress", to_state="completed", actor_type="system")
+            # 终态补刀归档（SSOT §9.2 2026-09-08 规则④，表单采集完池空 finish 路径）
+            archive_superseded_banks(conn, session["position_id"])
             conn.commit()
             out = {**base, "action": "finish", "next_question_id": None}
         else:
