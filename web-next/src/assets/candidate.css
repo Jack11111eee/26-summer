@@ -520,6 +520,11 @@ body.candidate {
 .candidate .gap-pos { color: var(--chip-ink); font-weight: 600; }
 .candidate .gap-neg { color: var(--accent); font-weight: 600; }
 
+/* gate 段 facet 折叠行（同 facet 多 item 一行，§16.1 报告折叠） */
+.candidate .gate-sub { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
+.candidate .gate-sub .ok { color: var(--chip-ink); font-weight: 600; }
+.candidate .gate-sub .no { color: var(--accent); font-weight: 600; }
+
 .candidate .rep-quote {
   font-size: 15px; color: var(--ink-2); line-height: 1.85;
   padding-left: 14px; border-left: 2px solid var(--line); margin-bottom: 12px;
