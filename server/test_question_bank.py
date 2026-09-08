@@ -73,7 +73,7 @@ def check_generation(pid: str, mid: str) -> None:
     generate_question_bank(pid, mid)
     conn = get_conn()
     rows = conn.execute("SELECT * FROM question_bank").fetchall()
-    check("生成题量=5（3+2，exp/qual 不生成——SSOT §9.1）", len(rows) == 5, f"实际 {len(rows)}")
+    check("生成题量=7（3+2+2，exp/qual 不生成——SSOT §9.1）", len(rows) == 7, f"实际 {len(rows)}")
 
     by = {}
     for r in rows:
@@ -110,7 +110,7 @@ def check_generation(pid: str, mid: str) -> None:
           all(r["std_name"] and r["category"] and r["qtype"] and r["scope"] for r in rows))
 
     traces = conn.execute("SELECT COUNT(*) c FROM llm_trace WHERE call_type='question_gen'").fetchone()
-    check("question_gen 调用落 llm_trace", traces["c"] == 5, f"实际 {traces['c']}")
+    check("question_gen 调用落 llm_trace", traces["c"] == 7, f"实际 {traces['c']}")
 
 
 def check_idempotent(pid: str, mid: str) -> None:
@@ -118,7 +118,7 @@ def check_idempotent(pid: str, mid: str) -> None:
     generate_question_bank(pid, mid)
     conn = get_conn()
     n = conn.execute("SELECT COUNT(*) c FROM question_bank").fetchone()["c"]
-    check("题量不变仍为 5", n == 5, f"实际 {n}")
+    check("题量不变仍为 7", n == 7, f"实际 {n}")
 
 
 def check_selection(pid: str, mid: str, model: dict) -> None:
@@ -223,6 +223,133 @@ def test_prompts() -> None:
     ctx = interviewer.build_interview_context(sid, conn)
     check("build_interview_context 返回 messages 数组",
           ctx == [{"role": "assistant", "content": "你好"}], f"实际 {ctx}")
+
+
+def _seed_position_and_items() -> tuple[str, str]:
+    """归一化回归用种子：active 岗位 + confirmed 模型 + 1 个 hard_skill 项 + QUEUED task 行
+    （task 行由 confirm/retry 端点插入，generate_question_bank 只 UPDATE 最新行——与生产一致）。"""
+    conn = get_conn()
+    pid = new_id("pos")
+    mid = new_id("m")
+    now = now_iso()
+    conn.execute("INSERT INTO position(position_id, name, status, created_at) VALUES(?,?,?,?)",
+                 (pid, "SLAM算法工程师", "active", now))
+    items = [{"std_name": "地图构建", "category": "hard_skill", "required_level": 4,
+              "importance": "required", "weight": 0.19, "evidence": [{"text": "精通SLAM建图"}]}]
+    conn.execute(
+        "INSERT INTO competency_model(model_id, position_id, version, status, model_json, created_at)"
+        " VALUES(?,?,?,?,?,?)",
+        (mid, pid, 1, "confirmed", json.dumps({"items": items}, ensure_ascii=False), now),
+    )
+    for it in items:
+        conn.execute(
+            "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
+            " importance, weight, evidence_json) VALUES(?,?,?,?,?,?,?,?)",
+            (new_id("c"), mid, it["std_name"], it["category"], it.get("required_level"),
+             it.get("importance"), it.get("weight"),
+             json.dumps(it.get("evidence", []), ensure_ascii=False)),
+        )
+    conn.execute(
+        "INSERT INTO question_bank_task(task_id, position_id, model_id, model_version,"
+        " status, created_at) VALUES(?,?,?,?,?,?)",
+        (new_id("qbt"), pid, mid, 1, "QUEUED", now),
+    )
+    conn.commit()
+    return pid, mid
+
+
+def _patch_llm(questions_per_call: list[list[dict]]):
+    """monkeypatch server.services.question_bank.call_llm_json：按调用序依次返回给定题目。
+
+    LLM_PROVIDER=mock 时 call_llm_json 本走 _mock_question_gen——为造「rubric 是 list」
+    等真 LLM 形态，把整个 call_llm_json 打桩直接返回指定 dict（同时落 trace 保口径）。
+    返回打桩函数；questions_per_call 每元素是一次 call_llm_json 调用的 questions 列表。
+    """
+    import server.services.question_bank as qb
+
+    calls = iter(questions_per_call)
+
+    def fake_call_llm_json(call_type, ref_id, system_prompt, user_prompt,
+                           mock_fn=None, trace_out=None):
+        from server.db import get_conn as _gc
+        result = {"questions": next(calls)}
+        conn = _gc()
+        try:
+            conn.execute(
+                "INSERT INTO llm_trace(trace_id, call_type, ref_id, attempt, prompt, response,"
+                " success, error, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (new_id("t"), call_type, ref_id, 1, system_prompt + "\n\n" + user_prompt,
+                 json.dumps(result, ensure_ascii=False), 1, None, now_iso()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return result
+
+    return fake_call_llm_json, qb
+
+
+def test_generate_question_bank_rubric_list_normalized(monkeypatch):
+    """主用例（qbt_74fedfff3a23 故障直击）：LLM 返回 rubric=list[str] → 任务 SUCCEEDED、
+    入库 rubric 为换行连接的 str（sqlite3 参数绑定不支持 list）。"""
+    pid, mid = _seed_position_and_items()
+    fake, qb = _patch_llm([
+        # Python 计划 easy(objective)：answer_key 仍为 list（实测 t_1e12628bf54f 也有此风险形态）→ 归一为 |
+        [{"stem": "请谈谈你对地图构建的理解。",
+          "difficulty": "easy", "qtype": "objective",
+          "answer_key": ["栅格地图", "拓扑地图"], "rubric": None}],
+        # 计划 medium(subjective)：rubric 为 4 元素 JSON 数组——本次故障形态
+        [{"stem": "请描述一个使用地图构建解决复杂问题的场景。",
+          "difficulty": "medium", "qtype": "subjective",
+          "answer_key": None, "rubric": ["要点一。", "要点二。", "", "要点三。"]}],
+    ])
+    monkeypatch.setattr(qb, "call_llm_json", fake)
+    qb.generate_question_bank(pid, mid)
+
+    conn = get_conn()
+    task = conn.execute(
+        "SELECT status, error_msg FROM question_bank_task WHERE position_id=? AND model_id=?"
+        " ORDER BY created_at DESC LIMIT 1", (pid, mid)).fetchone()
+    check("任务 SUCCEEDED（rubric list 不再炸 INSERT）", task["status"] == "SUCCEEDED",
+          f"实际 {task['status']} {task['error_msg']}")
+    rows = conn.execute(
+        "SELECT difficulty, qtype, answer_key, rubric FROM question_bank"
+        " WHERE model_id=? ORDER BY difficulty", (mid,)).fetchall()
+    check("插入 2 题（easy/medium）", len(rows) == 2, f"实际 {len(rows)}")
+    subj = [r for r in rows if r["qtype"] == "subjective"][0]
+    check("subjective rubric 为 str（换行连接）",
+          isinstance(subj["rubric"], str) and subj["rubric"] == "要点一。\n要点二。\n要点三。"
+          and subj["rubric"].count("\n") == 2, f"实际 {subj['rubric']!r}")
+    obj = [r for r in rows if r["qtype"] == "objective"][0]
+    check("objective answer_key list 归一为 | 连接（scoring 正则分支口径）",
+          obj["answer_key"] == "栅格地图|拓扑地图", f"实际 {obj['answer_key']!r}")
+    check("objective 行 rubric 仍为 NULL", obj["rubric"] is None)
+
+
+def test_generate_question_bank_wr06_list_rubric_no_crash(monkeypatch):
+    """WR-06 伴生雷：objective 缺 answer_key 降级 subjective 且 rubric 为非空 list——
+    旧代码 `(q.get("rubric") or "").strip()` 对 list 抛 AttributeError；归一化后安全入库。"""
+    pid, mid = _seed_position_and_items()
+    fake, qb = _patch_llm([
+        [{"stem": "请谈谈你对地图构建的理解。",
+          "difficulty": "easy", "qtype": "objective",
+          "answer_key": None, "rubric": ["能说明建图流程。", "能举例传感器。"]}],
+    ])
+    monkeypatch.setattr(qb, "call_llm_json", fake)
+    qb.generate_question_bank(pid, mid)  # 不抛 AttributeError 即过
+
+    conn = get_conn()
+    task = conn.execute(
+        "SELECT status, error_msg FROM question_bank_task WHERE position_id=? AND model_id=?"
+        " ORDER BY created_at DESC LIMIT 1", (pid, mid)).fetchone()
+    check("降级路径任务 SUCCEEDED", task["status"] == "SUCCEEDED",
+          f"实际 {task['status']} {task['error_msg']}")
+    row = conn.execute(
+        "SELECT qtype, answer_key, rubric FROM question_bank WHERE model_id=?", (mid,)).fetchone()
+    check("CR-01 降级：objective → subjective", row["qtype"] == "subjective", f"实际 {row['qtype']}")
+    check("降级后 answer_key 置 None", row["answer_key"] is None)
+    check("非空 list rubric 归一入库（非默认文案）",
+          row["rubric"] == "能说明建图流程。\n能举例传感器。", f"实际 {row['rubric']!r}")
 
 
 if __name__ == "__main__":

@@ -30,6 +30,28 @@ def _question_plan(item: dict) -> list[tuple[str, str]]:
     return []  # experience/qualification：走表单链，不生成题
 
 
+def _as_text(value: str | list | None, sep: str) -> str | None:
+    """LLM 产出形态归一化（2026-09-08，qbt_74fedfff3a23 故障）。
+
+    question_gen 的 SYSTEM JSON 模板声明 rubric 为字符串，出题要求又写「rubric 给
+    3~5 条可观察的评分要点」——LLM 合理返回 list[str]，而 sqlite3 参数绑定不支持
+    list 直插 TEXT 列（Error binding parameter 14）。prompt 不动（产出质量良好），
+    在 CR-01/WR-06 判断之前把 rubric/answer_key 归一为 str，后续 .strip() 全部安全：
+    - str 原样返回；None → None；
+    - list → 过滤非空字符串元素后 join（rubric 用 \n 每条一行，answer_key 用 |
+      ——scoring._looks_like_regex 认 | 为分支，与实测 answer_key 形态一致）；
+    - 其余标量 → str(value)；全空 list → None（与 LLM 返回 null 的空值语义一致）。
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts = [p for p in value if isinstance(p, str) and p.strip()]
+        return sep.join(parts) if parts else None
+    return str(value)
+
+
 def _mock_question_gen(system_prompt: str, user_prompt: str) -> dict:
     """离线 mock：从 user prompt 中解析能力项/难度/题型，生成模板题。"""
     lines = dict(
@@ -89,11 +111,42 @@ def _update_task_status(conn, position_id: str, model_id: str, task_status: str,
     )
 
 
+def _update_task_progress(conn, position_id: str, model_id: str, *,
+                          total: int | None = None) -> None:
+    """循环前写 total（§9.5）：(item × 难度档) 总数，跳过 exp/qual 项。"""
+    conn.execute(
+        "UPDATE question_bank_task SET total=?"
+        " WHERE task_id=(SELECT task_id FROM question_bank_task"
+        " WHERE position_id=? AND model_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1)",
+        (total, position_id, model_id),
+    )
+
+
+def _advance_task_progress(conn, position_id: str, model_id: str,
+                           done: int, current_item: str) -> None:
+    """循环内逐档推进 done/current_item（§9.5）+ 立即 commit。
+
+    与 aggregate_task._advance 同型：UPDATE+commit 必须原子——update 后本连接
+    若持未决写事务进入 LLM 调用，llm_trace 落库的独立连接会撞 5s busy_timeout
+    （database is locked，§8.4 已论证同型问题）；逐次 commit 也让轮询侧连接
+    不长持锁。done 含幂等跳过的档（查重命中的档也算已处理）。
+    """
+    conn.execute(
+        "UPDATE question_bank_task SET done=?, current_item=?"
+        " WHERE task_id=(SELECT task_id FROM question_bank_task"
+        " WHERE position_id=? AND model_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1)",
+        (done, current_item, position_id, model_id),
+    )
+    conn.commit()
+
+
 def generate_question_bank(position_id: str, model_id: str) -> None:
     """为 confirmed 模型生成题库（异步任务调用）。失败不抛（可手动重触发），但落表 FAILED。
 
     task 行生命周期（D-12）：入口置 RUNNING / 岗位不存在置 FAILED /
     正常完成置 SUCCEEDED / 异常置 FAILED + error_msg（"失败静默改为至少落表"）。
+    进度列（§9.5）：循环前写 total；循环内逐档更新 done/current_item 并与该档题目
+    写入同事务 commit——done 含幂等跳过的档。
     """
     conn = get_conn()
     try:
@@ -115,10 +168,10 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
             (model_id,),
         ).fetchall()
 
+        # 先收集待生成 item（含计划档），跳过 exp/qual 项（SSOT §9.1：不生成题）
+        planned: list[dict] = []
         for row in items:
             item = dict(row)
-            # experience/qualification：不生成题（SSOT §9.1 2026-09-07——只走表单链）。
-            # 历史通用题不迁移不删除；scope=general 生成路径已随之移除。
             if item["category"] not in ("hard_skill", "soft_skill"):
                 continue
             # §8.5 防御过滤：正常链路落库证据不含 excluded 条目（PUT 剥离/聚合滤除），
@@ -127,10 +180,19 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                 ev for ev in json.loads(item.pop("evidence_json") or "[]")
                 if not (isinstance(ev, dict) and ev.get("excluded"))
             ]
+            planned.append(item)
 
+        # 进度起点（§9.5）：total = Σlen(plan)（跳过 exp/qual 后——与循环实际处理的档数一致）
+        _update_task_progress(conn, position_id, model_id,
+                              total=sum(len(_question_plan(it)) for it in planned))
+        conn.commit()
+        done = 0
+        for item in planned:
             plan = _question_plan(item)
             chain_key = item["item_id"] if len(plan) > 1 else None
             for seq, (difficulty, qtype) in enumerate(plan, start=1):
+                current = f"({item['std_name']}, {item['category']}, {difficulty})"
+                _advance_task_progress(conn, position_id, model_id, done, current)
                 # WR-03：幂等按 (std_name, category, difficulty) 的 plan 目标粒度——
                 # 部分 item 成功的链条重触发时只补缺档（easy 有/medium missing 只生成
                 # medium），不再整 item 跳过导致残缺链条永不补齐
@@ -142,6 +204,9 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                     (model_id, model_version, item["std_name"], item["category"], difficulty),
                 ).fetchone()
                 if exists:
+                    # §9.5：查重命中的档也算已处理（done 含幂等跳过的档）
+                    done += 1
+                    _advance_task_progress(conn, position_id, model_id, done, current)
                     continue
                 result = call_llm_json(
                     "question_gen", item["item_id"], QUESTION_GEN_SYSTEM,
@@ -149,32 +214,38 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                     mock_fn=_mock_question_gen,
                 )
                 for q in result.get("questions", []):
+                    # 2026-09-08 归一化先于 CR-01：LLM 可能返回 list[str]（见 _as_text），
+                    # 之后的 .strip()/入库消费全部按 str 处理
+                    q_rubric = _as_text(q.get("rubric"), "\n")
+                    q_answer_key = _as_text(q.get("answer_key"), "|")
                     # CR-01：objective 题缺 answer_key 时降级为 subjective（rubric 兜底），
                     # 阻断"无 answer_key 客观题入库后空正则恒命中"的评分缺陷
                     q_qtype = q.get("qtype", qtype)
-                    q_answer_key = q.get("answer_key")
                     if q_qtype == "objective" and not (q_answer_key or "").strip():
                         q_qtype = "subjective"
                         q_answer_key = None
                         # WR-06：降级后的主观题需 rubric 判据——LLM 可能 answer_key/rubric
                         # 均为空，此时补默认 rubric，避免主观评分缺判据
-                        if not (q.get("rubric") or "").strip():
-                            q["rubric"] = f"能结合实例说明{item['std_name']}的应用；思路清晰；有结果数据"
+                        if not (q_rubric or "").strip():
+                            q_rubric = f"能结合实例说明{item['std_name']}的应用；思路清晰；有结果数据"
                     _insert_question(
                         conn, scope="position",
                         position_id=position_id,
                         item=item, difficulty=difficulty, qtype=q_qtype,
-                        stem=q["stem"], answer_key=q_answer_key, rubric=q.get("rubric"),
+                        stem=q["stem"], answer_key=q_answer_key, rubric=q_rubric,
                         chain_key=chain_key, chain_seq=seq if chain_key else None,
                         model_id=model_id, model_version=model_version, item_id=item["item_id"],
                     )
-                conn.commit()
+                done += 1
+                # 与该档题目写入同事务 commit（§9.5）：done/current_item 与题目原子落库
+                _advance_task_progress(conn, position_id, model_id, done, current)
         _update_task_status(conn, position_id, model_id, "SUCCEEDED")
         conn.commit()
     except Exception as e:  # noqa: BLE001
-        # 失败不抛（保持"可手动重触发"总语义），但至少落表 FAILED（D-12）
+        # 失败不抛（保持"可手动重触发"总语义），但至少落表 FAILED（D-12）；
+        # error_msg 截断 2000（§9.5：排障需完整异常文本；200 会截断 sqlite/python 原文）
         try:
-            _update_task_status(conn, position_id, model_id, "FAILED", error_msg=str(e)[:200])
+            _update_task_status(conn, position_id, model_id, "FAILED", error_msg=str(e)[:2000])
             conn.commit()
         except Exception:  # noqa: BLE001
             pass  # 落表本身失败时维持旧静默语义（无更好降级路径）

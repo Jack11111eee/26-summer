@@ -65,9 +65,27 @@
 
     <template v-if="meta">
       <div class="cols">
-        <!-- 左：evidence 证据面板 -->
-        <aside class="col-side block card">
-          <div class="block-head" style="margin-bottom: 10px">
+        <!-- 左：词条分布（§8.1 importance 三档）+ evidence 证据面板 -->
+        <aside class="col-side">
+          <!-- 词条分布：仅普通项计三档；gate 门槛项另计（不占权重池，§8.2） -->
+          <div class="block card" style="margin-bottom: 14px; padding: 14px 18px">
+            <div class="block-head" style="margin-bottom: 8px">
+              <span class="block-title" style="font-size: 13px">词条分布</span>
+              <span class="block-cnt">普通 {{ tierStats.normal }} 项</span>
+            </div>
+            <div v-for="t in tierRows" :key="t.key" class="tier-row">
+              <span class="tag" :class="t.tagClass">{{ t.label }}</span>
+              <span class="tier-num">{{ tierStats[t.key] }}</span>
+              <span class="field-hint">{{ tierPct(t.key) }}</span>
+            </div>
+            <div class="tier-row" style="margin-top: 6px">
+              <span class="tag tag-red">gate 门槛项</span>
+              <span class="tier-num">{{ tierStats.gate }}</span>
+              <span class="field-hint">不计三档</span>
+            </div>
+          </div>
+          <div class="block card">
+            <div class="block-head" style="margin-bottom: 10px">
             <span class="block-title">证据留档</span>
             <span class="grow"></span>
             <button class="row-btn" @click="openExclusions">排除记录</button>
@@ -112,6 +130,7 @@
             <p v-else class="cell-sub">该能力项暂无证据摘录。</p>
           </template>
           <p v-else class="cell-sub">在右侧选择一个能力项查看其 JD 证据摘录。</p>
+          </div>
         </aside>
 
         <!-- 右：四类目编辑区 -->
@@ -414,6 +433,29 @@ function catPageSize(cat) {
 function catSigma(cat) {
   const s = catItems(cat).reduce((acc, it) => acc + (Number(it._pct) || 0), 0)
   return `${(Math.round(s * 10) / 10).toFixed(1)}%`
+}
+
+// ---- 词条分布（§8.1 importance 三档；gate 门槛项不计三档，另计）——
+// 实时反映编辑中的 items，未保存也即时可见
+const tierStats = computed(() => {
+  const out = { required: 0, preferred: 0, plus: 0, gate: 0, normal: 0 }
+  for (const it of items.value) {
+    if (it.gate) { out.gate += 1; continue }
+    out.normal += 1
+    if (it.importance in out) out[it.importance] += 1
+  }
+  return out
+})
+const TIER_ROWS = [
+  { key: 'required', label: '必备', tagClass: 'tag-solid' },
+  { key: 'preferred', label: '优选', tagClass: 'warm' },
+  { key: 'plus', label: '加分', tagClass: '' }
+]
+const tierRows = TIER_ROWS
+function tierPct(key) {
+  const total = tierStats.value.normal
+  if (!total) return '0.0%'
+  return `${(Math.round((tierStats.value[key] / total) * 1000) / 10).toFixed(1)}%`
 }
 
 // ---- 证据面板（§8.5：按 jd_id 分组 + 语句级排除/恢复显示） ----
@@ -829,6 +871,11 @@ onBeforeUnmount(stopAggPoll)
 tr.selrow td { background: rgba(255, 255, 255, .75); }
 select.mini.select { width: 92px; }
 ::v-deep(mark) { background: #ffe9b8; padding: 0 1px; border-radius: 2px; }
+
+/* 词条分布统计卡 */
+.tier-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 12.5px; }
+.tier-row .tier-num { font-variant-numeric: tabular-nums; font-weight: 700; }
+
 .agg-progress { margin-bottom: 20px; }
 .agg-bar { height: 6px; border-radius: 3px; background: rgba(38,38,42,.08); overflow: hidden; }
 .agg-bar-fill { height: 100%; border-radius: 3px; background: var(--ink-1); transition: width .3s ease; }

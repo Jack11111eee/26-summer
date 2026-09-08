@@ -29,7 +29,7 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 def test_fresh_replay():
     init_db()
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 18))
+    assert [r["version"] for r in rows] == list(range(1, 19))
     # REF-2.1 parity：用户表名集合 == 从 _DDL 动态提取的 CREATE TABLE 集合（不硬编码数量）
     ddl_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _DDL))
     actual = {
@@ -47,7 +47,7 @@ def test_idempotent():
     init_db()
     init_db()  # 二次 init_db 应 no-op：登记簿行数不变
     rows = _q("SELECT COUNT(*) c FROM schema_version")
-    assert rows[0]["c"] == 17
+    assert rows[0]["c"] == 18
 
 
 def test_old_db_migration():
@@ -87,7 +87,7 @@ def test_old_db_migration():
     qb_cols = {r["name"] for r in _q("PRAGMA table_info(question_bank)")}
     assert {"model_id", "model_version"} <= qb_cols
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 18))
+    assert [r["version"] for r in rows] == list(range(1, 19))
 
 
 def test_position_inactive_migration():
@@ -155,9 +155,9 @@ def test_aggregate_task_migration():
         "created_at", "started_at", "finished_at",
     }
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    # 回拨到 14 后重放会连 15/16/17（aggregate_task/jd_position_index/evidence_exclusion）
-    # 一并补齐（登记簿始终到最新）
-    assert [r["version"] for r in rows] == list(range(1, 18))
+    # 回拨到 14 后重放会连 15/16/17/18（aggregate_task/jd_position_index/
+    # evidence_exclusion/qbank_task_progress）一并补齐（登记簿始终到最新）
+    assert [r["version"] for r in rows] == list(range(1, 19))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
     assert len(_q("PRAGMA table_info(aggregate_task)")) == 14
@@ -195,9 +195,9 @@ def test_jd_position_index():
     )
     assert idx and idx[0]["name"] == "idx_jd_position"
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 18))
+    assert [r["version"] for r in rows] == list(range(1, 19))
 
-    init_db()  # 二次 init：幂等，索引已存在不重复建
+    init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，索引已存在不重复建
     assert len(_q("SELECT name FROM sqlite_master WHERE type='index' AND"
                 " name='idx_jd_position'")) == 1
 
@@ -228,7 +228,53 @@ def test_evidence_exclusion_migration():
         "excluded_by", "excluded_at", "status", "lifted_by", "lifted_at",
     }
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 18))
+    assert [r["version"] for r in rows] == list(range(1, 19))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
     assert len(_q("PRAGMA table_info(evidence_exclusion)")) == 11
+
+
+def test_qbank_task_progress_migration():
+    """migration 18（SSOT §9.5）：question_bank_task 补进度三列。
+    存量旧表（无三列）迁移补列 + 存量行值保留；新库 _DDL 直接含三列，两路径一致、二次 init 幂等。"""
+    from server.db import _DDL  # 旁证：新库路径 _DDL 的 question_bank_task 已含三列
+
+    assert "current_item TEXT" in _DDL.split("CREATE TABLE IF NOT EXISTS question_bank_task")[1]
+
+    # 存量库路径：手造 17 列旧表（migration 18 时代之前）+ 一行存量任务
+    conn = get_conn()
+    try:
+        conn.execute(
+            "CREATE TABLE question_bank_task("
+            " task_id TEXT PRIMARY KEY, position_id TEXT NOT NULL,"
+            " model_id TEXT NOT NULL, model_version INTEGER NOT NULL,"
+            " status TEXT NOT NULL, created_at TEXT NOT NULL,"
+            " started_at TEXT, finished_at TEXT, error_msg TEXT)"
+        )
+        conn.execute("CREATE TABLE position(position_id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+                     " status TEXT NOT NULL, created_at TEXT NOT NULL)")
+        conn.execute(
+            "INSERT INTO question_bank_task VALUES('qbt_1', 'pos_1', 'm_1', 1,"
+            " 'FAILED', '2026-01-01', '2026-01-01', '2026-01-01', '旧错误')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    cols = {r["name"] for r in _q("PRAGMA table_info(question_bank_task)")}
+    assert cols == {
+        "task_id", "position_id", "model_id", "model_version", "status",
+        "created_at", "started_at", "finished_at", "error_msg",
+        "total", "done", "current_item",
+    }
+    # 存量行值原样保留、新三列为 NULL（无可信进度值，不虚构）
+    row = _q("SELECT * FROM question_bank_task WHERE task_id='qbt_1'")[0]
+    assert row["status"] == "FAILED" and row["error_msg"] == "旧错误"
+    assert row["total"] is None and row["done"] is None and row["current_item"] is None
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    assert [r["version"] for r in rows] == list(range(1, 19))
+
+    init_db()  # 二次 init：嗅探幂等，登记簿不重放、三列不重复 ALTER
+    assert len(_q("PRAGMA table_info(question_bank_task)")) == 12
