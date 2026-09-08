@@ -274,6 +274,8 @@ import { admin, adminPositions, errMsg } from '../../api'
 import { UiTabs, UiDrawer, UiConfirm, toast } from '../../components/ui'
 import { categoryLabel, formatTime } from '../../lib/labels'
 
+defineOptions({ name: 'AdminTestCenter' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
+
 const CALL_TYPES = ['extract', 'disambiguate', 'aggregate_level', 'question_gen', 'interviewer', 'refine', 'score', 'report']
 const TRACE_LIMIT = 50
 
@@ -541,8 +543,17 @@ async function onConfirm() {
   }
 }
 
-import { onBeforeUnmount } from 'vue'
+import { onBeforeUnmount, onActivated, onDeactivated } from 'vue'
 onBeforeUnmount(stopPoll)
+
+// keep-alive（§5，2026-09-08）：激活 = 静默刷新保筛选保 tab（booted 守卫防首屏双拉）；
+// 失活 = 停轮询（keep-alive 下路由切换不触发 unmount，不停表则后台常跑）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  reloadAll()
+})
+onDeactivated(stopPoll)
 
 reloadAll()
 </script>

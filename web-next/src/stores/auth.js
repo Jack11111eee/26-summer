@@ -14,7 +14,17 @@ export const useAuthStore = defineStore('auth', {
     isLoggedIn: (state) => !!state.token,
     // 按角色返回首页路径
     homePath: (state) =>
-      state.user?.role === 'admin' ? '/admin/positions' : '/assessment/positions'
+      state.user?.role === 'admin' ? '/admin/positions' : '/assessment/positions',
+    // 登录身份键（JWT sub = user_id；登录响应不带 user_id——App 层 keep-alive 缓存键用，
+    // §5，2026-09-08）。token 过期后端 401 拦截器已负责登出，此处静默容错
+    userId: (state) => {
+      try {
+        const payload = state.token.split('.')[1]
+        return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))).sub || ''
+      } catch {
+        return ''
+      }
+    }
   },
   actions: {
     // 登录：POST /api/auth/login -> {token, user:{username, role}}

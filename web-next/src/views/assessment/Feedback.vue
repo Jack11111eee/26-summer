@@ -61,10 +61,12 @@
 <script setup>
 // 意见反馈页（SSOT §22.1）：提交（空/超长 422 toast）+ 本人历史（待处理/已处理状态
 // 标签 + 处理备注展示）。独立于报告页的逐分异议（feedback 通道）。
-import { onMounted, ref } from 'vue'
+import { onActivated, onMounted, ref } from 'vue'
 import { assessment, errMsg } from '../../api'
 import { toast } from '../../components/ui'
 import { formatTime } from '../../lib/labels'
+
+defineOptions({ name: 'AssessmentFeedback' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 const text = ref('')
 const textError = ref('')
@@ -106,4 +108,12 @@ async function loadMine() {
 }
 
 onMounted(loadMine)
+
+// keep-alive 激活：静默重拉处理进度（booted 守卫防首屏双拉；草稿文本由页面缓存天然
+// 保留，不重置，§5，2026-09-08）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  loadMine()
+})
 </script>

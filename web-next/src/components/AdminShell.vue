@@ -42,9 +42,13 @@
       </div>
     </aside>
 
-    <!-- 主区 -->
+    <!-- 主区：列表页 keep-alive 白名单（§5，2026-09-08）——include 由路由 meta.keepAlive 派生，组件名 = 路由名 -->
     <main class="main">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <keep-alive :include="keepAliveNames">
+          <component :is="Component" />
+        </keep-alive>
+      </router-view>
     </main>
   </div>
 </template>
@@ -82,6 +86,13 @@ const counts = reactive({
 })
 
 const initial = computed(() => (auth.user?.username || 'A').slice(0, 1).toUpperCase())
+
+// keep-alive include：/admin 前缀下 meta.keepAlive 路由的组件名（单一来源在路由表）。
+// router = useRouter() 返回的实例，getRoutes() 为路由表静态派生、运行期不变，非响应式
+const keepAliveNames = router
+  .getRoutes()
+  .filter((r) => r.meta.keepAlive && r.path.startsWith('/admin'))
+  .map((r) => r.name)
 
 function isActive(item) {
   if (item.path === '/admin/positions') {

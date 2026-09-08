@@ -38,11 +38,13 @@
 
 <script setup>
 // 测评端首页：可测评岗位（active + confirmed 模型）卡片流。
-import { onMounted, ref } from 'vue'
+import { onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { assessment, errMsg } from '../../api'
 import { toast } from '../../components/ui'
 import { useAuthStore } from '../../stores/auth'
+
+defineOptions({ name: 'AssessmentPositions' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -62,6 +64,17 @@ function goAssess(p) {
 function goSession(sessionId) {
   router.push(`/assessment/session/${sessionId}`)
 }
+
+// keep-alive 激活：静默重拉卡片流（booted 守卫防首屏双拉——onMounted 之后必触发一轮；
+// 返回场景刷新在途摘要 remaining_minutes，§5，2026-09-08）
+let booted = false
+onActivated(async () => {
+  if (!booted) { booted = true; return }
+  try {
+    const { data } = await assessment.listPositions()
+    positions.value = data
+  } catch { /* 静默：保持缓存视图，用户可手动刷新 */ }
+})
 
 onMounted(async () => {
   loading.value = true

@@ -223,11 +223,13 @@
 // 首次使用筛选/搜索时才全量拉取轻行建本地索引（page_size=100 循环，本地 SQLite
 // 数百 ms），此后筛选/搜索/翻页均在内存完成、零请求；操作（审核/改归）后就地
 // 重拉对应块保持筛选视图一致；「刷新」重置筛选回服务端模式。
-import { computed, reactive, ref } from 'vue'
+import { computed, onActivated, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminPositions, errMsg } from '../../api'
 import { UiPager, UiConfirm, toast } from '../../components/ui'
 import { formatTime } from '../../lib/labels'
+
+defineOptions({ name: 'AdminPositions' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
 const router = useRouter()
 
@@ -316,7 +318,7 @@ async function ensureIndex(b, fetcher, force = false) {
     const all = [...first.items]
     for (const s of settles) if (s.status === 'fulfilled') all.push(...s.value.data.items)
     b.all = all
-    b.page = 1
+    if (!force) b.page = 1 // 首次建索引回第一页；force 重建（写后/激活刷新）保页码（§5）
     b.mode = 'local'
     b.total = all.length // 本地模式下 total 即全量长度
     if (all.length < first.total) toast('部分数据未能加载，筛选结果可能不全', 'warn')
@@ -471,6 +473,14 @@ function goImport() {
 
 // 顶栏「刷新」走 reset 语义（清筛选）；其余写操作保持筛选
 defineExpose({ refreshAll })
+
+// keep-alive 激活：静默刷新保筛选保页码（booted 守卫防首屏双拉；local 模式 force
+// 重建索引、server 模式重拉当前页，与写后 reloadAllForWrite 同路径）
+let booted = false
+onActivated(() => {
+  if (!booted) { booted = true; return }
+  reloadAllForWrite()
+})
 
 reloadAll()
 </script>
