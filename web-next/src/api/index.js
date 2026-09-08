@@ -60,12 +60,13 @@ export const assessment = {
   submitAnswer: (sessionId, questionId, answer, callbacks) =>
     streamAnswer(sessionId, questionId, answer, callbacks),
   getForm: (formId) => api.get(`/assessment/forms/${formId}`),
-  submitForm: (sessionId, formInstanceId, payload, expectedRevision = 1) =>
+  // schema_version 按快照形态上报（v2 facet 分组/v1 二值；服务端形态自查为主，此处仅溯源）
+  submitForm: (sessionId, formInstanceId, payload, expectedRevision = 1, schemaVersion = 'v2') =>
     api.post(`/assessment/sessions/${sessionId}/forms/submit-v2`, {
       form_instance_id: formInstanceId,
       payload,
       expected_revision: expectedRevision,
-      schema_version: 'v1'
+      schema_version: schemaVersion
     }),
   // 报告（M6）：异步生成（202）+ 轮询 by-session + 按 id 取 + 异议反馈
   generateReport: (sessionId) => api.post(`/assessment/sessions/${sessionId}/report`),
