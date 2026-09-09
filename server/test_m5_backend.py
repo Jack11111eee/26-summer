@@ -24,7 +24,7 @@ from server.db import init_db, get_conn  # noqa: E402
 from server.main import app  # noqa: E402
 from server.services.pipeline import new_id, now_iso  # noqa: E402
 from server.services.refine import refine_user_input  # noqa: E402
-from server.services.scoring import _score_objective  # noqa: E402
+from server.services.scoring import _score_objective_v2  # noqa: E402
 from server import config  # noqa: E402
 
 init_db()  # TestClient 不触发 startup 事件，显式建表
@@ -216,12 +216,12 @@ def test_refine_threshold():
 
 
 def test_objective_scoring():
-    score, _ = _score_objective("def", "用 def 定义函数")
+    score, _ = _score_objective_v2("def", "用 def 定义函数")
     assert score == 5
-    score, _ = _score_objective("REPEATABLE", "默认是读已提交")
+    score, _ = _score_objective_v2("REPEATABLE", "默认是读已提交")
     assert score == 1
-    # 非法正则退化为子串
-    score, _ = _score_objective("docker build", "使用 docker build 构建")
+    # 含空格短语（旧口径按字面整串；U5b 结构化判分后按要点包含计数）
+    score, _ = _score_objective_v2("docker build", "使用 docker build 构建")
     assert score == 5
 
 
