@@ -625,6 +625,12 @@ body.candidate {
 .candidate .generating { text-align: center; padding: 70px 0; color: var(--ink-3); }
 .candidate .generating .serif { font-size: 19px; color: var(--ink-2); margin-bottom: 10px; }
 
+/* 报告生成进度条（§21.1 透传，2026-09-09）：形态复刻题库状态页 .qk-bar（scoped 不可跨组件复用，按 candidate 命名空间落地） */
+.candidate .gen-bar { height: 6px; border-radius: 3px; background: rgba(38, 38, 42, 0.08);
+  overflow: hidden; max-width: 260px; margin: 14px auto 0; }
+.candidate .gen-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.3s ease; }
+.candidate .gen-line { font-size: 11px; color: var(--ink-3); margin-top: 6px; }
+
 @media (max-width: 800px) {
   .candidate .rep-duo { grid-template-columns: 1fr; }
 }
