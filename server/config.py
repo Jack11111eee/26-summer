@@ -63,6 +63,12 @@ REFINE_MIN_TOKENS = int(os.environ.get("REFINE_MIN_TOKENS", "500"))
 # 单题追问上限（07 §7.2）
 FOLLOWUP_MAX = int(os.environ.get("FOLLOWUP_MAX", "2"))
 
+# ---- 模块二·客观题结构化判分（SSOT §17，2026-09-09 U5b）----
+# 整段说明文本形态答案键的「要点包含计数」全命中率阈值：关键实体命中率 ≥ 该值判 5 分、
+# ≥0.3 判 3（部分命中，首版保守两档）、<0.3 判 1。既有先例（BAD_CASE_DIVERGENCE_THRESHOLD）
+# 与 ADJUDICATE_CONFLICT_THRESHOLD 同为集中 config 的评分链判定常量。
+OBJECTIVE_KEYPOINT_HIT_RATIO = 0.6
+
 # ---- 模块二·Phase 3 计时（SSOT §15——40/20/6 硬编码非开放参数）----
 SESSION_TOTAL_MINUTES = 40
 QUESTION_TIMEOUT_MINUTES = 20
