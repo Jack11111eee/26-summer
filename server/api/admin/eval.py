@@ -127,3 +127,71 @@ def list_history(limit: int = 20) -> list[dict]:
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# 终态白名单（SSOT §23，2026-09-09）：running 行不删——后台任务完成时经
+# INSERT OR REPLACE 写回结果，删了会"复活"且丢任务事实
+_TERMINAL_STATUSES = ("completed", "failed")
+
+
+def _delete_rows(conn, task_ids: list[str]) -> None:
+    """按 task_ids 删 eval_results 行（单事务），返回前已做终态/存在性校验。
+
+    校验规则（与 SSOT §23 一致）：unknown id → 404；任一行仍 running → 整体
+    409 不删（先校验后变异，部分删除不留半途状态）。
+    """
+    marks = ",".join("?" * len(task_ids))
+    rows = conn.execute(
+        f"SELECT task_id, status FROM eval_results WHERE task_id IN ({marks})",
+        task_ids,
+    ).fetchall()
+    found = {r["task_id"] for r in rows}
+    missing = [t for t in task_ids if t not in found]
+    if missing:
+        raise HTTPException(404, f"评测任务不存在：{missing[0]}")
+    running = [r["task_id"] for r in rows if r["status"] not in _TERMINAL_STATUSES]
+    if running:
+        raise HTTPException(409, "运行中的任务不可删除，请等待完成后再删")
+    conn.execute(
+        f"DELETE FROM eval_results WHERE task_id IN ({marks})",
+        task_ids,
+    )
+
+
+@router.delete("/results/{task_id}")
+def delete_result(task_id: str) -> dict:
+    """删除单条评测历史（仅终态，SSOT §23）。"""
+    conn = get_conn()
+    try:
+        _delete_rows(conn, [task_id])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"deleted": 1}
+
+
+class _BatchDeleteBody(BaseModel):
+    task_ids: list[str]
+
+
+@router.post("/results/batch-delete")
+def batch_delete_results(body: _BatchDeleteBody) -> dict:
+    """批量删除评测历史（单事务终态校验，SSOT §23）：含任一 running 整体 409 不删。"""
+    task_ids = body.task_ids
+    if not task_ids:
+        raise HTTPException(422, "task_ids 不能为空")
+    if len(set(task_ids)) != len(task_ids):
+        raise HTTPException(422, "task_ids 含重复项")
+    conn = get_conn()
+    try:
+        _delete_rows(conn, task_ids)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"deleted": len(task_ids)}
