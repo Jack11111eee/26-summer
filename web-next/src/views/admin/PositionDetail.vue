@@ -86,7 +86,6 @@
       </template>
 
       <template #actions>
-        <button class="btn" @click="closeImport">取消</button>
         <button class="btn primary" :disabled="!canImport || importing" @click="doImport">
           {{ importing ? '导入中…' : '导入' }}
         </button>
