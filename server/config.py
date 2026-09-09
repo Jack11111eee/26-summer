@@ -67,6 +67,15 @@ FOLLOWUP_MAX = int(os.environ.get("FOLLOWUP_MAX", "2"))
 SESSION_TOTAL_MINUTES = 40
 QUESTION_TIMEOUT_MINUTES = 20
 ABANDON_HOURS = 6
+
+# ---- 模块二·题库契约过渡开关（SSOT §9.4 契约第 1 条 / §13 旧题处理，2026-09-09）----
+# 新题生成无条件写满五测量字段（measurement_target / evidence_requirement /
+# observable_level_max / observable_level_min / rubric_version——代码侧强制）；
+# 存量旧行五字段全 NULL（不迁移不回填——机械填值不能制造可靠锚点，修复文档 §十三
+# 「旧题处理」）。默认 False：选题/开考检查不按字段过滤（现状行为，存量岗位可继续
+# 开考）；True 时白名单只认五字段齐全的 active 题（任一 NULL 视为「待审核」，新
+# 测评不选用）。打 True 须先确认存量岗位已用新契约重新生成题库。
+QBANK_STRICT_FIELDS = os.environ.get("QBANK_STRICT_FIELDS", "").strip().lower() in ("1", "true", "yes")
 # 滑窗 Token 上限（SSOT §31-2 开放参数：「参数待定，留接口」——
 # 已裁决 8000（关口包 [03-007]，2026-09-05），mock 模式全量直通）
 MAX_CONTEXT_TOKENS = 8000  # 已裁决值（关口包 [03-007]——不再 checkpoint 停车）

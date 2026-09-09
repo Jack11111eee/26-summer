@@ -7,22 +7,53 @@
 """
 import json
 
+from .. import config
 from ..db import get_conn
 from .llm import call_llm_json
 from .pipeline import new_id, now_iso
 from .prompts.question_gen import QUESTION_GEN_SYSTEM, generate_questions_prompt
 
+# §9.4 表（2026-09-09 修订锚点区间）：难度 → (observable_level_max, observable_level_min)
+_LEVEL_BY_DIFFICULTY = {"easy": (3, 2), "medium": (4, 3), "hard": (5, 4)}
+# §9.4 契约第 1 条起的新契约标识（rubric_version；2026-09-09 前的旧题为 NULL）
+_RUBRIC_VERSION = "v2"
+# 难度语义（measurement_target 组装口径；§17 已作废 weight>0.10 决定档位）
+_DIFFICULTY_SEMANTICS = {
+    "easy": "基础概念理解",
+    "medium": "常规应用",
+    "hard": "复杂问题处理",
+}
+
+
+def strict_fields_sql(alias: str = "") -> str:
+    """QBANK_STRICT_FIELDS=True 时的五字段齐全谓词（SSOT §9.4 契约第 1 条）。
+
+    题库契约归属本模块；readiness/question_selection 选题侧白名单复用同一 SQL 片段
+    防两处口径漂移（WR-15 教训，plan_quotas 先例）。alias 为表别名前缀（联表查询
+    传 "qb"/"b"；裸表查询留空——虚假前缀会 no such column）。返回 False 时 "1=1"
+    （现状行为——不过滤，存量 NULL 题可被选题）。
+    """
+    if not config.QBANK_STRICT_FIELDS:
+        return "1=1"
+    p = f"{alias}." if alias else ""
+    return (f"{p}measurement_target IS NOT NULL AND {p}evidence_requirement IS NOT NULL"
+            f" AND {p}observable_level_max IS NOT NULL AND {p}observable_level_min IS NOT NULL"
+            f" AND {p}rubric_version IS NOT NULL")
+
 
 def _question_plan(item: dict) -> list[tuple[str, str]]:
-    """按类目与权重规划 (difficulty, qtype) 清单（07 §6.2 + 难度递进 N1）。
+    """按类目与测量目标规划 (difficulty, qtype) 清单（07 §6.2 + §17 2026-09-09 修订）。
 
-    hard_skill：weight>10% → 3 档（easy/medium/hard），否则 2 档（easy/medium）
+    hard_skill：required_level>4 → 3 档（easy/medium/hard——§11.2 可达 hard、§9.4
+    等级 5 需要 hard 题锚点；difficulty.py 升档判据同读 required_level，天然一致），
+    否则 2 档（easy/medium）。weight>0.10 旧条件已删除（作废——算法岗权重稀释到
+    0.0089 时全场无 hard 题，Lv5 结构性不可得，SSOT §17 2026-09-09）。
     soft_skill：2 档（easy/hard）
     experience/qualification：返回空清单——不生成题（SSOT §9.1 2026-09-07）
     """
     cat = item["category"]
     if cat == "hard_skill":
-        if (item.get("weight") or 0) > 0.10:
+        if (item.get("required_level") or 0) > 4:
             return [("easy", "objective"), ("medium", "subjective"), ("hard", "subjective")]
         return [("easy", "objective"), ("medium", "subjective")]
     if cat == "soft_skill":
@@ -38,8 +69,9 @@ def _as_text(value: str | list | None, sep: str) -> str | None:
     list 直插 TEXT 列（Error binding parameter 14）。prompt 不动（产出质量良好），
     在 CR-01/WR-06 判断之前把 rubric/answer_key 归一为 str，后续 .strip() 全部安全：
     - str 原样返回；None → None；
-    - list → 过滤非空字符串元素后 join（rubric 用 \n 每条一行，answer_key 用 |
-      ——scoring._looks_like_regex 认 | 为分支，与实测 answer_key 形态一致）；
+    - list → 过滤非空字符串元素后 join（rubric 用 \n 每条一行；answer_key 的 |
+      连接保留仅为旧 prompt 兼容——多元素场景由 _mark_any_of 改为换行 join +
+      `[any_of] ` 前缀，单元素已无歧义不标记）；
     - 其余标量 → str(value)；全空 list → None（与 LLM 返回 null 的空值语义一致）。
     """
     if value is None:
@@ -50,6 +82,26 @@ def _as_text(value: str | list | None, sep: str) -> str | None:
         parts = [p for p in value if isinstance(p, str) and p.strip()]
         return sep.join(parts) if parts else None
     return str(value)
+
+
+def _mark_any_of(answer_key: str | None, raw_answer_key: str | list | None) -> str | None:
+    """any_of 过渡标记（SSOT §17 2026-09-09 新口径的字段层面准备，完整实现归 U5b）。
+
+    LLM 返回 list 且非空元素 >1 的 answer_key 是「有限等价答案集合」（§17
+    answer_rule_type=alias_set / match_semantics=any_of 口径）——旧 `|` 连接会被
+    scoring._looks_like_regex 认作正则分支，语义误判（SSOT §17 2026-09-09 作废
+    「| 连接 + 正则分支猜」做法）。过渡期标记方案：
+    - 多元素 list → 换行 join + 前缀 `[any_of] `（评分侧未来可识别 any_of 语义
+      ——U5b 结构化判分器；过渡期该形态不再伪装成 | 分支正则，多行文本对
+      re.search 天然不命中，不产生旧正则分支的单分支误命中分）；
+    - 单元素 list / 纯 str / None → 原样返回（无歧义不标记）。
+    """
+    if not isinstance(raw_answer_key, list):
+        return answer_key
+    parts = [p for p in raw_answer_key if isinstance(p, str) and p.strip()]
+    if len(parts) > 1:
+        return "[any_of] " + "\n".join(parts)
+    return answer_key
 
 
 def _mock_question_gen(system_prompt: str, user_prompt: str) -> dict:
@@ -76,19 +128,51 @@ def _mock_question_gen(system_prompt: str, user_prompt: str) -> dict:
     return {"questions": [q]}
 
 
+def _measurement_fields(item: dict, difficulty: str | None) -> tuple[str, str, int, int]:
+    """五契约字段的代码侧取值（SSOT §9.2 表 + §9.4 契约第 1 条，2026-09-09）。
+
+    - measurement_target：从 item 的 level_reason（LLM#3 等级裁决理由，含义性文本）
+      取；无则按 std_name + 难度语义组装（easy=基础概念理解/medium=常规应用/
+      hard=复杂问题处理）。occurrence_json 是频次统计（r/req/occ）无数值语义，
+      不作来源——首版模板化，不追求完美措辞；
+    - evidence_requirement：模板行「作答需展示对 {std_name} 的独立/结构化阐述」；
+    - observable_level_max/min：按 §9.4 表查（easy=3/2、medium=4/3、hard=5/4；
+      difficulty 为 None 的行（本期不存在的防御位）回落 medium 档）。
+    """
+    std_name = item["std_name"]
+    semantics = _DIFFICULTY_SEMANTICS.get(difficulty or "medium", "常规应用")
+    target = (item.get("level_reason") or "").strip() or \
+        f"对 {std_name} 的{semantics}测量"
+    requirement = f"作答需展示对 {std_name} 的独立/结构化阐述"
+    level_max, level_min = _LEVEL_BY_DIFFICULTY.get(difficulty or "medium", (4, 3))
+    return target, requirement, level_max, level_min
+
+
 def _insert_question(conn, *, scope: str, position_id: str | None, item: dict,
                      difficulty: str | None, qtype: str, stem: str,
                      answer_key: str | None, rubric: str | None,
                      chain_key: str | None, chain_seq: int | None,
-                     model_id: str, model_version: int | None, item_id: str | None) -> None:
+                     model_id: str, model_version: int | None, item_id: str | None,
+                     target: str, requirement: str,
+                     level_max: int, level_min: int) -> None:
+    """落库（SSOT §9.4 契约第 1 条：五测量字段由代码生成、无条件写满）。
+
+    measurement_target/evidence_requirement/observable_level_max/
+    observable_level_min/rubric_version 五字段由调用方经 _measurement_fields
+    生成并做防御性校验后传入；rubric_version 自 2026-09-09 起为 "v2"——新契约标识
+    （旧生成行为 "v1"；存量旧行 NULL/旧值按 §13 旧题处理：不迁移不回填，选题侧由
+    QBANK_STRICT_FIELDS 控制过滤）。
+    """
     conn.execute(
         "INSERT INTO question_bank(question_id, scope, position_id, model_id, model_version, item_id, rubric_version,"
         " std_name, category, difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,"
+        " measurement_target, evidence_requirement, observable_level_max, observable_level_min,"
         " source, status, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (new_id("q"), scope, position_id, model_id, model_version, item_id, "v1",
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (new_id("q"), scope, position_id, model_id, model_version, item_id, _RUBRIC_VERSION,
          item["std_name"], item["category"],
          difficulty, qtype, stem, answer_key, rubric, chain_key, chain_seq,
+         target, requirement, level_max, level_min,
          "llm_seed", "active", now_iso()),
     )
 
@@ -193,7 +277,7 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
         conn.commit()
         position_name = pos["name"]
         items = conn.execute(
-            "SELECT item_id, std_name, category, required_level, weight, evidence_json"
+            "SELECT item_id, std_name, category, required_level, weight, level_reason, evidence_json"
             " FROM competency_item WHERE model_id=?",
             (model_id,),
         ).fetchall()
@@ -244,10 +328,20 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                     mock_fn=_mock_question_gen,
                 )
                 for q in result.get("questions", []):
+                    # 生成校验（修复文档 §十三.6）：缺 stem / qtype 非法 → 无效产物
+                    # 不计入有效完成不入库（str 归一防 list.stem 抛 AttributeError）
+                    q_stem = q.get("stem") if isinstance(q.get("stem"), str) else None
+                    if not (q_stem or "").strip():
+                        continue  # 缺 stem / stem 非 str → 无效
+                    if q.get("qtype") not in (None, "objective", "subjective"):
+                        continue  # qtype 非法同理；CR-01 缺 answer_key 降级照旧（见下）
                     # 2026-09-08 归一化先于 CR-01：LLM 可能返回 list[str]（见 _as_text），
                     # 之后的 .strip()/入库消费全部按 str 处理
                     q_rubric = _as_text(q.get("rubric"), "\n")
                     q_answer_key = _as_text(q.get("answer_key"), "|")
+                    # any_of 过渡标记（§17 准备）：多元素 list answer_key 改换行 join +
+                    # [any_of] 前缀（单元素/str 不标记）
+                    q_answer_key = _mark_any_of(q_answer_key, q.get("answer_key"))
                     # CR-01：objective 题缺 answer_key 时降级为 subjective（rubric 兜底），
                     # 阻断"无 answer_key 客观题入库后空正则恒命中"的评分缺陷
                     q_qtype = q.get("qtype", qtype)
@@ -258,17 +352,51 @@ def generate_question_bank(position_id: str, model_id: str) -> None:
                         # 均为空，此时补默认 rubric，避免主观评分缺判据
                         if not (q_rubric or "").strip():
                             q_rubric = f"能结合实例说明{item['std_name']}的应用；思路清晰；有结果数据"
+                    # §9.4 契约第 1 条防御性校验：五字段由代码生成（_measurement_fields
+                    # / _RUBRIC_VERSION 常量）不应为空——失败记 error 不落库不中断
+                    try:
+                        target, requirement, level_max, level_min = \
+                            _measurement_fields(item, difficulty)
+                        assert target and requirement and level_max and level_min \
+                            and _RUBRIC_VERSION, "五契约字段存在空值"
+                    except Exception as e:  # noqa: BLE001
+                        _update_task_status(
+                            conn, position_id, model_id, "FAILED",
+                            error_msg=f"measurement 契约字段校验失败 "
+                                      f"({item['std_name']}/{difficulty}): {e}")
+                        conn.commit()
+                        raise
                     _insert_question(
                         conn, scope="position",
                         position_id=position_id,
                         item=item, difficulty=difficulty, qtype=q_qtype,
-                        stem=q["stem"], answer_key=q_answer_key, rubric=q_rubric,
+                        stem=q_stem, answer_key=q_answer_key, rubric=q_rubric,
                         chain_key=chain_key, chain_seq=seq if chain_key else None,
                         model_id=model_id, model_version=model_version, item_id=item["item_id"],
+                        target=target, requirement=requirement,
+                        level_max=level_max, level_min=level_min,
                     )
                 done += 1
                 # 与该档题目写入同事务 commit（§9.5）：done/current_item 与题目原子落库
                 _advance_task_progress(conn, position_id, model_id, done, current)
+            # 硬门槛（§17 2026-09-09 修订，§10.4 检查项 9 的前置）：required_level>4
+            # 的 hard_skill 项按 plan 必含 hard 档——plan 有 hard 而落库后该 item 无
+            # active hard 题（如 LLM 返回空 questions、新生成行被并行归档等）即
+            # 「该 item 可测 Lv5 却无测量路径」的落库不完整，生成任务失败（不 SUCCEEDED
+            # 掩盖；软门缓解走 retry 补缺档——WR-03 幂等按档粒度）
+            if any(d == "hard" for d, _qt in plan) and item["category"] == "hard_skill":
+                has_hard = conn.execute(
+                    "SELECT 1 FROM question_bank WHERE scope='position'"
+                    " AND model_id=? AND model_version=?"
+                    " AND std_name=? AND category=? AND difficulty='hard'"
+                    " AND status='active' LIMIT 1",
+                    (model_id, model_version, item["std_name"], item["category"]),
+                ).fetchone()
+                if not has_hard:
+                    raise RuntimeError(
+                        f"测量路径断裂：{item['std_name']}（required_level="
+                        f"{item.get('required_level')}）应有 hard 档题但落库缺失"
+                        "（§17 2026-09-09/§10.4 检查项 9 前置）")
         _update_task_status(conn, position_id, model_id, "SUCCEEDED")
         conn.commit()
     except Exception as e:  # noqa: BLE001
