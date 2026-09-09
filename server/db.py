@@ -298,7 +298,13 @@ CREATE TABLE IF NOT EXISTS question_score (
   evidence_spans_json      TEXT,
   measurement_target       TEXT,
   rubric_version           TEXT,
-  scorer_version           TEXT
+  scorer_version           TEXT,
+  -- ============ 评分批次列（SSOT §20.2.A，U6 2026-09-09）============
+  -- 不可变批次标识：score_session 每次成功落库生成一个 batch，全部评分行携带；
+  -- 同会话新评分追加保存（DELETE+重插作废——completed 会话拒绝重评分）；
+  -- report 行经 report_json.scoring_batch_id 绑定生成时所依据的批次（归属一致）。
+  -- 存量行 NULL（无批次概念的历史评分，接受——新行才携带）。
+  scoring_batch_id         TEXT
 );
 
 -- ============ 表单实例表（SSOT §16.1——03-01 form_instance 不可变 schema 快照）============
@@ -1211,6 +1217,20 @@ def _migrate_report_total_score_nullable(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_question_score_scoring_batch(conn: sqlite3.Connection) -> None:
+    """SSOT §20.2.A（U6，2026-09-09）：question_score 加评分批次列 scoring_batch_id。
+
+    存量库 PRAGMA 嗅探 ALTER（幂等，同 qbank_task_progress 先例）；新库表已含列
+    （尾部 _DDL）自然跳过。存量行保持 NULL（历史评分无批次概念，不回填不虚构——
+    归属锚定只保证未来新评分行）；全可空无 DB CHECK（N11）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL）
+    if "scoring_batch_id" not in cols:
+        conn.execute("ALTER TABLE question_score ADD COLUMN scoring_batch_id TEXT")
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -1235,6 +1255,7 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (21, "session_hidden_at", _migrate_session_hidden_at),
     (22, "competency_item_in_scope", _migrate_competency_item_in_scope),
     (23, "report_total_score_nullable", _migrate_report_total_score_nullable),
+    (24, "question_score_scoring_batch_id", _migrate_question_score_scoring_batch),
 ]
 
 

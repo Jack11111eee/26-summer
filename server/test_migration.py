@@ -29,7 +29,7 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 def test_fresh_replay():
     init_db()
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
     # REF-2.1 parity：用户表名集合 == 从 _DDL 动态提取的 CREATE TABLE 集合（不硬编码数量）
     ddl_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _DDL))
     actual = {
@@ -47,7 +47,7 @@ def test_idempotent():
     init_db()
     init_db()  # 二次 init_db 应 no-op：登记簿行数不变
     rows = _q("SELECT COUNT(*) c FROM schema_version")
-    assert rows[0]["c"] == 23
+    assert rows[0]["c"] == 24
 
 
 def test_old_db_migration():
@@ -87,7 +87,7 @@ def test_old_db_migration():
     qb_cols = {r["name"] for r in _q("PRAGMA table_info(question_bank)")}
     assert {"model_id", "model_version"} <= qb_cols
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
 
 def test_position_inactive_migration():
@@ -157,7 +157,7 @@ def test_aggregate_task_migration():
     rows = _q("SELECT version FROM schema_version ORDER BY version")
     # 回拨到 14 后重放会连 15/16/17/18（aggregate_task/jd_position_index/
     # evidence_exclusion/qbank_task_progress）一并补齐（登记簿始终到最新）
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
     assert len(_q("PRAGMA table_info(aggregate_task)")) == 14
@@ -195,7 +195,7 @@ def test_jd_position_index():
     )
     assert idx and idx[0]["name"] == "idx_jd_position"
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，索引已存在不重复建
     assert len(_q("SELECT name FROM sqlite_master WHERE type='index' AND"
@@ -228,7 +228,7 @@ def test_evidence_exclusion_migration():
         "excluded_by", "excluded_at", "status", "lifted_by", "lifted_at",
     }
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
     init_db()  # 二次 init：CREATE IF NOT EXISTS 幂等，表仍在、登记簿不重放
     assert len(_q("PRAGMA table_info(evidence_exclusion)")) == 11
@@ -271,7 +271,7 @@ def test_competency_item_facet_migration():
     assert row["std_name"] == "本科及以上学历" and row["gate"] == 1
     assert row["facet_key"] is None and row["facet_params_json"] is None
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
     init_db()  # 二次 init：嗅探幂等，登记簿不重放、两列不重复 ALTER
     assert len(_q("PRAGMA table_info(competency_item)")) == 15
@@ -317,7 +317,7 @@ def test_qbank_task_progress_migration():
     assert row["status"] == "FAILED" and row["error_msg"] == "旧错误"
     assert row["total"] is None and row["done"] is None and row["current_item"] is None
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
     init_db()  # 二次 init：嗅探幂等，登记簿不重放、三列不重复 ALTER
     assert len(_q("PRAGMA table_info(question_bank_task)")) == 12
@@ -362,7 +362,7 @@ def test_session_hidden_at_migration():
     assert row["status"] == "in_progress" and row["phase"] == "ACTIVE"
     assert row["hidden_at"] is None
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
     init_db()  # 二次 init：嗅探幂等，登记簿不重放、列不重复 ALTER
     assert len(_q("PRAGMA table_info(assessment_session)")) == 16
@@ -407,7 +407,7 @@ def test_competency_item_in_scope_migration():
     assert row["std_name"] == "Python" and row["gate"] == 0
     assert row["in_scope"] is None
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
     init_db()  # 二次 init：嗅探幂等，登记簿不重放、列不重复 ALTER
     assert len(_q("PRAGMA table_info(competency_item)")) == 15
@@ -483,7 +483,52 @@ def test_report_total_score_nullable_migration():
         conn.close()
     assert _q("SELECT total_score FROM report WHERE report_id='rpt_3'")[0]["total_score"] is None
     rows = _q("SELECT version FROM schema_version ORDER BY version")
-    assert [r["version"] for r in rows] == list(range(1, 24))
+    assert [r["version"] for r in rows] == list(range(1, 25))
 
     init_db()  # 二次 init：嗅探幂等，登记簿不重放、表不重复重建
     assert len(_q("PRAGMA table_info(report)")) == 16
+
+
+def test_question_score_scoring_batch_id_migration():
+    """migration 24（SSOT §20.2.A，U6 2026-09-09）：question_score 补评分批次列。
+
+    存量旧表（无该列）迁移补列 + 存量行值保留（scoring_batch_id=NULL 无批次概念）；
+    新库 _DDL 直接含列，两路径一致、二次 init 幂等。"""
+    from server.db import _DDL  # 旁证：新库路径 _DDL 的 question_score 已含该列
+
+    assert "scoring_batch_id" in _DDL.split(
+        "CREATE TABLE IF NOT EXISTS question_score")[1].split(");")[0]
+
+    # 存量库路径：手造 phase5 时代旧表（migration 24 之前——审计快照四列已并）+ 一行存量评分
+    conn = get_conn()
+    try:
+        conn.execute(
+            "CREATE TABLE question_score("
+            " score_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,"
+            " question_id TEXT, item_id TEXT NOT NULL,"
+            " score_live INTEGER, score_final INTEGER,"
+            " evidence_quote TEXT, reason TEXT, created_at TEXT NOT NULL,"
+            " score_state TEXT, evidence_spans_json TEXT, measurement_target TEXT,"
+            " rubric_version TEXT, scorer_version TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO question_score VALUES('qs_1', 'sess_1', 'aq_1', 'ci_1',"
+            " 3, 4, 'q', 'r', '2026-01-01', 'SCORED', NULL, NULL, 'v1', 'p-score-1')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_db()
+
+    cols = {r["name"] for r in _q("PRAGMA table_info(question_score)")}
+    assert "scoring_batch_id" in cols
+    # 存量行值原样保留、批次列 NULL（历史评分无批次概念，不虚构）
+    row = _q("SELECT * FROM question_score WHERE score_id='qs_1'")[0]
+    assert row["score_final"] == 4 and row["rubric_version"] == "v1"
+    assert row["scoring_batch_id"] is None
+    rows = _q("SELECT version FROM schema_version ORDER BY version")
+    assert [r["version"] for r in rows] == list(range(1, 25))
+
+    init_db()  # 二次 init：嗅探幂等，登记簿不重放、列不重复 ALTER
+    assert len(_q("PRAGMA table_info(question_score)")) == 24

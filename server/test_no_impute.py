@@ -254,13 +254,16 @@ def test_report_checks_reason_code_contract():
         "review_reason_code": "UNMEASURED_RATIO_HIGH",
         "missing_warnings": [],
         "observation_status": None,
+        "unmeasured_ratio": 0.9,  # U6 ⑨：ratio 键齐（code 与比例自洽）
     }
-    errors = _run_consistency_checks(bad, session_id)
+    reason = "UNMEASURED_RATIO_HIGH：超阈"
+    errors = _run_consistency_checks(bad, session_id, review_request_reason=reason)
     assert any("UNMEASURED_RATIO_HIGH" in e for e in errors), errors
     good = dict(bad)
     good["total_score"] = None
     good["item_scores"] = [{"score": None, "weight": 0.2}]
-    assert not any("UNMEASURED_RATIO_HIGH" in e for e in _run_consistency_checks(good, session_id))
+    assert not any("UNMEASURED_RATIO_HIGH" in e for e in _run_consistency_checks(
+        good, session_id, review_request_reason=reason))
 
 
 # ============ 验收 7/§20.4：覆盖率五指标 ============
