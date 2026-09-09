@@ -25,8 +25,8 @@ const routes = [
       { path: 'test-center', name: 'AdminTestCenter', component: () => import('../views/admin/TestCenter.vue'), meta: { keepAlive: true } }
     ]
   },
-  // 测评端（暖纸对话，登录即可）——四页挂 CandidateShell 壳（§12.6 导航壳）；
-  // session（Chat 全屏专注态）/ report（打印 PDF 布局）不挂壳（顶层路由），
+  // 测评端（暖纸对话，登录即可）——五页挂 CandidateShell 壳（§12.6 导航壳，2026-09-09
+  // 修订：report 入壳）；session（Chat 全屏专注态）不挂壳（顶层路由），
   // 全部路径不变（纯 children 化，零破坏）
   {
     path: '/assessment',
@@ -36,11 +36,11 @@ const routes = [
       { path: 'positions', name: 'AssessmentPositions', component: () => import('../views/assessment/Positions.vue'), meta: { requiresAuth: true, keepAlive: true } },
       { path: 'positions/:id', name: 'PositionAssess', component: () => import('../views/assessment/PositionAssess.vue'), meta: { requiresAuth: true } },
       { path: 'history', name: 'AssessmentHistory', component: () => import('../views/assessment/History.vue'), meta: { requiresAuth: true, keepAlive: true } },
-      { path: 'feedback', name: 'AssessmentFeedback', component: () => import('../views/assessment/Feedback.vue'), meta: { requiresAuth: true, keepAlive: true } }
+      { path: 'feedback', name: 'AssessmentFeedback', component: () => import('../views/assessment/Feedback.vue'), meta: { requiresAuth: true, keepAlive: true } },
+      { path: 'report/:session_id', name: 'AssessmentReport', component: () => import('../views/assessment/Report.vue'), meta: { requiresAuth: true } }
     ]
   },
   { path: '/assessment/session/:session_id', name: 'AssessmentChat', component: () => import('../views/assessment/Chat.vue'), meta: { requiresAuth: true } },
-  { path: '/assessment/report/:session_id', name: 'AssessmentReport', component: () => import('../views/assessment/Report.vue'), meta: { requiresAuth: true } },
   // 根路径与兜底：交给守卫按登录态/角色分发
   { path: '/', redirect: '/login' },
   { path: '/:pathMatch(.*)*', redirect: '/' }

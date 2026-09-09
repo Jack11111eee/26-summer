@@ -633,6 +633,9 @@ body.candidate {
 @media print {
   .candidate .rail, .candidate .rep-actions, .candidate .toasts, .candidate .btn-ghost,
   .candidate .fb-btn, .candidate .back-link { display: none !important; }
+  /* 导航壳兜底（§12.6 2026-09-09 修订）：report 页挂壳后，fixed 定位的触发条与
+     侧栏若不显式隐藏会印在 PDF 每页上 */
+  .candidate .edge, .candidate .sidebar { display: none !important; }
   .candidate .app { grid-template-columns: 1fr; }
   body.candidate { background: #fff; }
 }
