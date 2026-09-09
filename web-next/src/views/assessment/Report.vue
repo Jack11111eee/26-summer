@@ -7,6 +7,13 @@
       <!-- 生成中 / 失败 -->
       <div v-if="phase === 'generating'" class="generating">
         <p class="serif">正在生成你的测评报告…</p>
+        <!-- §21.1 生成进度透传：占位行 progress（有则渲染，无（旧占位行/超时收尾链）回退静态文案） -->
+        <template v-if="progress">
+          <div class="gen-bar" role="progressbar" :aria-valuenow="progressPct" aria-valuemin="0" aria-valuemax="100">
+            <div class="gen-bar-fill" :style="{ width: progressPct + '%' }"></div>
+          </div>
+          <p class="gen-line">{{ progressText }}</p>
+        </template>
         <!-- §十九：前台轮询到点只停本页刷新，后台仍在生成——提示切换，不伪称失败 -->
         <p v-if="!pollStopped" class="field-hint">通常需要数十秒；生成完成后本页会自动展示。</p>
         <p v-else class="field-hint">报告仍在生成中（后台任务未超时，服务端看门狗兜底 60 分钟，并非失败）。本页已暂停自动刷新，可稍后回到本页查看；生成完成后会自动展示结果。</p>
@@ -381,6 +388,28 @@ watch([phase, fbDetail], () => {
 
 const fbState = reactive({ show: false, item: null, text: '', err: '', submitting: false })
 
+// ---- 生成进度（SSOT §21.1 透传，2026-09-09）：by-session GENERATING 行 spread 出的
+// data.progress，{stage:'scoring',done,total} / {stage:'report'}；无（旧占位行/
+// 全场超时收尾链无占位行）为 null——模板回退既有静态文案。到点停表后冻结条按快照保留。 ----
+const progress = ref(null)
+const progressPct = computed(() => {
+  if (!progress.value) return 0
+  if (progress.value.stage === 'report') return 100
+  const d = Number(progress.value.done) || 0
+  const t = Number(progress.value.total) || 0
+  if (t <= 0) return 0 // total 缺失/0：不显示假百分比
+  return Math.min(100, Math.max(0, Math.round((d / t) * 100)))
+})
+const progressText = computed(() => {
+  const p = progress.value
+  if (!p) return ''
+  if (p.stage === 'report') return '评分完成，正在生成报告文字…'
+  const d = Number(p.done) || 0
+  const t = Number(p.total) || 0
+  if (t <= 0) return '正在逐题评分…' // total 未知：不显示 X/N 计数
+  return `正在逐题评分：第 ${Math.min(d, t)} / ${t} 题`
+})
+
 const POLL_MS = 3000
 const MAX_POLLS = 40
 let pollTimer = null
@@ -602,10 +631,13 @@ async function bootstrap() {
   stopPoll()
   phase.value = 'loading'
   failText.value = ''
+  // 每轮入口清进度（宿旧占位行读到的 progress 不带到新一轮——首 tick 前无残影）
+  progress.value = null
   try {
     const { data } = await assessment.getReportBySession(sessionId)
     if (data.report_status === 'GENERATING') {
       phase.value = 'generating'
+      progress.value = data.progress || null
       startPoll()
       return
     }
@@ -649,6 +681,7 @@ async function bootstrap() {
 // 重新生成：POST 才能触发后端超龄 GENERATING 接管 / FAILED 重生成（bootstrap 只 GET，会原样读回旧状态）。
 async function regenerate() {
   stopPoll()
+  progress.value = null // 同 bootstrap：新一轮清旧进度
   try {
     await assessment.generateReport(sessionId)
     phase.value = 'generating'
@@ -691,7 +724,11 @@ function startPoll() {
       const { data } = await assessment.getReportBySession(sessionId)
       // §十九 防过期覆盖：本代已被 stopPoll+重启（代数不匹配）或 phase 已离开 generating → 丢弃本次结果
       if (gen !== pollGen || phase.value !== 'generating') return
-      if (data.report_status === 'GENERATING') return
+      if (data.report_status === 'GENERATING') {
+        // §21.1 进度透传：仍在途 → 刷新进度（必须先于 early-return，否则写了等于没写）
+        progress.value = data.progress || null
+        return
+      }
       stopPoll()
       if (data.report_status === 'FAILED') {
         phase.value = 'failed'
