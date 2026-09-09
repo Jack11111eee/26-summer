@@ -80,10 +80,20 @@
                 >删除所选（{{ confirmState.deleteIds.length }}）</button>
               </template>
             </div>
+            <!-- table-layout:fixed 无 thead 时列宽按首行单元格平分——日期换行、test_name 溢出
+                 压状态列（2026-09-10）。修法与文件内其他表格同惯例：显式列宽 + v-clip 截断。 -->
             <table>
+              <thead class="visually-hidden">
+                <tr>
+                  <th style="width: 28px"></th>
+                  <th></th>
+                  <th style="width: 56px"></th>
+                  <th style="width: 44px"></th>
+                </tr>
+              </thead>
               <tbody>
                 <tr v-for="h in history" :key="h.task_id" style="cursor: pointer" @click="loadTask(h.task_id)">
-                  <td style="width: 28px" @click.stop>
+                  <td @click.stop>
                     <input
                       v-if="isTerminal(h)"
                       v-model="confirmState.deleteIds"
@@ -93,20 +103,19 @@
                     />
                   </td>
                   <td>
-                    <div class="cell-main" style="font-size: 12px">{{ h.test_name }}</div>
-                    <div class="cell-sub">{{ formatTime(h.created_at) }}</div>
+                    <div v-clip class="cell-main" style="font-size: 12px">{{ h.test_name }}</div>
+                    <div class="cell-sub" style="white-space: nowrap">{{ formatTime(h.created_at) }}</div>
                   </td>
                   <td>
                     <span v-if="h.status === 'completed'" class="tag tag-solid">完成</span>
                     <span v-else-if="h.status === 'failed'" class="tag tag-red">失败</span>
                     <span v-else class="tag warm">运行中</span>
                   </td>
-                  <td v-if="isTerminal(h)" style="width: 44px">
-                    <button class="row-btn row-btn-danger" @click.stop="askDeleteOne(h)">删除</button>
+                  <td style="width: 44px">
+                    <button v-if="isTerminal(h)" class="row-btn row-btn-danger" @click.stop="askDeleteOne(h)">删除</button>
                   </td>
-                  <td v-else></td>
                 </tr>
-                <tr v-if="!history.length"><td class="empty-row">暂无历史</td></tr>
+                <tr v-if="!history.length"><td colspan="4" class="empty-row">暂无历史</td></tr>
               </tbody>
             </table>
           </section>
