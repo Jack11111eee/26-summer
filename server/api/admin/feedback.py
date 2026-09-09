@@ -17,14 +17,36 @@ def list_feedback(status: str | None = None) -> list[dict]:
     params = (status,) if status else ()
     rows = conn.execute(
         "SELECT f.feedback_id, f.report_id, f.item_id, f.feedback_text, f.status, f.created_at,"
-        " ci.std_name, ci.category, r.session_id, r.total_score"
+        " ci.std_name, ci.category, r.session_id, r.total_score, u.username"
         f" FROM feedback f"
         f" JOIN competency_item ci ON ci.item_id=f.item_id"
         f" JOIN report r ON r.report_id=f.report_id"
+        f" LEFT JOIN user u ON u.user_id=f.user_id"
         f"{clause} ORDER BY f.created_at DESC",
         params,
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+@router.get("/{feedback_id}")
+def get_feedback_detail(feedback_id: str) -> dict:
+    """单条异议详情（SSOT §22.2，2026-09-09）：原文全文 + 提交人 + 处理留痕 + 回溯锚点，
+    供报告页深链 ?feedback_id= 横幅渲染。存量行 user_id NULL → username 亦 NULL（前端显示 —）。"""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT f.feedback_id, f.report_id, f.item_id, f.feedback_text, f.status, f.created_at,"
+        " f.user_id, f.review_note, f.reviewed_at,"
+        " ci.std_name, ci.category, r.session_id, r.report_status, r.total_score, u.username"
+        " FROM feedback f"
+        " JOIN competency_item ci ON ci.item_id=f.item_id"
+        " JOIN report r ON r.report_id=f.report_id"
+        " LEFT JOIN user u ON u.user_id=f.user_id"
+        " WHERE f.feedback_id=?",
+        (feedback_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "反馈不存在")
+    return dict(row)
 
 
 class _ReviewBody(BaseModel):

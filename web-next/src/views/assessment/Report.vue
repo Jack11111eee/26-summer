@@ -132,6 +132,20 @@
           <p v-if="radarTruncated" class="field-hint radar-note">直接观测项超过 {{ MAX_AXES }} 个，图中展示前 {{ MAX_AXES }} 项，完整清单见明细。</p>
         </section>
 
+        <!-- 异议横幅（SSOT §22.2 管理端深链，置于页首结果摘要之后）：仅 ?feedback_id= 进入
+             且详情拉取成功时渲染；候选人访问同 URL 时详情端点 403 → fbDetail 为 null，页面其余照常 -->
+        <div v-if="fbDetail" class="fb-banner">
+          <div class="fb-banner-head">
+            <span class="fb-banner-title">候选人异议</span>
+            <span v-if="fbDetail.status === 'pending'" class="chip amber">待处理</span>
+            <span v-else-if="fbDetail.status === 'reviewed'" class="tb-badge">已处理</span>
+            <span v-else class="chip amber">BAD CASE</span>
+            <span class="fb-banner-meta">{{ fbDetail.username || '未知用户' }} · {{ formatTime(fbDetail.created_at) }} · {{ fbDetail.std_name }}</span>
+          </div>
+          <div class="fb-banner-text">{{ fbDetail.feedback_text }}</div>
+          <div v-if="fbDetail.review_note" class="fb-banner-note">处理备注：{{ fbDetail.review_note }}（{{ formatTime(fbDetail.reviewed_at) }}）</div>
+        </div>
+
         <!-- ③ 优势 / 短板 -->
         <section id="rep-summary" class="rep">
           <div class="rep-kicker">SUMMARY</div>
@@ -170,7 +184,13 @@
           <div class="rep-kicker">REVIEW</div>
           <div class="rep-title serif">逐题回顾</div>
 
-          <details v-for="(q, i) in report.question_reviews" :key="q.question_id || i" class="rep-fold">
+          <details
+            v-for="(q, i) in report.question_reviews"
+            :key="q.question_id || i"
+            class="rep-fold"
+            :class="{ 'fb-hit': isFeedbackItem(q) }"
+            :open="isFeedbackItem(q)"
+          >
             <!-- §十八：真实题号（后端透传 seq），无 seq 的旧报告回退序号；标题带能力与终评状态 -->
             <summary>
               <span class="no">{{ pad2(q.seq ?? i + 1) }}</span> {{ brief(q.stem, 34) }}
@@ -203,7 +223,12 @@
               <tr><th>能力项</th><th>要求</th><th>表现</th><th>差距</th><th class="num">权重</th><th class="num">得分</th><th>操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="it in report.item_details || []" :key="it.item_id">
+              <tr
+                v-for="it in report.item_details || []"
+                :key="it.item_id"
+                :class="{ 'fb-hit': isFeedbackItem(it) }"
+                :data-item-row="it.item_id"
+              >
                 <td>
                   {{ it.std_name }}
                   <span v-if="it.gate" class="chip amber" style="margin-left: 4px">门槛</span>
@@ -269,14 +294,15 @@
 // 无外部图表依赖。
 // 轮询健康度（临时讨论稿 §十九，2026-09-09）：到上限只停本页刷新不伪称失败、
 // 防请求重叠（pollBusy）、防过期响应覆盖新状态（pollGen 代数核对）、401/403 停轮询给真实原因。
-// 打印（§十九）：printReport 先记录 open 态、临时全开 details，window.print 返回后恢复；
+// 打印（§十九）：printReport 先记录 open 态、临时全开 details、window.print 返回后恢复；
 // beforeprint/afterprint 事件兜底（浏览器菜单打印路径）。
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+// 异议深链（SSOT §22.2）：?feedback_id= 管理端进入拉详情画横幅，明细行/逐题回顾同词条高亮（候选人 403 静默降级）。
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { assessment, errMsg } from '../../api'
+import { assessment, admin, errMsg } from '../../api'
 import { toast } from '../../components/ui'
 import { useTheme } from '../../lib/theme'
-import { pct, SCORE_STATE_LABELS } from '../../lib/labels'
+import { pct, formatTime, SCORE_STATE_LABELS } from '../../lib/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -289,6 +315,39 @@ const phase = ref('loading') // loading | generating | ready | failed
 const report = ref(null)
 const failText = ref('')
 const feedbackDone = ref(new Set())
+
+// ---- 管理端异议详情深链（SSOT §22.2）：?feedback_id= 进入时拉横幅数据 + 定位 ----
+// detail 端点 admin-only：候选人访问同 URL 得 403 → fbDetail 留 null 静默降级（页面其余照常）。
+// 另一道保险：后端返回的 session_id 与本页 URL 不符（跨报告拼 query）也不渲染。
+const fbDetail = ref(null)
+const fbDetailId = String(route.query.feedback_id || '')
+if (fbDetailId) {
+  admin.feedback.getDetail(fbDetailId)
+    .then(({ data }) => { if (data.session_id === sessionId) fbDetail.value = data })
+    .catch(() => { /* 非管理员/已删 → 静默降级 */ })
+}
+
+// 被异议词条命中判定：明细行/逐题回顾（question_reviews 每题带 item_id）同一把尺子
+function isFeedbackItem(row) {
+  return !!fbDetail.value && row.item_id === fbDetail.value.item_id
+}
+
+async function locateFeedbackItem() {
+  // 等 DOM 挂好（bootstrap 完成后 nextTick + rAF，取行高亮稳定后）再滚动定位
+  await nextTick()
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`tr[data-item-row="${fbDetail.value.item_id}"]`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  })
+}
+
+// 报告就绪与详情到位两条异步线任一后到都会补触发一次（详情先到/后到、轮询转正等多种时序）
+let fbLocated = false
+watch([phase, fbDetail], () => {
+  if (fbLocated || phase.value !== 'ready' || !fbDetail.value) return
+  fbLocated = true
+  locateFeedbackItem()
+})
 
 const fbState = reactive({ show: false, item: null, text: '', err: '', submitting: false })
 

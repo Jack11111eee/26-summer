@@ -215,3 +215,83 @@ def test_question_reviews_has_item_id():
     assert reviews, "应有至少一条逐题回顾"
     for rv in reviews:
         assert rv.get("item_id"), f"question_reviews 缺 item_id: {rv}"
+
+
+# ---------- §22.2 异议详情与列表补列 ----------
+
+def test_feedback_detail_contract():
+    """GET /admin/feedback/{id}：admin 200 全字段（原文/提交人/留痕/回溯锚点）/ unknown 404。"""
+    headers = _auth()
+    report_id, item_id, session_id, uid, username = _seed_candidate_report_item()
+    conn = get_conn()
+    fid = new_id("fb")
+    conn.execute(
+        "INSERT INTO feedback(feedback_id, report_id, item_id, feedback_text, status, created_at, user_id)"
+        " VALUES(?,?,?,?,?,?,?)",
+        (fid, report_id, item_id, "该题我的实际经历是三年分布式系统开发", "pending", now_iso(), uid),
+    )
+    conn.commit()
+    conn.close()
+
+    r = client.get(f"/api/admin/feedback/{fid}", headers=headers)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["feedback_id"] == fid
+    assert d["feedback_text"] == "该题我的实际经历是三年分布式系统开发"
+    assert d["username"] == username
+    assert d["std_name"] == "Python"
+    assert d["category"] == "hard_skill"
+    assert d["report_id"] == report_id
+    assert d["item_id"] == item_id
+    assert d["session_id"] == session_id
+    assert d["status"] == "pending"
+    assert d["review_note"] is None and d["reviewed_at"] is None
+
+    r404 = client.get("/api/admin/feedback/fb_nonexistent", headers=headers)
+    assert r404.status_code == 404, r404.text
+
+
+def test_feedback_detail_requires_admin():
+    """候选端 token 访问详情端点 403（报告页深链 ?feedback_id= 的静默降级依据）。"""
+    report_id, item_id, _session_id, _uid, username = _seed_candidate_report_item()
+    conn = get_conn()
+    fid = new_id("fb")
+    conn.execute(
+        "INSERT INTO feedback(feedback_id, report_id, item_id, feedback_text, status, created_at, user_id)"
+        " VALUES(?,?,?,?,?,?,?)",
+        (fid, report_id, item_id, "对分数有异议", "pending", now_iso(), _uid),
+    )
+    conn.commit()
+    conn.close()
+    r = client.get(f"/api/admin/feedback/{fid}",
+                   headers={"Authorization": f"Bearer {_candidate_token(username)}"})
+    assert r.status_code == 403, r.text
+
+
+def test_feedback_list_has_username():
+    """GET /admin/feedback/list 行含 username；存量行 user_id NULL（LEFT JOIN）不消失。"""
+    headers = _auth()
+    report_id, item_id, _session_id, uid, username = _seed_candidate_report_item()
+    conn = get_conn()
+    fid_new, fid_legacy = new_id("fb"), new_id("fb")
+    conn.execute(
+        "INSERT INTO feedback(feedback_id, report_id, item_id, feedback_text, status, created_at, user_id)"
+        " VALUES(?,?,?,?,?,?,?)",
+        (fid_new, report_id, item_id, "新行带提交人", "pending", now_iso(), uid),
+    )
+    # 存量形态：Phase 5 审计列加列前的老行（user_id NULL）
+    conn.execute(
+        "INSERT INTO feedback(feedback_id, report_id, item_id, feedback_text, status, created_at)"
+        " VALUES(?,?,?,?,?,?)",
+        (fid_legacy, report_id, item_id, "旧行无提交人", "pending", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+
+    r = client.get("/api/admin/feedback/list", headers=headers)
+    assert r.status_code == 200, r.text
+    by_id = {row["feedback_id"]: row for row in r.json()}
+    assert fid_new in by_id, "新行应在列表中"
+    assert fid_legacy in by_id, "存量 NULL 行不应因 LEFT JOIN 消失"
+    assert by_id[fid_new]["username"] == username
+    assert by_id[fid_legacy]["username"] is None
