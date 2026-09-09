@@ -35,7 +35,7 @@
         <thead>
           <tr>
             <th style="width: 24%">position</th><th style="width: 10%">version</th><th style="width: 12%">status</th>
-            <th style="width: 34%">progress / error</th><th class="num" style="width: 6%">题量</th><th style="width: 14%">created_at</th>
+            <th style="width: 32%">progress / error</th><th class="num" style="width: 8%">题量</th><th style="width: 14%">created_at</th>
           </tr>
         </thead>
         <tbody>
@@ -150,7 +150,7 @@
             <div class="fold-body">
               <table v-if="questions.items.length">
                 <thead>
-                  <tr><th style="width: 18%">std_name</th><th style="width: 13%">difficulty</th><th style="width: 11%">qtype</th><th style="width: 10%">status</th><th style="width: 48%">stem 预览</th></tr>
+                  <tr><th style="width: 18%">std_name</th><th style="width: 13%">difficulty</th><th style="width: 11%">qtype</th><th style="width: 17%">status</th><th style="width: 41%">stem 预览</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="q in questions.items" :key="q.question_id">
@@ -420,4 +420,9 @@ onBeforeUnmount(stopPoll)
 /* 归档扩展：已归档行弱化视觉（复用 .tag 形态，muted 配色） */
 .qk-archived-tag { margin-left: 4px; color: var(--ink-3); border-style: dashed; }
 .qk-archived-cnt { font-size: 10px; color: var(--ink-3); }
+/* 窄列标签/计数不换行：本页列宽按内容定宽（6%~13%），inline 内容换行会让
+   归档行比普通行高（2026-09-09 实测 55 vs 45px）——同 .row-btn 竖排前例（admin.css），
+   tag 逐字换行呈竖排。只限本组件：别处长动态 tag（Dict exclusions / ModelReview
+   能力项名）依赖换行，不受影响。 */
+:deep(.tag), .qk-archived-cnt { white-space: nowrap; }
 </style>
