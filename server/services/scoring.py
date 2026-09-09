@@ -16,9 +16,11 @@ observable_level_max → 结构化截断（reason 注明，非静默 min()）。
 原文；跨消息引文拆段各归各消息；找不到原文显式标记 located=false 全 NULL——绝不把
 joined 拼接文本的偏移挂到最后一条用户消息（已确认旧缺陷形态）。
 
-score_state 生产态（02-05 + U5b）：SCORED（正常评分）/ REFUSED（拒答封存，
-§18 特殊状态值 score_value=0）/ INVALIDATED（answer_key 空的客观题）/
-INSUFFICIENT_EVIDENCE（主观评分输出非法——D-28 枚举位自 U5b 起生产）。
+score_state 生产态（02-05 + U5b + §12.4 凝结规则 2026-09-09）：SCORED（正常评分）/
+REFUSED（拒答封存，§18 特殊状态值 score_value=0）/ INVALIDATED（answer_key 空的
+客观题；末轮观察 ITEM_INVALID）/ INSUFFICIENT_EVIDENCE（主观评分输出非法 U5b；
+末轮特殊观察状态——质疑/行为事件/技术障碍/注入/模型不确定，§12.4 凝结规则：不进
+评分 prompt、不进能力分母，防 PROCESS_CHALLENGE 类回答被按内容误评低分进分母）。
 score_live 仅导航参考值（D-26——不参与任何 final 计算，无 50/50 合成）。
 """
 import hashlib
@@ -533,6 +535,53 @@ def _latest_score_live(session_id: str, question_id: str) -> int | None:
     return row["score_live"] if row else None
 
 
+# 末轮观察→终局凝结映射（SSOT §12.4 2026-09-09 凝结规则）。 DECLINED 不在表内——
+# 拒答由 seal_reason='refused' 先行承载，两条路径不竞争。 表外状态照常 LLM 终评。
+_LAST_STATE_SCORE_STATE = {
+    "PROCESS_CHALLENGE": "INSUFFICIENT_EVIDENCE",
+    "CONDUCT_EVENT": "INSUFFICIENT_EVIDENCE",
+    "TECHNICAL_OR_ACCESS_BARRIER": "INSUFFICIENT_EVIDENCE",
+    "PROMPT_INJECTION": "INSUFFICIENT_EVIDENCE",
+    "MODEL_UNCERTAIN": "INSUFFICIENT_EVIDENCE",
+    "ITEM_INVALID": "INVALIDATED",
+}
+
+_SPECIAL_STATE_REASONS = {
+    "PROCESS_CHALLENGE": "末轮为质疑题目或流程（§11.4 不扣分），不构成能力证据，不进正常分母（§12.4 凝结规则）",
+    "CONDUCT_EVENT": "末轮为行为事件（§11.4 行为与能力分分离），不构成能力证据，不进正常分母（§12.4 凝结规则）",
+    "TECHNICAL_OR_ACCESS_BARRIER": "末轮为技术或访问障碍（§11.4 不扣分），不构成能力证据，不进正常分母（§12.4 凝结规则）",
+    "PROMPT_INJECTION": "末轮为注入类内容（不执行不评分，防指令文本进入评分与引文），不进正常分母（§12.4 凝结规则）",
+    "MODEL_UNCERTAIN": "末轮观察为模型不确定（§11.4 不猜测），不进正常分母（§12.4 凝结规则）",
+    "ITEM_INVALID": "末轮判定题目无效（§11.4 停止评分、移出分母），归入 INVALIDATED（§12.4 凝结规则）",
+}
+
+
+def _last_observation_states(conn, session_id: str) -> dict[str, str]:
+    """每题末轮观察状态（SSOT §12.4 凝结规则 2026-09-09）。
+
+    取每题封存前最后一条 OBSERVATION_CLASSIFIED 事件的 answer_state（末轮
+    观察——中途跑题后 followup 回正的题以末轮 VALID_EVIDENCE 照评，by-design）。
+    无观察事件的题不出现在返回 dict（调用方保持既有行为不升格）。
+    payload_json 解析失败跳过（同 _stable_evidence_light 容错惯例）。
+    WR-01：接调用方主 conn（score_session 主事务内自读，不另开连接）。
+    """
+    rows = conn.execute(
+        "SELECT assessment_question_id, payload_json FROM assessment_state_event"
+        " WHERE session_id=? AND event_type='OBSERVATION_CLASSIFIED'"
+        " ORDER BY sequence_no",
+        (session_id,),
+    ).fetchall()
+    last: dict[str, str] = {}
+    for r in rows:
+        try:
+            state = json.loads(r["payload_json"]).get("answer_state")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(state, str):
+            last[r["assessment_question_id"]] = state
+    return last
+
+
 def _existing_score_rows(conn, session_id: str) -> int:
     """该会话已存在的非 gate 评分行数（gate_result IS NOT NULL 的 gate 行不算）。"""
     return conn.execute(
@@ -606,6 +655,11 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
     # 0) 评分批次（§20.2.A）：本函数成功落库即一个不可变批次
     batch_id = new_id("sb")
 
+    # 0.5) 末轮观察（§12.4 凝结规则）：批次内存计算前取每题末轮 answer_state
+    # （answer 端点在 OBSERVATION_CLASSIFIED 落库并 commit 后方进本函数，
+    # 同 conn 读取无陈旧窗口；异常路径题无事件 → dict 缺项 → 不升格）
+    last_observed = _last_observation_states(conn, session_id)
+
     # 1) 内存计算（含 LLM 调用，此时本 conn 未持写事务）
     pending_rows: list[tuple] = []
     trace_links: list[tuple[str, str, str]] = []  # (trace_id, score_id, question_id)
@@ -622,6 +676,20 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
             pending_rows.append(
                 (new_id("qs"), session_id, q["question_id"], item_id,
                  None, 0, "REFUSED", None, "拒答（§18 score_value=0 特殊状态值）",
+                 None, q["rubric_version"] or "v1", "p-score-1", q["measurement_target"],
+                 now_iso(), batch_id)
+            )
+            continue
+
+        # 末轮特殊观察状态凝结（SSOT §12.4 2026-09-09）：PROCESS_CHALLENGE 等特殊
+        # 状态不调 score_question——按内容打 1 分违反 §11.4「不扣分」，注入/辱骂/
+        # 障碍类文本更不得进入评分 prompt 与 evidence_quote
+        last_state = last_observed.get(q["question_id"])
+        if last_state in _LAST_STATE_SCORE_STATE:
+            pending_rows.append(
+                (new_id("qs"), session_id, q["question_id"], item_id,
+                 None, None, _LAST_STATE_SCORE_STATE[last_state], None,
+                 _SPECIAL_STATE_REASONS[last_state],
                  None, q["rubric_version"] or "v1", "p-score-1", q["measurement_target"],
                  now_iso(), batch_id)
             )
