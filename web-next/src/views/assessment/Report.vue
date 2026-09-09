@@ -1,7 +1,8 @@
 <template>
   <div class="page">
     <div class="report-body">
-      <span class="back-link" @click="goBack">← 返回测评历史</span>
+      <!-- embedded（管理端覆盖层）不渲染候选端返回链接——关闭/后退由外层 viewer 承担（§22.2） -->
+      <span v-if="!embedded" class="back-link" @click="goBack">← 返回测评历史</span>
 
       <!-- 生成中 / 失败 -->
       <div v-if="phase === 'generating'" class="generating">
@@ -296,7 +297,9 @@
 // 防请求重叠（pollBusy）、防过期响应覆盖新状态（pollGen 代数核对）、401/403 停轮询给真实原因。
 // 打印（§十九）：printReport 先记录 open 态、临时全开 details、window.print 返回后恢复；
 // beforeprint/afterprint 事件兜底（浏览器菜单打印路径）。
-// 异议深链（SSOT §22.2）：?feedback_id= 管理端进入拉详情画横幅，明细行/逐题回顾同词条高亮（候选人 403 静默降级）。
+// 异议详情定位（SSOT §22.2 2026-09-09 修订：路由深链保留 + 管理端页内嵌入双入口）：
+// 明细行/逐题回顾同 item 双高亮；路由 ?feedback_id=（候选端 403 静默降级）或
+// 管理端覆盖层 props 注入（viewer 已拉好 detail，不重复请求）。
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { assessment, admin, errMsg } from '../../api'
@@ -309,19 +312,29 @@ const router = useRouter()
 const { theme, toggle: toggleTheme } = useTheme()
 const isDark = computed(() => theme.value === 'dark')
 
-const sessionId = route.params.session_id
+// 参数化（SSOT §22.2 2026-09-09 修订）：默认走路由（行为零破坏）；管理端页内覆盖层
+// （FeedbackDetailViewer）复用本组件时经 props 注入——embedded 隐藏「返回测评历史」。
+const props = defineProps({
+  sessionId: { type: String, default: '' },
+  feedbackId: { type: String, default: '' },
+  fbDetailData: { type: Object, default: null },
+  embedded: { type: Boolean, default: false }
+})
+
+const sessionId = props.sessionId || route.params.session_id
 
 const phase = ref('loading') // loading | generating | ready | failed
 const report = ref(null)
 const failText = ref('')
 const feedbackDone = ref(new Set())
 
-// ---- 管理端异议详情深链（SSOT §22.2）：?feedback_id= 进入时拉横幅数据 + 定位 ----
+// ---- 管理端异议详情定位（SSOT §22.2）：路由 ?feedback_id= 或管理端覆盖层 props 注入 ----
 // detail 端点 admin-only：候选人访问同 URL 得 403 → fbDetail 留 null 静默降级（页面其余照常）。
-// 另一道保险：后端返回的 session_id 与本页 URL 不符（跨报告拼 query）也不渲染。
-const fbDetail = ref(null)
-const fbDetailId = String(route.query.feedback_id || '')
-if (fbDetailId) {
+// 另一道保险：后端返回的 session_id 与本页不符（跨报告拼 query）也不渲染。
+// 嵌入态（embedded）：viewer 已拉好 detail 直接经 props 递入，本组件不再重复请求。
+const fbDetail = ref(props.fbDetailData)
+const fbDetailId = String(props.feedbackId || route.query.feedback_id || '')
+if (!props.embedded && fbDetailId) {
   admin.feedback.getDetail(fbDetailId)
     .then(({ data }) => { if (data.session_id === sessionId) fbDetail.value = data })
     .catch(() => { /* 非管理员/已删 → 静默降级 */ })

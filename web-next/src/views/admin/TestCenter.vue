@@ -291,15 +291,18 @@
         </table>
       </section>
     </template>
+    <!-- 异议详情页内覆盖层（SSOT §22.2 2026-09-09 修订）：?feedback_id= 存在即渲染 -->
+    <FeedbackDetailViewer v-if="route.query.feedback_id" />
   </div>
 </template>
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { admin, adminPositions, errMsg } from '../../api'
 import { UiTabs, UiDrawer, UiConfirm, toast } from '../../components/ui'
 import { categoryLabel, formatTime } from '../../lib/labels'
+import FeedbackDetailViewer from './FeedbackDetailViewer.vue'
 
 defineOptions({ name: 'AdminTestCenter' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
 
@@ -565,10 +568,12 @@ function askFeedback(f, kind) {
   confirmState.show = true
 }
 
-// 异议详情深链（SSOT §22.2）：跳报告页 ?feedback_id= 定位（横幅/明细行+逐题回顾双高亮/自动滚动）
+// 异议详情浏览（SSOT §22.2 2026-09-09 修订）：同路由 query 记忆，FeedbackDetailViewer
+// 覆盖层原地渲染报告（不离开测试中心）；viewer 按 query 出现/消失，后退即关闭
+const route = useRoute()
 const router = useRouter()
 function openFeedbackDetail(f) {
-  router.push(`/assessment/report/${f.session_id}?feedback_id=${f.feedback_id}`)
+  router.push({ query: { ...route.query, feedback_id: f.feedback_id } })
 }
 
 function askPublish(f) {
