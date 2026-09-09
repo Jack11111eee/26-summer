@@ -93,18 +93,27 @@ def extract_items(jd_id: str, cleaned_text: str) -> dict:
 # ---------- 归岗 ----------
 
 def assign_position(job_title: str) -> tuple[str | None, str]:
-    """返回 (position_id, 状态说明)。未命中则创建 pending_review 岗位。"""
+    """返回 (position_id, 状态说明)。未命中则创建 pending_review 岗位。
+
+    name/alias 匹配均只认 active 与 pending_review 岗位（SSOT §8 岗位生命周期，
+    2026-09-09）：inactive 岗不吸收新 JD——同名/同别名命中落穿建新 pending_review
+    壳（管理员可上架旧岗+合并新壳收口）。
+    """
     from .assign import normalize_title
 
     conn = get_conn()
     norm = normalize_title(job_title)
     row = conn.execute(
-        "SELECT position_id, status FROM position WHERE name=? COLLATE NOCASE", (norm,)
+        "SELECT position_id, status FROM position"
+        " WHERE name=? COLLATE NOCASE AND status IN ('active','pending_review')",
+        (norm,),
     ).fetchone()
     if row:
         return row["position_id"], "matched"
     row = conn.execute(
-        "SELECT position_id FROM position_alias WHERE alias=? COLLATE NOCASE", (norm,)
+        "SELECT a.position_id FROM position_alias a JOIN position p ON p.position_id=a.position_id"
+        " WHERE a.alias=? COLLATE NOCASE AND p.status IN ('active','pending_review')",
+        (norm,),
     ).fetchone()
     if row:
         return row["position_id"], "alias"

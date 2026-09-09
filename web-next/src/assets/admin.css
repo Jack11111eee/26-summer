@@ -133,11 +133,11 @@ body.admin {
 /* ---- 表格 ---- */
 .admin table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .admin th {
-  text-align: left; font-size: 10px; font-weight: 600; color: var(--ink-3);
+  text-align: center; font-size: 10px; font-weight: 600; color: var(--ink-3);
   padding: 10px 12px; letter-spacing: .06em; text-transform: uppercase;
 }
-.admin th.num, .admin td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.admin td { padding: 11px 12px; border-bottom: 1px solid rgba(38,38,42,.07); font-size: 13px; vertical-align: middle; }
+.admin th.num, .admin td.num { text-align: center; font-variant-numeric: tabular-nums; }
+.admin td { padding: 11px 12px; border-bottom: 1px solid rgba(38,38,42,.07); font-size: 13px; vertical-align: middle; text-align: center; }
 /* 长文本定宽列：截断省略，溢出后悬停气泡（td[data-tip]）看全称 */
 .admin td.clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin tbody tr:last-child td { border-bottom: none; }
@@ -147,7 +147,8 @@ body.admin {
 .admin .empty-row td { text-align: center; color: var(--ink-3); padding: 28px 0; font-size: 12px; }
 
 /* 行操作：常显但偏淡，悬停所在条目后变实 */
-.admin .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.admin .row-actions { display: flex; gap: 8px; justify-content: center; }
+.admin .row-actions .select { min-width: 0; max-width: 100%; } /* select 宽度取最宽 option，长岗位名会撑破 fixed 表格列溢出视窗；钳回列宽 */
 .admin .row-btn {
   height: 26px; padding: 0 12px; font-size: 12px; font-weight: 600; border-radius: 8px;
   border: 1px solid #d8d8d4; background: #fff; color: var(--ink-2);

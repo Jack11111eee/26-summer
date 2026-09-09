@@ -19,7 +19,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 12%">version</th><th style="width: 15%">status</th><th style="width: 18%">confirmed_by</th><th style="width: 18%">confirmed_at</th><th style="width: 18%">created_at</th><th style="width: 19%; text-align: right">action</th></tr>
+            <tr><th style="width: 12%">版本</th><th style="width: 15%">状态</th><th style="width: 18%">确认人</th><th style="width: 18%">确认时间</th><th style="width: 18%">创建时间</th><th style="width: 19%">操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="v in versions" :key="v.model_id">

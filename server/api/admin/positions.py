@@ -103,7 +103,7 @@ def review_position(position_id: str, body: dict) -> dict:
         if blocking["m"] or blocking["t"] or blocking["s"]:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                "岗位已产生模型/题库/会话数据，不可撤销删除（请改用下架等处理）",
+                "岗位已产生模型/题库/会话数据，不可撤销删除（可在岗位清单将该岗位下架后处理）",
             )
         # 撤销岗位：其下 JD 归 NULL（待归属队列），别名删除，岗位本身删除
         conn.execute("UPDATE jd_record SET position_id=NULL WHERE position_id=?", (position_id,))
@@ -112,6 +112,123 @@ def review_position(position_id: str, body: dict) -> dict:
         conn.commit()
         return {"position_id": position_id, "status": "rejected", "jds_orphaned": True}
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "action 仅支持 approve/reject")
+
+
+@router.post("/positions/{position_id}/status")
+def set_position_status(position_id: str, body: dict) -> dict:
+    """岗位手动上架/下架（SSOT §8 岗位生命周期，2026-09-09）：active⇄inactive。
+
+    pending_review 岗禁用本端点（入口态须经审核流 approve/reject，不是停车场）；
+    目标态=当前态 409；下架（目标 inactive）时同岗位存在 RUNNING 聚合任务 409
+    （防下架中途聚合把模型落在刚下架的岗位上）。
+    """
+    target = body.get("status")
+    conn = get_conn()
+    pos = conn.execute("SELECT status FROM position WHERE position_id=?", (position_id,)).fetchone()
+    if pos is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "岗位不存在")
+    if target not in ("active", "inactive"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "status 仅支持 active/inactive")
+    if pos["status"] == "pending_review":
+        raise HTTPException(status.HTTP_409_CONFLICT, "pending_review 岗位须经审核流处理")
+    if target == pos["status"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"岗位已是 {target} 状态")
+    if target == "inactive":
+        running = conn.execute(
+            "SELECT task_id FROM aggregate_task WHERE position_id=? AND status='RUNNING' LIMIT 1",
+            (position_id,),
+        ).fetchone()
+        if running is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "该岗位聚合进行中，请等待完成后再下架")
+    conn.execute("UPDATE position SET status=? WHERE position_id=?", (target, position_id))
+    conn.commit()
+    return {"position_id": position_id, "status": target}
+
+
+@router.post("/positions/{source_id}/merge")
+def merge_position(source_id: str, body: dict) -> dict:
+    """岗位合并（SSOT §8 岗位生命周期，2026-09-09）：source 的 JD + 名/别名胜全量迁入 target、
+    source 删除。单事务先全部校验后变异（校验命中即 409/404，不动任何行）。
+
+    source 须为数据壳（无 competency_model/question_bank_task/assessment_session 子表数据，
+    口径同 review reject 的 FK 检查）——模型属岗位聚合产物不可搬运，有数据岗走逐条
+    改归 JD + 壳岗下架。合并后不触发任何聚合：升版本须 diff 人审（SSOT 明文）。
+    """
+    target_id = body.get("target_id")
+    conn = get_conn()
+    source = conn.execute(
+        "SELECT position_id, name FROM position WHERE position_id=?", (source_id,)
+    ).fetchone()
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "合并源岗位不存在")
+    target = conn.execute(
+        "SELECT position_id, name, status FROM position WHERE position_id=?", (target_id,)
+    ).fetchone()
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "合并目标岗位不存在")
+    if source_id == target_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "合并源与目标不能是同一岗位")
+    if target["status"] != "active":
+        raise HTTPException(status.HTTP_409_CONFLICT, "合并目标岗位须为上架状态")
+    blocking = conn.execute(
+        "SELECT (SELECT COUNT(*) FROM competency_model WHERE position_id=?) m,"
+        " (SELECT COUNT(*) FROM question_bank_task WHERE position_id=?) t,"
+        " (SELECT COUNT(*) FROM assessment_session WHERE position_id=?) s",
+        (source_id, source_id, source_id),
+    ).fetchone()
+    if blocking["m"] or blocking["t"] or blocking["s"]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "source 岗位已产生模型/题库/会话数据，不可合并（请逐条改归其 JD 后将壳岗下架）",
+        )
+    # 别名冲突预检：将迁入 target 的集合 = source.name + source 现有 alias 全体。
+    # 任一被其他岗位占用（UNIQUE alias 全表唯一）或与 target.name 撞名（名字即岗位
+    # 本身，撞名说明数据脏）→ 409 列出冲突项。逐项即时查（alias 集合为个位数）。
+    source_aliases = [
+        r["alias"] for r in conn.execute(
+            "SELECT alias FROM position_alias WHERE position_id=?", (source_id,)
+        ).fetchall()
+    ]
+    incoming = [source["name"]] + source_aliases
+    conflicts = []
+    for name in incoming:
+        if name.lower() == target["name"].lower():
+            conflicts.append(f"{name}（与目标岗位名相同）")
+            continue
+        clash = conn.execute(
+            "SELECT p.name FROM position_alias a JOIN position p ON p.position_id=a.position_id"
+            " WHERE a.alias=? COLLATE NOCASE AND a.position_id != ? LIMIT 1",
+            (name, source_id),
+        ).fetchone()
+        if clash is not None:
+            conflicts.append(f"{name}（已被岗位「{clash['name']}」占用）")
+    if conflicts:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"别名冲突：{'、'.join(conflicts)}")
+    # 变异（一事务）：①JD 全量改归（全部状态，不筛）→ source 为数据分析过岗的条件；
+    # ②source 名插为 target 别名（若 source 名已伴生于自身 alias 表则随行迁移、不重复插，
+    # 防 UNIQUE 自撞）+ source 既有 alias 行整体改挂 target；③删 source。
+    # 迁移后不触发任何聚合——升版本须 diff 人审（SSOT §8 明文）。
+    moved_jds = conn.execute(
+        "UPDATE jd_record SET position_id=? WHERE position_id=?", (target_id, source_id)
+    ).rowcount
+    moved_aliases = 0
+    if source["name"] not in source_aliases:
+        conn.execute(
+            "INSERT INTO position_alias(alias_id, position_id, alias) VALUES(?,?,?)",
+            (new_id("pa"), target_id, source["name"]),
+        )
+        moved_aliases += 1
+    moved_aliases += conn.execute(
+        "UPDATE position_alias SET position_id=? WHERE position_id=?", (target_id, source_id)
+    ).rowcount
+    conn.execute("DELETE FROM position WHERE position_id=?", (source_id,))
+    conn.commit()
+    return {
+        "source_id": source_id,
+        "target_id": target_id,
+        "moved_jds": moved_jds,
+        "moved_aliases": moved_aliases,
+    }
 
 
 @router.post("/jds/{jd_id}/reassign")

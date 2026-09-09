@@ -1,7 +1,15 @@
 """JD 导入与单 JD 详情（P2）。导入即返回，解析交后台任务；前端轮询状态。"""
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 
 from ... import config, schemas
 from ...core.security import require_admin
@@ -17,11 +25,28 @@ router = APIRouter(prefix="/api/admin", tags=["admin-jds"], dependencies=[Depend
 
 
 @router.get("/positions/options")
-def list_position_options() -> list[dict]:
-    """岗位轻量选项（改归下拉 / 详情页名称查找用）：id+名称，全量不分页。"""
+def list_position_options(
+    position_status: str | None = Query(default=None, alias="status")
+) -> list[dict]:
+    """岗位轻量选项（改归/合并目标下拉 / 详情页名称查找用）：id+名称，全量不分页。
+
+    status 过滤参数（SSOT §8 岗位生命周期，2026-09-09）：不传或空 = 全量——
+    PositionDetail.loadName 靠全量查任意状态的岗位名，不能破坏；传了则只认
+    active/inactive/pending_review 三个合法值（其他值 400），改归/合并目标
+    下拉传 status=active。形参避开 status——函数体内 fastapi.status 模块名
+    已被占用（撞名 AttributeError）。
+    """
+    if position_status not in (None, "", "active", "inactive", "pending_review"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"非法 status 过滤值：{position_status}（仅支持 active/inactive/pending_review）",
+        )
+    where = " WHERE status=?" if position_status else ""
+    params = (position_status,) if position_status else ()
     conn = get_conn()
     rows = conn.execute(
-        "SELECT position_id, name FROM position ORDER BY created_at DESC"
+        f"SELECT position_id, name FROM position{where} ORDER BY created_at DESC",
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
 

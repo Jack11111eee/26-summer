@@ -164,14 +164,14 @@
                   <input
                     v-model.number="it._pct"
                     class="input mini"
-                    style="width: 68px; text-align: right"
+                    style="width: 68px; text-align: center"
                     type="number" min="0" max="100" step="0.1"
                   />
                   <span class="field-hint">%</span>
                 </div>
                 <template v-if="it.category === 'experience'">
                   <div style="display: flex; align-items: center; gap: 4px">
-                    <input v-model.number="it.years" class="input mini" style="width: 60px; text-align: right" type="number" min="0" step="0.5" />
+                    <input v-model.number="it.years" class="input mini" style="width: 60px; text-align: center" type="number" min="0" step="0.5" />
                     <span class="field-hint">年</span>
                   </div>
                 </template>
@@ -183,7 +183,7 @@
             <template v-else>
               <table>
                 <thead>
-                  <tr><th style="width: 52%">std_name</th><th class="num" style="width: 10%">level</th><th style="width: 14%">importance</th><th class="num" style="width: 12%">weight</th><th class="num" style="width: 12%">years</th></tr>
+                  <tr><th style="width: 52%">标准名</th><th class="num" style="width: 10%">等级</th><th style="width: 14%">重要性</th><th class="num" style="width: 12%">权重</th><th class="num" style="width: 12%">年限</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="it in catItems(cat.key)" :key="it._k" style="cursor: pointer" @click="selected = selected === it ? null : it" :class="{ selrow: selected === it }">

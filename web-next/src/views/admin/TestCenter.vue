@@ -113,7 +113,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 14%">call_type</th><th style="width: 20%">ref_id</th><th class="num" style="width: 9%">attempt</th><th style="width: 9%">success</th><th style="width: 14%">created_at</th><th style="width: 34%">prompt</th></tr>
+            <tr><th style="width: 14%">调用类型</th><th style="width: 20%">关联ID</th><th class="num" style="width: 9%">尝试次数</th><th style="width: 9%">是否成功</th><th style="width: 14%">创建时间</th><th style="width: 34%">提示词</th></tr>
           </thead>
           <tbody>
             <tr v-for="t in traces" :key="t.trace_id" style="cursor: pointer" @click="openTrace(t)">
@@ -202,7 +202,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 14%">std_name</th><th style="width: 10%">category</th><th style="width: 28%">feedback</th><th class="num" style="width: 8%">score</th><th style="width: 10%">status</th><th style="width: 14%">created_at</th><th style="width: 16%; text-align: right">action</th></tr>
+            <tr><th style="width: 11%">标准名</th><th style="width: 9%">类别</th><th style="width: 24%">反馈</th><th class="num" style="width: 7%">得分</th><th style="width: 9%">状态</th><th style="width: 12%">创建时间</th><th style="width: 28%">操作</th></tr>
           </thead>
           <tbody>
             <template v-for="f in feedbacks" :key="f.feedback_id">
@@ -239,7 +239,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 14%">用户</th><th style="width: 16%">时间</th><th style="width: 32%">内容</th><th style="width: 10%">status</th><th style="width: 16%">处理备注</th><th style="width: 12%; text-align: right">action</th></tr>
+            <tr><th style="width: 14%">用户</th><th style="width: 16%">时间</th><th style="width: 32%">内容</th><th style="width: 10%">状态</th><th style="width: 16%">处理备注</th><th style="width: 12%">操作</th></tr>
           </thead>
           <tbody>
             <template v-for="s in suggestions" :key="s.suggestion_id">

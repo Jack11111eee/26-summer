@@ -45,9 +45,9 @@
       <table>
         <thead>
           <tr>
-            <th style="width: 13%">std_name</th><th style="width: 8%">category</th><th style="width: 19%">definition</th>
-            <th style="width: 14%">aliases</th><th style="width: 12%">exclusions</th><th style="width: 7%">source</th><th style="width: 7%">status</th>
-            <th style="width: 20%; text-align: right">action</th>
+            <th style="width: 13%">标准名</th><th style="width: 8%">类别</th><th style="width: 19%">定义</th>
+            <th style="width: 14%">别名</th><th style="width: 12%">排除项</th><th style="width: 7%">来源</th><th style="width: 7%">状态</th>
+            <th style="width: 20%">操作</th>
           </tr>
         </thead>
         <tbody>
