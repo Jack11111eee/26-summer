@@ -202,7 +202,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 14%">标准名</th><th style="width: 10%">类别</th><th style="width: 28%">反馈</th><th class="num" style="width: 8%">得分</th><th style="width: 10%">状态</th><th style="width: 14%">创建时间</th><th style="width: 16%">操作</th></tr>
+            <tr><th style="width: 11%">标准名</th><th style="width: 9%">类别</th><th style="width: 24%">反馈</th><th class="num" style="width: 7%">得分</th><th style="width: 9%">状态</th><th style="width: 12%">创建时间</th><th style="width: 28%">操作</th></tr>
           </thead>
           <tbody>
             <template v-for="f in feedbacks" :key="f.feedback_id">
