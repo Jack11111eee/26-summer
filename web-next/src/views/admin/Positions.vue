@@ -136,7 +136,10 @@
               <td>
                 <div class="row-actions">
                   <button class="row-btn" @click="goDetail(p)">详情</button>
-                  <button class="row-btn row-btn-solid" :disabled="p.status !== 'active'" @click="goReview(p)">模型审核</button>
+                  <button class="row-btn row-btn-solid" :disabled="p.status === 'pending_review'" @click="goReview(p)">模型审核</button>
+                  <button v-if="p.status === 'active'" class="row-btn row-btn-danger" :disabled="acting" @click="onSetStatus(p, 'inactive')">下架</button>
+                  <button v-else-if="p.status === 'inactive'" class="row-btn" :disabled="acting" @click="onSetStatus(p, 'active')">上架</button>
+                  <button class="row-btn" :disabled="acting" @click="openMerge(p)">合并</button>
                 </div>
               </td>
             </tr>
@@ -214,6 +217,43 @@
       @close="confirmState.show = false"
       @confirm="onConfirmReject"
     />
+
+    <!-- 下架确认（SSOT §8：不可开考/测评端不可见/不再聚合；在途会话豁免） -->
+    <UiConfirm
+      v-if="offlineState.show"
+      title="下架岗位"
+      :message="`确认下架「${offlineState.position?.name}」？下架后不可开考、测评端不可见、不再聚合；不影响在途会话。`"
+      confirm-text="确认下架"
+      danger
+      @close="offlineState.show = false"
+      @confirm="onConfirmOffline"
+    />
+
+    <!-- 合并岗位（SSOT §8）：source 的 JD 与别名并入目标、source 删除 -->
+    <UiModal
+      v-if="mergeState.show"
+      title="合并岗位"
+      :sub="`将「${mergeState.source?.name}」并入下方目标岗位`"
+      @close="closeMerge"
+    >
+      <p class="field-hint" style="margin-bottom: 14px">
+        source 岗位的 JD 与别名将全量并入目标岗位，source 岗位随即删除；已有模型 / 题库 / 会话数据的岗位不可作为合并源。
+      </p>
+      <div class="field">
+        <label class="field-label">目标岗位（仅上架状态可选）</label>
+        <div v-if="mergeState.loading" class="field-hint">加载目标岗位…</div>
+        <select v-else v-model="mergeState.target" class="select" :disabled="!mergeState.options.length">
+          <option value="" disabled>选择岗位…</option>
+          <option v-for="o in mergeState.options" :key="o.position_id" :value="o.position_id">{{ o.name }}</option>
+        </select>
+        <div v-if="!mergeState.loading && !mergeState.options.length" class="field-hint">暂无可选的上架岗位</div>
+      </div>
+      <template #actions>
+        <button class="btn primary" :disabled="!mergeState.target || mergeState.saving" @click="doMerge">
+          {{ mergeState.saving ? '合并中…' : '合并' }}
+        </button>
+      </template>
+    </UiModal>
   </div>
 </template>
 
@@ -226,7 +266,7 @@
 import { computed, onActivated, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminPositions, errMsg } from '../../api'
-import { UiPager, UiConfirm, toast } from '../../components/ui'
+import { UiPager, UiConfirm, UiModal, toast } from '../../components/ui'
 import { formatTime } from '../../lib/labels'
 
 defineOptions({ name: 'AdminPositions' }) // 壳内 keep-alive include 依名匹配（§5，2026-09-08）
@@ -237,6 +277,7 @@ const loading = ref(false)
 const loaded = ref(false)
 const acting = ref(false)
 const confirmState = reactive({ show: false, position: null })
+const offlineState = reactive({ show: false, position: null })
 
 const todos = reactive({ pending_positions: 0, stalled_models: 0, orphan_jds: 0, question_bank_not_ready: 0, question_bank_failed: [] })
 // mode: 'server' 服务端分页 | 'local' 本地索引（筛选激活后）
@@ -248,6 +289,8 @@ const orphans = mkBlock()
 const positions = mkBlock()
 const positionOptions = ref([])
 const reassignSel = reactive({})
+// 合并岗位（SSOT §8）：source=清单行岗位，options=目标候选（active 且非 source）
+const mergeState = reactive({ show: false, source: null, target: '', options: [], loading: false, saving: false })
 
 const metaText = computed(() => `${positions.total} POSITIONS · ${todos.orphan_jds} ORPHAN JDS`)
 
@@ -424,6 +467,81 @@ async function doReview(p, action) {
     toast(errMsg(e, '审核失败'), 'error')
   } finally {
     acting.value = false
+  }
+}
+
+// ---- 岗位生命周期（SSOT §8，2026-09-09）----
+// 下架走 UiConfirm（有不可见/不再聚合等语义要交代）；上架为恢复性操作直接执行
+function onSetStatus(p, status) {
+  if (status === 'inactive') {
+    offlineState.position = p
+    offlineState.show = true
+  } else {
+    doSetStatus(p, 'active')
+  }
+}
+
+async function onConfirmOffline() {
+  const p = offlineState.position
+  offlineState.show = false
+  await doSetStatus(p, 'inactive')
+}
+
+async function doSetStatus(p, status) {
+  acting.value = true
+  try {
+    await adminPositions.setPositionStatus(p.position_id, status)
+    toast(status === 'inactive' ? `已下架「${p.name}」` : `已上架「${p.name}」`)
+    await reloadAllForWrite()
+  } catch (e) {
+    toast(errMsg(e, status === 'inactive' ? '下架失败' : '上架失败'), 'error')
+  } finally {
+    acting.value = false
+  }
+}
+
+// 合并：打开时拉 active 目标候选（排除 source 自身），确认后单事务迁移
+async function openMerge(p) {
+  mergeState.source = p
+  mergeState.target = ''
+  mergeState.options = []
+  mergeState.show = true
+  mergeState.loading = true
+  try {
+    const { data } = await adminPositions.positionOptions({ status: 'active' })
+    mergeState.options = data.filter((o) => o.position_id !== p.position_id)
+  } catch (e) {
+    toast(errMsg(e, '目标岗位加载失败'), 'error')
+    mergeState.show = false
+  } finally {
+    mergeState.loading = false
+  }
+}
+
+function closeMerge() {
+  if (mergeState.saving) return
+  mergeState.show = false
+  mergeState.source = null
+  mergeState.target = ''
+  mergeState.options = []
+}
+
+async function doMerge() {
+  const { source, target } = mergeState
+  if (!source || !target) return
+  mergeState.saving = true
+  try {
+    const { data } = await adminPositions.mergePosition(source.position_id, target)
+    toast(`已合并：${data.moved_jds} 条 JD、${data.moved_aliases} 个别名`)
+    mergeState.show = false
+    mergeState.source = null
+    mergeState.target = ''
+    mergeState.options = []
+    await reloadAllForWrite()
+  } catch (e) {
+    toast(errMsg(e, '合并失败'), 'error')
+  } finally {
+    mergeState.saving = false
   }
 }
 
