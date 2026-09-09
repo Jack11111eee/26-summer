@@ -665,7 +665,13 @@ def test_dual_source_precedence():
         conn.close()
     res_b = aggregate_session_scores(sid_b)
     exp_b = [g for g in res_b["gate_items"] if g["std_name"] == "后端开发经验"][0]
-    assert exp_b["passed"] is True, "旧链 form_submission 兜底判定应保留"
+    # 2026-09-09（SSOT §16.2 通用年限不证明专项年限——作废旧断言「旧链兜底通用
+    # 年限判专项经验通过」）：「后端开发经验」是专项经验，旧链 form_submission 兜底
+    # 判定也进 PENDING_CONFIRMATION（passed=False + reason 前缀「待确认：」）；
+    # 双源优先级断言（exp_a gate 行优先）不变，本断言只覆盖同函数的后半路径。
+    assert exp_b["passed"] is False, "专项经验不因旧链兜底而由通用年限判通过（验收 13）"
+    assert exp_b["status"] == "PENDING_CONFIRMATION"
+    assert exp_b["reason"].startswith("待确认：")
 
 
 def test_score_session_preserves_gate_rows():
