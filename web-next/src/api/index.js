@@ -162,6 +162,7 @@ export const admin = {
   },
   feedback: {
     list: (status) => api.get('/admin/feedback/list', { params: status ? { status } : {} }),
+    getDetail: (feedbackId) => api.get(`/admin/feedback/${feedbackId}`),
     review: (feedbackId, note = '') => api.post(`/admin/feedback/${feedbackId}/review`, { note }),
     badCase: (feedbackId, note = '') => api.post(`/admin/feedback/${feedbackId}/bad-case`, { note })
   },

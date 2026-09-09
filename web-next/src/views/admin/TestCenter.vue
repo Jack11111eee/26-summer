@@ -202,7 +202,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 11%">标准名</th><th style="width: 9%">类别</th><th style="width: 24%">反馈</th><th class="num" style="width: 7%">得分</th><th style="width: 9%">状态</th><th style="width: 12%">创建时间</th><th style="width: 28%">操作</th></tr>
+            <tr><th style="width: 10%">标准名</th><th style="width: 8%">类别</th><th style="width: 18%">反馈</th><th style="width: 8%">提交人</th><th class="num" style="width: 6%">得分</th><th style="width: 8%">状态</th><th style="width: 11%">创建时间</th><th style="width: 31%">操作</th></tr>
           </thead>
           <tbody>
             <template v-for="f in feedbacks" :key="f.feedback_id">
@@ -210,6 +210,7 @@
                 <td v-clip><span class="cell-main">{{ f.std_name }}</span></td>
                 <td><span class="tag">{{ categoryLabel(f.category) }}</span></td>
                 <td v-clip class="cell-sub">{{ f.feedback_text || '—' }}</td>
+                <td v-clip class="cell-sub">{{ f.username || '—' }}</td>
                 <td class="num">{{ f.total_score ?? '—' }}</td>
                 <td>
                   <span v-if="f.status === 'pending'" class="tag warm">待处理</span>
@@ -219,6 +220,7 @@
                 <td>{{ formatTime(f.created_at) }}</td>
                 <td>
                   <div class="row-actions">
+                    <button class="row-btn" @click="openFeedbackDetail(f)">详情</button>
                     <button v-if="f.status === 'pending'" class="row-btn" @click="askFeedback(f, 'review')">标记已处理</button>
                     <button v-if="f.status !== 'bad_case'" class="row-btn row-btn-danger" @click="askFeedback(f, 'bad_case')">标 bad case</button>
                     <button class="row-btn row-btn-solid" @click="askPublish(f)">发布报告</button>
@@ -226,7 +228,7 @@
                 </td>
               </tr>
             </template>
-            <tr v-if="!feedbacks.length && !feedbackLoading"><td colspan="7" class="empty-row">暂无反馈</td></tr>
+            <tr v-if="!feedbacks.length && !feedbackLoading"><td colspan="8" class="empty-row">暂无反馈</td></tr>
           </tbody>
         </table>
       </section>
@@ -270,6 +272,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { admin, adminPositions, errMsg } from '../../api'
 import { UiTabs, UiDrawer, UiConfirm, toast } from '../../components/ui'
 import { categoryLabel, formatTime } from '../../lib/labels'
@@ -510,6 +513,12 @@ function askFeedback(f, kind) {
   confirmState.kind = kind
   confirmState.feedback = f
   confirmState.show = true
+}
+
+// 异议详情深链（SSOT §22.2）：跳报告页 ?feedback_id= 定位（横幅/明细行+逐题回顾双高亮/自动滚动）
+const router = useRouter()
+function openFeedbackDetail(f) {
+  router.push(`/assessment/report/${f.session_id}?feedback_id=${f.feedback_id}`)
 }
 
 function askPublish(f) {

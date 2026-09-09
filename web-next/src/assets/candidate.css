@@ -572,6 +572,17 @@ body.candidate {
 .candidate .rep-fold dt { color: var(--ink-3); font-size: 12px; }
 .candidate .rep-fold dd { white-space: pre-line; }
 
+/* 异议详情深链（SSOT §22.2，2026-09-09）：?feedback_id= 进入时的横幅 + 命中行/逐题高亮（amber token 随主题） */
+.candidate .fb-banner { background: var(--chip-amber-bg); border: 1px solid var(--chip-amber-ink); border-radius: 10px; padding: 12px 16px; margin: 12px 0; }
+.candidate .fb-banner-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.candidate .fb-banner-title { font-weight: 700; color: var(--chip-amber-ink); font-size: 13.5px; }
+.candidate .fb-banner-meta { color: var(--ink-3); font-size: 11.5px; margin-left: auto; }
+.candidate .fb-banner-text { margin-top: 8px; color: var(--ink-1); font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.candidate .fb-banner-note { margin-top: 6px; color: var(--ink-3); font-size: 12px; }
+.candidate .rep-table tr.fb-hit td { background: var(--chip-amber-bg); }
+.candidate .rep-table tr.fb-hit td:first-child { box-shadow: inset 3px 0 0 var(--chip-amber-ink); }
+.candidate .rep-fold.fb-hit { background: var(--chip-amber-bg); border-color: var(--chip-amber-ink); }
+
 .candidate pre.raw {
   background: var(--bg-rail); border-radius: 10px; padding: 12px 14px;
   font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
