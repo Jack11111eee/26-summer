@@ -15,6 +15,7 @@ score_state 分母规则（02-05，Pitfall 7）：
   missing_warnings 警告列表（不隐式转 0，不静默）。
 """
 import json
+import re
 
 from ..db import get_conn
 
@@ -139,28 +140,83 @@ def _gate_row(conn, session_id: str, item_id: str) -> tuple | None:
     return (effective, row["gate_reason"])
 
 
-def _gate_check(item: dict, form_payload: dict) -> tuple[bool, str]:
-    """门槛项二值判定。规则：按 category/std_name 在表单 payload 中查对应字段。
+# ---- 经验分类词表（SSOT §16.2「通用年限不证明专项年限」，2026-09-09）----
+# 通用经验措辞：years_of_experience（通用工作年限）可证明——维持现状（用表单
+# years_of_experience 比对）。词表保守：只收显然通用的措辞。
+_GENERAL_EXPERIENCE_WORDS = (
+    "工作经验", "工作年限", "相关工作经验", "开发经验", "项目经验", "工作经验年限",
+    "行业经验",
+)
+# 专项经验技术词（命中即专项——表单只提供通用年限，无专项事实 → PENDING_CONFIRMATION，
+# 不自动判通过）。词表约 20 词 + 兜底：std_name 含英文/大写字母组合视为专项（宁可
+# 误判专项进待确认，也不放过通用年限误通过）。
+_SPECIALIZED_EXPERIENCE_WORDS = (
+    "NLP", "CV", "CAD", "Java", "Python", "C++", "Go", "SQL", "Linux",
+    "算法", "模型", "部署", "前端", "后端", "测试", "运维", "数据", "机器学习",
+    "深度学习", "强化学习", "3D", "工业", "图形", "视觉", "语音", "推荐", "风控",
+)
+# PENDING_CONFIRMATION（§16.2 四状态之一）：必要事实未提供 / 条件方向未解析 →
+# 不自动判定。gate_items.passed 映射 False，reason 前缀「待确认：」。
+GATE_PENDING = "PENDING_CONFIRMATION"
+# §16.2 资格结论四状态全集（SATISFIED 已满足 / UNSATISFIED 明确未满足 /
+# PENDING_CONFIRMATION 待确认 / NOT_APPLICABLE 不适用——preferred/背景/非本测评
+# 范围条件）。NOT_APPLICABLE：当前数据模型无 preferred gate 条目，本期只入枚举
+# 不生产（落值须等 condition nature 三层分离落地）。
+GATE_STATUSES = ("SATISFIED", "UNSATISFIED", GATE_PENDING, "NOT_APPLICABLE")
 
-    - qualification（如 本科学历）：payload 含 std_name 字段且真值 → 通过
-    - experience 年限项（如 后端开发经验 years=3）：payload.years_of_experience >= 要求 → 通过
-    无对应字段视为不达标（保守）。
+
+def _is_specialized_experience(std_name: str) -> bool:
+    """经验 std_name 是否专项（SSOT §16.2 通用年限不证明专项年限，2026-09-09）。
+
+    判序：技术词命中 → 专项；英文/大写字母组合兜底（「ROS开发经验」「Gmapping/
+    Cartographer...」）→ 专项；通用词表命中 → 通用。全不命中 → 专项（保守——
+    宁可误判专项进待确认，也不让通用年限误通过专项断言）。
+    """
+    if any(w in std_name for w in _SPECIALIZED_EXPERIENCE_WORDS):
+        return True
+    if re.search(r"[A-Za-z]", std_name):
+        return True  # 含英文/字母组合 → 专项（NLP/CV/ROS/CET 类）
+    if any(w in std_name for w in _GENERAL_EXPERIENCE_WORDS):
+        return False
+    return True  # 兜底保守：不明措辞按专项处理（待确认优于误通过）
+
+
+def _gate_check(item: dict, form_payload: dict) -> tuple[bool, str, str | None]:
+    """门槛项判定（§16.2 四状态，2026-09-09）。返回 (passed, reason, status)。
+
+    - experience 通用项（如 工作经验 years=3）：payload.years_of_experience >= 要求 →
+      通过（维持现状）；
+    - experience 专项项（如 NLP相关经验）：表单只提供通用年限、无专项事实 →
+      不自动判通过——status=PENDING_CONFIRMATION（reason 写明「专项经验需要专项
+      事实，通用年限不适用」——验收 13：总年限 10 年不再使 NLP/CAD 项自动通过）；
+    - qualification：payload 含 std_name 字段且真值 → 通过；值为 PENDING_CONFIRMATION
+      （facet 派生端方向未解析/学历其他，facet.py §16.2）→ status=PENDING_CONFIRMATION。
+    - 无对应字段视为不达标（保守）。status=None → 调用方按 passed 推导
+      （SATISFIED/UNSATISFIED）。
     """
     std_name = item["std_name"]
     if item["category"] == "experience" and item.get("years"):
+        if _is_specialized_experience(std_name):
+            return (False, f"待确认：专项经验[{std_name}]需要专项事实，通用年限不适用",
+                    GATE_PENDING)
         actual_years = form_payload.get("years_of_experience") or form_payload.get(std_name)
         try:
             actual = float(actual_years)
         except (TypeError, ValueError):
-            return False, f"未提供工作年限（要求 {item['years']} 年）"
+            return False, f"未提供工作年限（要求 {item['years']} 年）", None
         if actual >= item["years"]:
-            return True, f"工作年限 {actual} 年 ≥ 要求 {item['years']} 年"
-        return False, f"工作年限 {actual} 年 < 要求 {item['years']} 年"
+            return True, f"工作年限 {actual} 年 ≥ 要求 {item['years']} 年", None
+        return False, f"工作年限 {actual} 年 < 要求 {item['years']} 年", None
     # qualification：查找 std_name 字段，常见值 '本科'/'硕士'/True/'yes' 视为通过
     val = form_payload.get(std_name)
+    if val == GATE_PENDING:
+        # facet 派生端待确认（facet.py §16.2：条件方向未解析 / 学历其他出口）
+        if item.get("facet_key") == "number_range":
+            return False, "待确认：条件方向未能解析，需人工确认", GATE_PENDING
+        return False, f"待确认：{std_name}学历为其他情况，需人工确认", GATE_PENDING
     if val in (True, "true", "yes", "是", "达标", "本科", "硕士", "博士"):
-        return True, f"{std_name}: 达标"
-    return False, f"{std_name}: 未提供或不达标"
+        return True, f"{std_name}: 达标", None
+    return False, f"{std_name}: 未提供或不达标", None
 
 
 def aggregate_session_scores(session_id: str) -> dict:
@@ -247,12 +303,28 @@ def aggregate_session_scores(session_id: str) -> dict:
             row = _gate_row(conn, session_id, item_id)
             if row is not None:
                 passed, reason = (row[0] == "true", row[1])
+                # gate 行的待确认识别：result=false + reason 前缀「待确认：」（_gate_check
+                # 落行时写入——§16.2 四状态经 reason 前缀传输，gate_status 列维持
+                # EVALUATED 生命周期语义）
+                status = (GATE_PENDING if not passed and str(reason).startswith("待确认：")
+                          else None)
             else:
-                passed, reason = _gate_check(item, form_payload)
+                passed, reason, status = _gate_check(item, form_payload)
+            # §16.2 四状态（2026-09-09）：status 缺省按 passed 推导
+            # （SATISFIED/UNSATISFIED）；PENDING_CONFIRMATION 由 _gate_check/
+            # gate 行前缀识别产生；NOT_APPLICABLE 当前数据模型无 preferred gate
+            # 条目，本期只入枚举不生产。
+            if status is None:
+                status = "SATISFIED" if passed else "UNSATISFIED"
+            else:
+                # PENDING_CONFIRMATION 语义：passed=False（不动贡献分母——权重恒 0 行为
+                # 不变）+ reason 前缀已由 _gate_check 写入；此处保证 status 与 passed 一致
+                passed = False
             contribution = weight * 100.0 if passed else 0.0
             gate_items.append({
                 "item_id": item_id, "std_name": item["std_name"],
                 "passed": passed, "reason": reason,
+                "status": status,
                 "facet_key": item.get("facet_key"),
             })
             item_scores.append({
@@ -262,6 +334,7 @@ def aggregate_session_scores(session_id: str) -> dict:
                 "actual_level": None, "gap": None,
                 "weight": weight, "score": contribution,
                 "gate": True, "gate_passed": passed, "gate_reason": reason,
+                "gate_status": status,
             })
             total_score += contribution
             continue

@@ -167,25 +167,40 @@ def test_adjudicate_conflict_takes_lowest():
 
 
 def test_gate_check_conservative_fail():
-    """6) 门槛判定：qualification 缺字段/experience 年限不足 → 保守失败（不静默通过）。"""
+    """6) 门槛判定：qualification 缺字段/experience 年限不足 → 保守失败（不静默通过）。
+
+    2026-09-09（SSOT §16.2）：_gate_check 增第三返回值 status（四状态，缺省 None →
+    调用方按 passed 推导）——本测试只消费前两值。"""
     from server.services.aggregation import _gate_check
 
-    passed, reason = _gate_check(
+    passed, reason, _status = _gate_check(
         {"std_name": "本科学历", "category": "qualification"}, {},
     )
     assert passed is False
     assert "未提供" in reason
 
-    passed2, _ = _gate_check(
+    passed2, _r2, _s2 = _gate_check(
         {"std_name": "本科学历", "category": "qualification"}, {"本科学历": "本科"},
     )
     assert passed2 is True
 
-    passed3, _ = _gate_check(
+    # 2026-09-09（SSOT §16.2 通用年限不证明专项年限——作废旧断言「后端开发经验用
+    # 通用年限判通过」）：「后端开发经验」是专项经验（技术词「后端」命中），表单
+    # 只提供通用年限 → PENDING_CONFIRMATION（不自动判通过）；通用措辞（工作经验）
+    # 维持年限比较。
+    passed3, reason3, status3 = _gate_check(
         {"std_name": "后端开发经验", "category": "experience", "years": 3},
         {"years_of_experience": 5},
     )
-    assert passed3 is True
+    assert passed3 is False, "专项经验不得由通用年限自动判通过（验收 13）"
+    assert status3 == "PENDING_CONFIRMATION"
+    assert "专项事实" in reason3
+
+    passed4, _r4, _s4 = _gate_check(
+        {"std_name": "工作经验", "category": "experience", "years": 3},
+        {"years_of_experience": 5},
+    )
+    assert passed4 is True, "通用经验措辞维持年限比较（现状不变）"
 
 
 def test_model_version_diff():

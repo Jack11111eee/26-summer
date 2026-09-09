@@ -9,6 +9,7 @@
 产出 competency_model(status=draft/stalled) + competency_item 明细。
 """
 import json
+import re
 from collections import Counter, defaultdict
 
 from .. import config
@@ -188,6 +189,20 @@ def _needs_llm(category: str, g: dict) -> bool:
 # major_group / 复合断言（classify=None）/ 长尾不参与（临时讨论稿 §3.1.1）
 _ORDERED_FACET_KEYS = ("education_degree", "school_tier", "english_level", "number_range")
 
+# ---- 合并限定词保留（SSOT §16.2「合并限定保留」/§8.1，2026-09-09）----
+# 学习形式限定词（学历断言的程序性成分）：出现在哪条就并入哪条的合并指纹——
+# 「本科及以上学历」与「全日制本科学历及以上」指纹不同、不合并（撤回 2026-09-08
+# 可合并例）。词表从简（4 词），不追求完备——宁可漏合并也不错合并。
+_STUDY_FORM_WORDS = ("全日制", "非全日制", "统招", "自考")
+# 其他常见修饰词（school_tier/english_level 保守合并的「白名词」：这些词出现
+# 与否不改变断言事实含义，允许从指纹剔除）；词表外的任何残留修饰词 → 并入指纹
+# （两边残留不一致 → 保守不合并）。
+_COMMON_QUALIFIER_WORDS = (
+    "及以上", "以上", "或者", "或", "及", "和", "毕业", "院校", "学校", "大学",
+    "学历", "学位", "相关专业", "专业", "背景", "英语", "等级", "要求", "优先",
+    "考试", "水平", "证书",
+)
+
 
 def _label_facets(groups: dict[tuple[str, str], dict]) -> dict[tuple[str, str], dict]:
     """gate qualification 组打 facet 标：就地写 g['facet']（classify_facet 结果 dict 或 None）。
@@ -203,13 +218,53 @@ def _label_facets(groups: dict[tuple[str, str], dict]) -> dict[tuple[str, str], 
     return groups
 
 
+def _residual_words(std_name: str) -> tuple[str, ...]:
+    """std_name 去数字/量纲/白名词后的残留修饰词（有序去重，SSOT §16.2 合并限定保留）。
+
+    残留非空且两边不一致 → 保守不合并（词表外的修饰性名词是断言的潜在限定成分）。
+    白名单 = 常见连接/语境词（_COMMON_QUALIFIER_WORDS）——这些词剔除后仍相等的
+    断言视为事实含义一致。数字与量纲字符（含岁/天/周/年/英文）整体剥离。
+    """
+    s = std_name
+    for w in _COMMON_QUALIFIER_WORDS:
+        s = s.replace(w, " ")
+    # 数字与常见量纲符号剥离（CET4 等英文词保留——技能名是限定成分）
+    s = re.sub(r"[0-9０-９.]+|岁|天|日|周|年", " ", s)
+    words = tuple(w for w in s.split() if w)
+    return words
+
+
+def _merge_fingerprint(facet: dict, std_name: str) -> tuple:
+    """合并指纹（SSOT §16.2「事实含义完全一致」才允许合并，2026-09-09）。
+
+    指纹 = (facet_key, params) + 限定成分：
+    - education_degree：学习形式限定词集合（全日制/非全日制/统招/自考——出现在
+      哪条就并入哪条）；限定集合不同 → 不合并（「本科及以上学历」vs「全日制本科
+      学历及以上」——threshold 同为 1，学习形式限定不同保守分开）。
+    - school_tier / english_level：白名词剔除后的残留修饰词（两边残留不一致 →
+      保守不合并——宁可漏合并也不错合并）。
+    - number_range：params 现含 operator/upper（facet.py §16.2 方向），params 指纹
+      自然区分方向；无额外成分（数字断言的修饰词已进 operator 解析）。
+    """
+    key = facet["facet_key"]
+    base = (key, json.dumps(facet["params"], sort_keys=True))
+    if key == "education_degree":
+        return base + (tuple(w for w in _STUDY_FORM_WORDS if w in std_name),)
+    if key in ("school_tier", "english_level"):
+        return base + (_residual_words(std_name),)
+    return base
+
+
 def _merge_equivalent_gate_groups(
     groups: dict[tuple[str, str], dict],
 ) -> dict[tuple[str, str], dict]:
     """A 类断言等价合并（SSOT §8.1 工序⑤，2026-09-08）：同有序 facet 且派生参数
     完全一致的 gate qualification 组合并为一组。
 
-    - 合并谓词：facet_key ∈ 有序四类 且 params 完全一致（如都推导为 degree ≥ 本科）。
+    - 合并谓词（SSOT §16.2「事实含义完全一致」，2026-09-09 收紧）：facet_key ∈
+      有序四类 且 params 一致 且 限定成分一致（_merge_fingerprint——学历类比对
+      学习形式限定词、school_tier/english_level 比对白名词剔除后的残留修饰词；
+      限定不一致 → 保守不合并，宁可漏合并也不错合并）。
     - 合并行为：保留一组（std_name 取更窄措辞 = 词更长者），evidences/jds/req_jds/
       years_list 并集；被吸收组从 groups 删除——不进 LLM#3 视野，从根上省掉同断言
       多行产物（合并先于分档，§8.1 顺序要求）。
@@ -217,7 +272,7 @@ def _merge_equivalent_gate_groups(
       长尾未分类、任意非 gate 项——跨 JD 词面近重复（B 类）一律不合并（裁决 8：缓，
       词典第 3 层冻结裁决有效）。
     """
-    targets: dict[tuple[str, str], tuple[str, str]] = {}  # (facet_key, params 指纹) → 保留组键
+    targets: dict[tuple, tuple[str, str]] = {}  # _merge_fingerprint 指纹 → 保留组键
     for key in list(groups.keys()):
         std_name, category = key
         if category != "qualification":
@@ -225,7 +280,7 @@ def _merge_equivalent_gate_groups(
         facet = groups[key].get("facet")
         if not facet or facet["facet_key"] not in _ORDERED_FACET_KEYS:
             continue
-        fingerprint = (facet["facet_key"], json.dumps(facet["params"], sort_keys=True))
+        fingerprint = _merge_fingerprint(facet, std_name)
         target_key = targets.get(fingerprint)
         if target_key is None:
             targets[fingerprint] = key

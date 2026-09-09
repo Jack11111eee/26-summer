@@ -1,4 +1,5 @@
-"""表单链服务（SSOT §16.1——03-01 form_instance 不可变快照 + 六维校验 + gate 结构化判定）。
+"""表单链服务（SSOT §16.1——03-01 form_instance 不可变快照 + 六维校验 + gate 结构化判定；
+§16.2 服务端数值类型校验 + 表单选项覆盖真实情况，2026-09-09）。
 
 form_instance 是不可变 schema 快照：status 生命周期（rendered/submitted/superseded）、
 revision 不可变（修订 = INSERT 新行 revision+1，同 form_instance_id；旧行仅 UPDATE
@@ -10,15 +11,17 @@ status='superseded'——Pitfall 3 只锁 schema_snapshot/payload_json 修订面
 - validate_and_submit：六维序（①所有权在 API 层 load_owned_session；②status 409
   FORM_ALREADY_SUBMITTED；③revision 409 FORM_INSTANCE_REVISION_CONFLICT；④必填
   422 FORM_MISSING_FIELD / ⑤枚举 422 FORM_INVALID_OPTION / ⑥长度 422
-  FORM_FIELD_TOO_LONG），成功写 gate 行（question_id/score_state NULL 结构化结果）。
+  FORM_FIELD_TOO_LONG / 数字类型 422 FORM_INVALID_NUMBER——§16.2 isfinite +
+  bool 拒绝 + 合理范围），成功写 gate 行（question_id/score_state NULL 结构化结果）。
 
 事务边界（D-06）：render_form_instance / validate_and_submit / revise_instance 接 conn
 但不 commit——实例写入与状态事件在调用者同一事务内完成（difficulty.py 同契约）。
 """
 import json
+import math
 
 from .aggregation import _gate_check
-from .facet import derive_gate_payload
+from .facet import derive_gate_payload, EDU_OTHER_OPTION
 from .pipeline import new_id, now_iso
 from .state_events import append_event
 
@@ -66,9 +69,12 @@ def _gate_items(conn, session_id: str) -> list[dict]:
 
 
 # v2 facet 控件文案（SSOT §16.1：有序枚举单选/数字输入/勾选组；「985/211」宽读并档、
-# 英语按已通过的最高等级作答——讨论稿 §2 裁决 1/开放点 1/3 措辞）
+# 英语按已通过的最高等级作答——讨论稿 §2 裁决 1/开放点 1/3 措辞）。
+# 学历五档（SSOT §16.2「表单选项覆盖真实情况」，2026-09-09）：增「其他」出口——
+# 不参与 education_degree 档序判定，derive 端进 PENDING_CONFIRMATION（facet.py）。
 _FACET_SELECT_FIELDS = {
-    "education_degree": ("education_degree", "最高学历", ["专科", "本科", "硕士", "博士"]),
+    "education_degree": ("education_degree", "最高学历",
+                         ["专科", "本科", "硕士", "博士", EDU_OTHER_OPTION]),
     "school_tier": ("school_tier", "毕业院校档次", ["其他（非 211/985）", "211", "985"]),
     "english_level": ("english_level", "英语等级（按已通过的最高等级）", ["均未通过", "四级", "六级"]),
 }
@@ -171,10 +177,25 @@ def _all_gate_items_collected(conn, session_id: str) -> bool:
     return submitted is not None
 
 
-def _validate_payload(fields: list[dict], payload: dict) -> tuple[str | None, str | None]:
-    """六维的后三维纯函数：④必填 / ⑤枚举 / ⑥长度。返回 (error_code, field_name) 或 (None, None)。
+# 数字字段合理范围（SSOT §16.2「服务端类型校验」：单位/范围合法——硬编码合理域；
+# 0 是合法值不拒绝，只拒绝类型错/非有限/越域）：
+#   years_of_experience 0-60（工作年限）、number_age 0-150（周岁）、
+#   number_weekly_days 0-7（每周出勤天数）。
+_NUMBER_FIELD_RANGES = {
+    "years_of_experience": (0, 60),
+    "number_age": (0, 150),
+    "number_weekly_days": (0, 7),
+}
 
-    逐项校验（schema_snapshot 的 fields 顺序），三项序 = 必填 → 枚举 → 长度。
+
+def _validate_payload(fields: list[dict], payload: dict) -> tuple[str | None, str | None]:
+    """六维的后三维纯函数 + 数字类型校验（§16.2，2026-09-09）。返回 (error_code,
+    field_name) 或 (None, None)。
+
+    逐项校验（schema_snapshot 的 fields 顺序），三项序 = 必填 → 枚举 → 长度；
+    number 字段增 FORM_INVALID_NUMBER（int/float 且 math.isfinite——拒绝 bool
+    （isinstance(True, int) 为真须显式排除）/字符串/NaN/inf；可选范围检查见
+    _NUMBER_FIELD_RANGES，0 合法不拒绝）。
     checklist（v2 勾选组）为 required=False：选项成员校验仍跑（枚举外值拒绝），
     整组必填不做（开放点 4——未勾 = 否）。
     """
@@ -194,6 +215,16 @@ def _validate_payload(fields: list[dict], payload: dict) -> tuple[str | None, st
                 return "FORM_INVALID_OPTION", name
         if f.get("max_len") and len(str(val)) > f["max_len"]:
             return "FORM_FIELD_TOO_LONG", name
+        if f.get("type") == "number":
+            # §16.2 数字类型校验（2026-09-09）：有限数值 + bool 排除 + 可选范围。
+            # bool 是 int 子类（isinstance(True, int) == True），显式先拒。
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                return "FORM_INVALID_NUMBER", name
+            if not math.isfinite(val):
+                return "FORM_INVALID_NUMBER", name
+            lo, hi = _NUMBER_FIELD_RANGES.get(name, (None, None))
+            if lo is not None and not (lo <= val <= hi):
+                return "FORM_INVALID_NUMBER", name
     return None, None
 
 
@@ -256,9 +287,11 @@ def validate_and_submit(conn, *, session_id: str, form_instance_id: str, payload
 
     gate_results: list[dict] = []
     for it in gate_items:
-        passed, reason = _gate_check(it, gate_payload)
+        passed, reason, status = _gate_check(it, gate_payload)
         result = "true" if passed else "false"
-        # gate 行：结构化结果（question_id/score_state NULL——§16.1 复用评分表）
+        # gate 行：结构化结果（question_id/score_state NULL——§16.1 复用评分表；
+        # gate_status 保持 EVALUATED 生命周期语义，§16.2 四状态经 gate_reason 文字
+        # 与聚合端 gate_items.status 呈现，不占用本列）
         conn.execute(
             "INSERT INTO question_score(score_id, session_id, question_id, item_id,"
             " score_live, score_final, evidence_quote, reason, created_at, score_state,"
@@ -268,11 +301,12 @@ def validate_and_submit(conn, *, session_id: str, form_instance_id: str, payload
              now, None, result, "EVALUATED", reason, FORM_SCHEMA_VERSION, now),
         )
         gate_results.append({"item_id": it["item_id"], "std_name": it["std_name"],
-                             "gate_result": result, "gate_reason": reason})
+                             "gate_result": result, "gate_reason": reason,
+                             **({"status": status} if status else {})})
         append_event(conn, session_id=session_id, event_type="GATE_EVALUATED",
                      actor_type="system",
                      payload={"item_id": it["item_id"], "gate_result": result,
-                              "gate_reason": reason})
+                              "gate_reason": reason, **({"status": status} if status else {})})
     append_event(conn, session_id=session_id, event_type="FORM_SUBMITTED",
                  actor_type="candidate", actor_id=user["user_id"],
                  payload={"form_instance_id": form_instance_id,
