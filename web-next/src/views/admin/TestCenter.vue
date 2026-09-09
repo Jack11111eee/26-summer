@@ -303,10 +303,10 @@ const traceDetail = ref(null)
 const traceMaxPage = computed(() => Math.max(1, Math.ceil(traceTotal.value / TRACE_LIMIT) || 1))
 
 const feedbackKind = ref('objection') // 反馈区切换：objection（逐分异议）/ suggestion（意见反馈 §22.1）
-const feedbackStatus = ref('pending')
+const feedbackStatus = ref('') // ''=全部状态；默认全量而非锁死 pending
 const feedbacks = ref([])
 const feedbackLoading = ref(false)
-const suggestionStatus = ref('pending')
+const suggestionStatus = ref('') // ''=全部状态
 const suggestions = ref([])
 const suggestionLoading = ref(false)
 
@@ -340,12 +340,21 @@ async function reloadAll() {
   } catch (e) {
     toast(errMsg(e, '加载失败'), 'error')
   }
+  loadActiveTab()
+}
+
+// 当前 tab 对应列表：trace/feedback 切入即拉（eval 无列表）
+function loadActiveTab() {
   if (tab.value === 'trace') loadTraces()
-  if (tab.value === 'feedback') {
+  else if (tab.value === 'feedback') {
     if (feedbackKind.value === 'suggestion') loadSuggestions()
     else loadFeedback()
   }
 }
+
+// 页内 tab 切换即重拉目标列表（与顶栏刷新/keep-alive 静默刷新同哲学，无首屏双拉：
+// 首次 setup 的 reloadAll 已按当时 tab 拉过，watch 无 immediate）
+watch(tab, loadActiveTab)
 
 // ---- 评测运行 ----
 let pollTimer = null
