@@ -30,6 +30,7 @@
           <div class="side-user">{{ auth.user?.username || 'candidate' }}</div>
           <div class="side-role">候选人 · 在线</div>
         </div>
+        <button class="row-btn side-theme" :title="isDark ? '切换到日间' : '切换到夜间'" @click="toggleTheme">{{ isDark ? '日间' : '夜间' }}</button>
         <button class="row-btn" style="margin-left: auto" @click="onLogout">退出</button>
       </div>
     </aside>
@@ -53,10 +54,15 @@ defineOptions({ name: 'CandidateShell' }) // App 层 keep-alive include 依名�
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useTheme } from '../lib/theme'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+
+// 全站日/夜切换（SSOT §5 2026-09-09）：侧栏 side-foot 常驻按钮，共享 useTheme
+const { theme, toggle: toggleTheme } = useTheme()
+const isDark = computed(() => theme.value === 'dark')
 
 const navItems = [
   { path: '/assessment/positions', label: '岗位选择' },
