@@ -38,6 +38,7 @@
           <div class="side-user">{{ auth.user?.username || 'admin' }}</div>
           <div class="side-role">管理员 · 在线</div>
         </div>
+        <button class="row-btn side-theme" :title="isDark ? '切换到日间' : '切换到夜间'" @click="toggleTheme">{{ isDark ? '日间' : '夜间' }}</button>
         <button class="row-btn" style="margin-left: auto" @click="onLogout">退出</button>
       </div>
     </aside>
@@ -60,11 +61,16 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { useAuthStore } from '../stores/auth'
+import { useTheme } from '../lib/theme'
 import { toast } from './ui'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+
+// 全站日/夜切换（SSOT §5 2026-09-09）：侧栏 side-foot 常驻按钮（admin 暗色板见 admin.css）
+const { theme, toggle: toggleTheme } = useTheme()
+const isDark = computed(() => theme.value === 'dark')
 
 const navItems = [
   { path: '/admin/positions', label: '岗位库', cntKey: 'pending_positions', cntHot: true },

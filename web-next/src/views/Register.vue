@@ -1,4 +1,5 @@
 <template>
+  <button class="page-theme" type="button" :title="isDark ? '切换到日间' : '切换到夜间'" @click="toggleTheme">{{ isDark ? '日间' : '夜间' }}</button>
   <div class="page">
     <div class="page-head">
       <div class="open-head serif">
@@ -37,13 +38,18 @@
 
 <script setup>
 // 注册：开放注册固定考生身份（后端契约）。成功后回登录页。
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useTheme } from '../lib/theme'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { errMsg } from '../api'
 import { toast } from '../components/ui'
 
 const router = useRouter()
+
+// 日/夜切换（SSOT §5 2026-09-09 整站覆盖）：无壳页右上角浮按钮
+const { theme, toggle: toggleTheme } = useTheme()
+const isDark = computed(() => theme.value === 'dark')
 const auth = useAuthStore()
 
 const username = ref('')

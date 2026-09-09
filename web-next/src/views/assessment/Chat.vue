@@ -186,16 +186,24 @@ import { assessment, errMsg } from '../../api'
 import { toast, UiConfirm } from '../../components/ui'
 import FormCard from '../../components/FormCard.vue'
 import { useAuthStore } from '../../stores/auth'
-import { useTheme } from '../../lib/theme'
+import { useTheme, writeAsmtTheme } from '../../lib/theme'
 import { categoryLabel } from '../../lib/labels'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const { theme, toggle: toggleTheme } = useTheme()
+const { theme, toggle: toggleThemeShared } = useTheme()
 const isDark = computed(() => theme.value === 'dark')
 
 const sessionId = route.params.session_id
+
+// 测评主题快照（SSOT §22.2 覆盖层跟随）：进场记录、切换同步——管理端异议详情
+// 覆盖层停在本场 session_id 读它决定报告正文明暗（无快照回落日间）。
+writeAsmtTheme(sessionId, theme.value)
+function toggleTheme() {
+  toggleThemeShared()
+  writeAsmtTheme(sessionId, theme.value)
+}
 
 const session = ref(null)
 const messages = ref([])

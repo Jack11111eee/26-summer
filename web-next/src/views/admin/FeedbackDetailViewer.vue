@@ -16,7 +16,7 @@
         <!-- 报告整页复用：包裹层挂 candidate + fbd-scope 双类——candidate.css 全部
              选择器以 .candidate 后代形式书写，靠这一层取到暖纸 token 与排版；
              fbd-scope 在 admin body 下重申 token 基准（见 candidate.css 末尾） -->
-        <div v-else class="candidate fbd-scope">
+        <div v-else class="candidate fbd-scope" :data-theme="fbTheme">
           <!-- :key=session_id：detail 换目标报告时强制重挂（Report 的 sessionId 是
                setup 期常量，跨报告复用实例会挂着旧报告数据） -->
           <Report :key="detail.session_id" :session-id="detail.session_id" :fb-detail-data="detail" embedded />
@@ -36,6 +36,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { admin, errMsg } from '../../api'
 import { formatTime } from '../../lib/labels'
+import { readAsmtTheme } from '../../lib/theme'
 import Report from '../assessment/Report.vue'
 
 const route = useRoute()
@@ -44,12 +45,19 @@ const router = useRouter()
 const detail = ref(null)
 const error = ref('')
 
+// 快照跟随（SSOT §22.2/§5 2026-09-09）：覆盖层报告正文明暗 = 候选人当时该场的
+// 主题快照（Chat/Report 进入+切换时写入）；无快照（老会话/清库）回落日间。
+// 局部生效：.fbd-scope 自挂 data-theme，不从 html 继承——管理员当前主题只影响
+// 覆盖层管理壳（标题/关闭条）。
+const fbTheme = ref('light')
+
 async function load(id) {
   detail.value = null
   error.value = ''
   try {
     const { data } = await admin.feedback.getDetail(id)
     detail.value = data
+    fbTheme.value = readAsmtTheme(data.session_id) || 'light'
   } catch (e) {
     error.value = errMsg(e, '异议详情加载失败')
   }

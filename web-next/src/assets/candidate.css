@@ -738,8 +738,9 @@ body.candidate {
 
 /* ---------- 管理端异议详情覆盖层（SSOT §22.2 2026-09-09 修订：页内嵌入） ----------
    admin body 下复用本体系样式：.fbd-scope 内嵌 Report 以 candidate 前缀选择器取到
-   暖纸 token 与排版——body.candidate 变量被 admin 覆盖，故在此按 light/dark 双
-   data-theme 重申 token 基准（与 :root / html[data-theme=dark] body.candidate 同值）。 */
+   暖纸 token 与排版——body.candidate 变量被 admin 覆盖，故在此重申 token 基准；
+   data-theme 由覆盖层挂快照值（.fbd-scope[data-theme]，跟候选人当时主题，不从
+   html[data-theme] 继承——管理员当前主题只影响覆盖层管理壳）。 */
 .fbd-scope {
   --bg: #faf9f5; --bg-rail: #f3f1ea; --paper: #ffffff; --bubble-me: #e9e6dc;
   --ink-1: #262624; --ink-2: #555552; --ink-3: #807e78; --line: #e2dfd4;
@@ -752,7 +753,7 @@ body.candidate {
   font-size: 15px; line-height: 1.75; color: var(--ink-1);
   background: var(--bg); -webkit-font-smoothing: antialiased;
 }
-html[data-theme="dark"] .fbd-scope {
+.fbd-scope[data-theme="dark"] {
   --bg: #26241f; --bg-rail: #201e19; --paper: #2e2c26; --bubble-me: #3a382f;
   --ink-1: #eeece4; --ink-2: #c2bfb4; --ink-3: #8d8b82; --line: #413e35;
   --accent: #d98e5f; --accent-soft: rgba(217, 142, 95, .14);
@@ -761,9 +762,9 @@ html[data-theme="dark"] .fbd-scope {
   --hover: #34322b; --status-ink: #9a978c;
 }
 /* 嵌入态打印（admin body）：候选端的打印 token 重置选择器只打 body.candidate，
-   此处对 .fbd-scope 同义补齐——暗色主题打印回到浅色可读（值同 print 重置块） */
+   此处对 .fbd-scope 同义补齐——暗色快照打印回到浅色可读（值同 print 重置块） */
 @media print {
-  html[data-theme] .fbd-scope {
+  .fbd-scope {
     --bg: #faf9f5; --bg-rail: #f3f1ea; --paper: #ffffff; --bubble-me: #e9e6dc;
     --ink-1: #262624; --ink-2: #555552; --ink-3: #807e78; --line: #e2dfd4;
     --accent: #b4552d; --accent-soft: rgba(180, 85, 45, .10);
@@ -772,3 +773,16 @@ html[data-theme="dark"] .fbd-scope {
     background: #fff;
   }
 }
+
+/* ---------- 全站日/夜切换（SSOT §5 2026-09-09 裁决；文件末尾追加惯例） ----------
+   ①登录/注册无壳页：右上角固定浮按钮（.page-theme）；
+   ②双壳侧栏 side-foot：与「退出」并排的小按钮（.side-theme——admin.css/candidate.css
+   通用类名，两套体系各按自己的 row-btn 基样式取色，此处只管间距收敛）。 */
+.candidate .page-theme {
+  position: fixed; top: 18px; right: 20px; z-index: 50;
+  font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+  background: var(--paper); border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 14px; cursor: pointer; transition: color .15s, border-color .15s;
+}
+.candidate .page-theme:hover { color: var(--ink-1); border-color: var(--ink-3); }
+.candidate .side-theme { flex: none; padding: 5px 10px; font-size: 11.5px; }

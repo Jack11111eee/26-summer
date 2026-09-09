@@ -33,7 +33,9 @@
 
         <div class="rep-actions">
           <button class="btn-ghost" @click="printReport">打印 / 导出 PDF</button>
-          <button class="btn-ghost btn-theme" @click="toggleTheme">{{ isDark ? '日间' : '夜间' }}</button>
+          <!-- embedded：正文明暗跟候选人快照（.fbd-scope[data-theme]），此按钮切的全局
+               主题对嵌入报告不生效，藏之防「看似失灵」；打印不变 -->
+          <button v-if="!embedded" class="btn-ghost btn-theme" @click="toggleTheme">{{ isDark ? '日间' : '夜间' }}</button>
         </div>
 
         <!-- ① 顶部结果摘要（§三：综合结果 + 状态 + 覆盖一行 + 报告编号降为辅助信息） -->
@@ -304,12 +306,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 import { assessment, admin, errMsg } from '../../api'
 import { toast } from '../../components/ui'
-import { useTheme } from '../../lib/theme'
+import { useTheme, writeAsmtTheme } from '../../lib/theme'
 import { pct, formatTime, SCORE_STATE_LABELS } from '../../lib/labels'
 
 const route = useRoute()
 const router = useRouter()
-const { theme, toggle: toggleTheme } = useTheme()
+const { theme, toggle: toggleThemeShared } = useTheme()
 const isDark = computed(() => theme.value === 'dark')
 
 // 参数化（SSOT §22.2 2026-09-09 修订）：默认走路由（行为零破坏）；管理端页内覆盖层
@@ -322,6 +324,14 @@ const props = defineProps({
 })
 
 const sessionId = props.sessionId || route.params.session_id
+
+// 测评主题快照（SSOT §22.2 覆盖层跟随）：候选人自己看报告时记录/同步；
+// 嵌入态（管理端覆盖层）不回写——管理员查看明暗不污染候选人原始快照。
+if (!props.embedded) writeAsmtTheme(sessionId, theme.value)
+function toggleTheme() {
+  toggleThemeShared()
+  if (!props.embedded) writeAsmtTheme(sessionId, theme.value)
+}
 
 const phase = ref('loading') // loading | generating | ready | failed
 const report = ref(null)
