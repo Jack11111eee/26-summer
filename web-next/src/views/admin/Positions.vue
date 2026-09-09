@@ -56,7 +56,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 44%">position_name</th><th class="num" style="width: 12%">jd_count</th><th style="width: 22%">created_at</th><th style="width: 22%; text-align: right">action</th></tr>
+            <tr><th style="width: 44%">岗位名称</th><th class="num" style="width: 12%">JD数量</th><th style="width: 22%">创建时间</th><th style="width: 22%">操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="p in pendingView.items" :key="p.position_id">
@@ -122,7 +122,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 40%">position_name</th><th style="width: 16%">status</th><th class="num" style="width: 12%">jd_count</th><th style="width: 32%; text-align: right">action</th></tr>
+            <tr><th style="width: 40%">岗位名称</th><th style="width: 16%">状态</th><th class="num" style="width: 12%">JD数量</th><th style="width: 32%">操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="p in positionsView.items" :key="p.position_id">
@@ -169,7 +169,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 38%">job_title</th><th style="width: 15%">company</th><th style="width: 10%">source</th><th style="width: 13%">created_at</th><th style="width: 24%">改归岗位</th></tr>
+            <tr><th style="width: 38%">职位标题</th><th style="width: 15%">公司</th><th style="width: 10%">来源</th><th style="width: 13%">创建时间</th><th style="width: 24%">改归岗位</th></tr>
           </thead>
           <tbody>
             <tr v-for="j in orphansView.items" :key="j.jd_id">
@@ -178,7 +178,7 @@
               <td>{{ j.source_type || '—' }}</td>
               <td>{{ formatTime(j.created_at) }}</td>
               <td>
-                <div class="row-actions" style="justify-content: flex-start">
+                <div class="row-actions">
                   <select
                     v-if="positionOptions.length"
                     class="select"

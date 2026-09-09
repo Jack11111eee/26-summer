@@ -23,8 +23,8 @@
         <table>
           <thead>
             <tr>
-              <th style="width: 34%">job_title</th><th style="width: 16%">company</th><th style="width: 10%">source</th><th style="width: 12%">status</th>
-              <th style="width: 13%">created_at</th><th style="width: 15%; text-align: right">action</th>
+              <th style="width: 34%">职位标题</th><th style="width: 16%">公司</th><th style="width: 10%">来源</th><th style="width: 12%">状态</th>
+              <th style="width: 13%">创建时间</th><th style="width: 15%">操作</th>
             </tr>
           </thead>
           <tbody>

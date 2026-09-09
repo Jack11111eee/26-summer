@@ -2,8 +2,8 @@
   <table v-if="items.length">
     <thead>
       <tr>
-        <th style="width: 16%">name</th><th style="width: 10%">category</th><th class="num" style="width: 14%">required_level</th><th style="width: 12%">importance</th>
-        <th v-if="hasYears" class="num" style="width: 8%">years</th><th style="width: 46%">evidence</th>
+        <th style="width: 16%">名称</th><th style="width: 10%">类别</th><th class="num" style="width: 14%">要求等级</th><th style="width: 12%">重要性</th>
+        <th v-if="hasYears" class="num" style="width: 8%">年限</th><th style="width: 46%">证据</th>
       </tr>
     </thead>
     <tbody>

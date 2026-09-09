@@ -131,7 +131,7 @@
 
           <table class="rep-table">
             <thead>
-              <tr><th>能力项</th><th>要求</th><th>表现</th><th>差距</th><th class="num">权重</th><th class="num">得分</th><th style="text-align:right">action</th></tr>
+              <tr><th>能力项</th><th>要求</th><th>表现</th><th>差距</th><th class="num">权重</th><th class="num">得分</th><th>操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="it in report.item_details || []" :key="it.item_id">
@@ -150,7 +150,7 @@
                 </td>
                 <td class="num">{{ pct(it.weight) }}</td>
                 <td class="num">{{ fmtScore(it.score) }}</td>
-                <td style="text-align: right">
+                <td>
                   <button class="fb-btn" :disabled="feedbackDone.has(it.item_id)" @click="openFeedback(it)">
                     {{ feedbackDone.has(it.item_id) ? '已反馈' : '异议' }}
                   </button>

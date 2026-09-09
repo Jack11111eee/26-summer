@@ -66,9 +66,9 @@
       <table>
         <thead>
           <tr>
-            <th style="width: 24%">position</th><th style="width: 8%" class="num">jd</th>
-            <th style="width: 14%">model</th><th style="width: 30%">task / progress</th>
-            <th style="width: 8%" class="num">items</th><th style="width: 16%">finished_at</th>
+            <th style="width: 24%">岗位</th><th style="width: 8%" class="num">JD数</th>
+            <th style="width: 14%">模型</th><th style="width: 30%">任务 / 进度</th>
+            <th style="width: 8%" class="num">条目数</th><th style="width: 16%">完成时间</th>
           </tr>
         </thead>
         <tbody>

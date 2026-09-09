@@ -18,7 +18,7 @@
       </div>
       <table>
         <thead>
-          <tr><th style="width: 26%">username</th><th style="width: 16%">role</th><th style="width: 16%">is_active</th><th style="width: 22%">created_at</th><th style="width: 20%; text-align: right">action</th></tr>
+          <tr><th style="width: 26%">用户名</th><th style="width: 16%">角色</th><th style="width: 16%">是否启用</th><th style="width: 22%">创建时间</th><th style="width: 20%">操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="u in items" :key="u.user_id">

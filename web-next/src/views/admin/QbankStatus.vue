@@ -34,8 +34,8 @@
       <table>
         <thead>
           <tr>
-            <th style="width: 24%">position</th><th style="width: 10%">version</th><th style="width: 12%">status</th>
-            <th style="width: 32%">progress / error</th><th class="num" style="width: 8%">题量</th><th style="width: 14%">created_at</th>
+            <th style="width: 24%">岗位</th><th style="width: 10%">版本</th><th style="width: 12%">状态</th>
+            <th style="width: 32%">进度 / 错误</th><th class="num" style="width: 8%">题量</th><th style="width: 14%">创建时间</th>
           </tr>
         </thead>
         <tbody>
@@ -128,7 +128,7 @@
             <div class="fold-body">
               <table v-if="detail.data.coverage.length">
                 <thead>
-                  <tr><th style="width: 34%">std_name</th><th style="width: 18%">category</th><th class="num" style="width: 8%">easy</th><th class="num" style="width: 8%">medium</th><th class="num" style="width: 8%">hard</th><th class="num" style="width: 24%">合计</th></tr>
+                  <tr><th style="width: 34%">标准名</th><th style="width: 18%">类别</th><th class="num" style="width: 8%">简单</th><th class="num" style="width: 8%">中等</th><th class="num" style="width: 8%">困难</th><th class="num" style="width: 24%">合计</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="c in detail.data.coverage" :key="`${c.std_name}|${c.category}`">
@@ -150,7 +150,7 @@
             <div class="fold-body">
               <table v-if="questions.items.length">
                 <thead>
-                  <tr><th style="width: 18%">std_name</th><th style="width: 13%">difficulty</th><th style="width: 11%">qtype</th><th style="width: 17%">status</th><th style="width: 41%">stem 预览</th></tr>
+                  <tr><th style="width: 18%">标准名</th><th style="width: 13%">难度</th><th style="width: 11%">题型</th><th style="width: 17%">状态</th><th style="width: 41%">题干预览</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="q in questions.items" :key="q.question_id">
@@ -181,7 +181,7 @@
             <div class="fold-body">
               <table>
                 <thead>
-                  <tr><th style="width: 22%">status</th><th style="width: 20%">created_at</th><th style="width: 20%">finished_at</th><th style="width: 38%">error</th></tr>
+                  <tr><th style="width: 22%">状态</th><th style="width: 20%">创建时间</th><th style="width: 20%">完成时间</th><th style="width: 38%">错误</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="h in detail.data.history" :key="h.task_id">
