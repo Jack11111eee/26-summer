@@ -20,7 +20,7 @@
           <h4><span class="tb-badge">{{ cat.label }}</span> <span style="color: var(--ink-3); font-size: 12px">{{ catItems(cat.key).length }} 项</span></h4>
           <table v-if="catItems(cat.key).length">
             <thead>
-              <tr><th>能力项</th><th>等级</th><th>重要性</th><th class="num">权重</th></tr>
+              <tr><th style="width: 52%">能力项</th><th style="width: 12%">等级</th><th style="width: 18%">重要性</th><th class="num" style="width: 18%">权重</th></tr>
             </thead>
             <tbody>
               <tr v-for="it in catItems(cat.key)" :key="it.std_name">
