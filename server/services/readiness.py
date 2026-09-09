@@ -10,6 +10,7 @@ MODEL_NOT_MEASURABLE）只在本函数统一返回（D-11）。
 """
 from ..db import get_conn
 from .. import config
+from .question_bank import strict_fields_sql
 from .question_selection import ORDINARY_CATEGORIES, largest_remainder_73
 
 
@@ -18,11 +19,14 @@ def _question_count_by_category(conn, position_id: str, model_id: str,
     """按 category 计数实际可选 active 题（照抄 question_selection 的 WHERE 口径）。
 
     scope='general' 跨岗位可见；scope='position' 仅本岗位可见；两者同绑 model/version。
+    QBANK_STRICT_FIELDS=True 时叠加五字段齐全谓词（§9.4 契约第 1 条——「待审核」题
+    不计入可选题量；默认 False 现状行为不回归）。
     """
     rows = conn.execute(
         "SELECT category, COUNT(*) c FROM question_bank WHERE status='active'"
         " AND model_id=? AND model_version=?"
         " AND (scope='general' OR (scope='position' AND position_id=?))"
+        f" AND {strict_fields_sql()}"
         " GROUP BY category",
         (model_id, model_version, position_id),
     ).fetchall()
@@ -31,11 +35,12 @@ def _question_count_by_category(conn, position_id: str, model_id: str,
 
 def _covered_std_names(conn, position_id: str, model_id: str,
                        model_version: int) -> set[str]:
-    """题库中已覆盖的 std_name 集合（与配额计数同一 WHERE 口径）。"""
+    """题库中已覆盖的 std_name 集合（与配额计数同一 WHERE 口径——含 strict 谓词）。"""
     rows = conn.execute(
         "SELECT DISTINCT std_name FROM question_bank WHERE status='active'"
         " AND model_id=? AND model_version=?"
-        " AND (scope='general' OR (scope='position' AND position_id=?))",
+        " AND (scope='general' OR (scope='position' AND position_id=?))"
+        f" AND {strict_fields_sql()}",
         (model_id, model_version, position_id),
     ).fetchall()
     return {r["std_name"] for r in rows}
@@ -150,6 +155,7 @@ def _check_session_readiness_locked(conn, position_id: str, model=None) -> dict 
             " WHERE qb.status='active' AND qb.category=?"
             " AND qb.model_id=? AND qb.model_version=?"
             " AND (qb.scope='general' OR (qb.scope='position' AND qb.position_id=?))"
+            f" AND {strict_fields_sql('qb')}"
             " GROUP BY COALESCE(ci.importance, 'plus')",
             (model["model_id"], category, model["model_id"], model["version"], position_id),
         ).fetchall()

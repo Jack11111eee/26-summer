@@ -32,6 +32,7 @@ from math import ceil
 from .. import config
 from ..db import get_conn
 from .pipeline import new_id, now_iso
+from .question_bank import strict_fields_sql
 from .state_events import append_event
 
 # 普通题类目白名单（§9.1：experience/qualification 不进普通对话题库）
@@ -222,6 +223,9 @@ def _load_candidate_rows(conn, position_id: str, model_id: str | None,
 
     Phase 4 收紧：b.model_id=? AND b.model_version=?（去掉 NULL 放行）——
     升版后旧版题库不再命中新会话（D-50）。
+    QBANK_STRICT_FIELDS=True 时叠加五字段齐全谓词（§9.4 契约第 1 条：五字段任一
+    NULL 的存量旧题「待审核」，新测评不选用；默认 False 现状行为不回归——存量题
+    五字段全 NULL，打 True 会让现有岗位无法开考，故为过渡开关）。
     """
     rows = conn.execute(
         "SELECT b.*, ci.weight AS item_weight, ci.importance AS item_importance,"
@@ -231,7 +235,8 @@ def _load_candidate_rows(conn, position_id: str, model_id: str | None,
         " AND ci.model_id=?"
         " WHERE b.status='active' AND b.category IN ('hard_skill','soft_skill')"
         " AND (b.scope='general' OR (b.scope='position' AND b.position_id=?))"
-        " AND b.model_id=? AND b.model_version=?",
+        " AND b.model_id=? AND b.model_version=?"
+        f" AND {strict_fields_sql('b')}",
         (model_id, position_id, model_id, model_version),
     ).fetchall()
     out = []

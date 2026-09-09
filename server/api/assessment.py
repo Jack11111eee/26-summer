@@ -257,7 +257,11 @@ def list_sessions(page: int = 1, page_size: int = 20,
         "SELECT s.session_id, s.position_id, p.name AS position_name, s.model_version,"
         " s.status, s.phase, s.created_at, s.ended_at, s.abandoned_at,"
         " (SELECT COUNT(*) FROM assessment_question aq"
-        "  WHERE aq.session_id=s.session_id AND aq.answered_at IS NOT NULL) AS answered_count"
+        "  WHERE aq.session_id=s.session_id AND aq.answered_at IS NOT NULL) AS answered_count,"
+        # 最新报告行 total_score（§20.3 可 NULL —— 无综合分不以 0 冒充，历史行显示
+        # 「未形成综合分」；无报告行（未生成/作废）自然 NULL）
+        " (SELECT r.total_score FROM report r WHERE r.session_id=s.session_id"
+        "  ORDER BY r.created_at DESC, r.version DESC LIMIT 1) AS total_score"
         f" FROM assessment_session s LEFT JOIN position p ON p.position_id=s.position_id"
         f" WHERE {where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
         [*params, page_size, offset],
@@ -1325,7 +1329,18 @@ def _run_report_task(session_id: str) -> None:
 
     异常 → 写 FAILED 行 + TASK_FAILED 事件（REF-8.3 失败显式可见，不再静默）。
     completed 会话评分经 allow_completed 内部链豁免（D-03：串行链语义，不经候选人端点）。
+
+    §20.2.A 历史证据链保护（U6 2026-09-09）+ §21.1 后台任务状态契约：
+    - 已评分的 completed 会话（重试/超龄接管的再次入队——request_report 对终态成功
+      报告本就 409，此分支只出现在 FAILED 后重试或 GENERATING 死亡接管）→ 跳过评分
+      子步（不删不重算，score_session 已拒绝；批次与最终报告归属一致）、不记
+      TASK_SUCCEEDED(step=score)；报告子步以既有评分行照常生成（幂等重链）。
+    - generate_report 返回 FAILED dict 不抛异常（§21.1 执行性补充）→ 写 TASK_FAILED
+      事件（payload 带 error 摘要）+ **不记** TASK_SUCCEEDED(step=report)——事件
+      状态与真实报告状态不得矛盾。
     """
+    from ..services.scoring import _existing_score_rows
+
     try:
         # 链入口事件（事实类，D-10 无 SCORING 快照态）
         _append_task_event(session_id, "TASK_STARTED",
@@ -1333,12 +1348,36 @@ def _run_report_task(session_id: str) -> None:
         _append_task_event(session_id, "SESSION_ENTERED_SCORING",
                            from_state="in_progress", to_state="in_progress",
                            payload={"note": "无 SCORING 快照态（D-10），事实类事件"})
-        # 评分子步：内存算完单事务落库（scoring 模式），事件紧随其后独立小事务
-        score_session(session_id, allow_completed=True)
-        _append_task_event(session_id, "TASK_SUCCEEDED", payload={"step": "score"})
-        # 报告子步
-        generate_report(session_id)
-        _append_task_event(session_id, "TASK_SUCCEEDED", payload={"step": "report"})
+        # 评分子步：内存算完单事务落库（scoring 模式），事件紧随其后独立小事务。
+        # §20.2.A：completed 已评分会话跳过（score_session 对该形态 raise——重试链
+        # 不得删旧重打；失败报告重试/死任务接管即此形态）。in_progress 会话照走
+        # 幂等删旧重打（现行语义——超时收尾链任务先跑、status 完成翻转在后，
+        # 任务运行时会话可能仍 in_progress 且带历史评分，须刷新至最终作答形态）。
+        conn = get_conn()
+        try:
+            skip_scoring = (
+                conn.execute(
+                    "SELECT status FROM assessment_session WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()["status"] == "completed"
+                and _existing_score_rows(conn, session_id) > 0
+            )
+        finally:
+            conn.close()
+        if not skip_scoring:
+            score_session(session_id, allow_completed=True)
+            _append_task_event(session_id, "TASK_SUCCEEDED", payload={"step": "score"})
+        else:
+            _append_task_event(session_id, "TASK_STARTED",
+                               payload={"note": "会话已有评分批次，跳过评分子步（§20.2.A 幂等重链）"})
+        # 报告子步：检查返回值 report_status（FAILED 不抛异常——不得误记成功，§21.1）
+        report_out = generate_report(session_id)
+        if isinstance(report_out, dict) and report_out.get("report_status") == "FAILED":
+            _append_task_event(
+                session_id, "TASK_FAILED",
+                payload={"error": (report_out.get("error") or "generate_report 返回 FAILED")[:200]})
+        else:
+            _append_task_event(session_id, "TASK_SUCCEEDED", payload={"step": "report"})
     except Exception as e:  # noqa: BLE001
         try:
             _write_failed_report(session_id, str(e))
@@ -1432,9 +1471,32 @@ def request_report(session_id: str, background: BackgroundTasks, user: dict = De
     return {"session_id": session_id, "status": "generating"}
 
 
+def _serialize_report(row: dict) -> dict:
+    """报告序列化统一出口（SSOT §21.1 接口一致性，U6 2026-09-09）。
+
+    report_json（结果快照）与 report 行生命周期列职责分离但状态必须一致：json.loads
+    后合并 report_status/version（by-session 与 by-id 同一出口——两接口不再漂移，
+    一处 JSON 一处表列的旧缺陷形态作废）。生命周期+复核元数据一并透传（review_status/
+    review_request_reason——「复核原因与报告状态一致」的消费面依据）。report_json
+    非 JSON（极端形态）回退空 dict：只有括号错误语法，不虚构字段。
+    """
+    try:
+        data = json.loads(row["report_json"])
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+    return {
+        **data,
+        "report_id": row["report_id"],
+        "report_status": row["report_status"],
+        "version": row["version"],
+        "review_status": row["review_status"],
+        "review_request_reason": row["review_request_reason"],
+    }
+
+
 @router.get("/reports/by-session/{session_id}")
 def get_report_by_session(session_id: str, user: dict = Depends(require_login)) -> dict:
-    """按会话取最新报告（前端轮询入口），返回 report_json 合并 report_status/version。未生成 → 404。"""
+    """按会话取最新报告（前端轮询入口），返回 report_json 合并生命周期元数据。未生成 → 404。"""
     conn = get_conn()
     rid = conn.execute(
         "SELECT report_id FROM report WHERE session_id=? ORDER BY created_at DESC, version DESC LIMIT 1",
@@ -1445,16 +1507,15 @@ def get_report_by_session(session_id: str, user: dict = Depends(require_login)) 
         # 只差在文案即构成存在性 oracle（D-01：统一不存在语义）
         raise HTTPException(status.HTTP_404_NOT_FOUND, "报告不存在")
     r = load_owned_report(conn, rid["report_id"], user, allow_admin_read=True)
-    return {**json.loads(r["report_json"]), "report_status": r["report_status"],
-            "version": r["version"]}
+    return _serialize_report(r)
 
 
 @router.get("/reports/{report_id}")
 def get_report(report_id: str, user: dict = Depends(require_login)) -> dict:
-    """按 report_id 取报告完整 JSON。"""
+    """按 report_id 取报告（与 by-session 同一序列化出口——生命周期元数据一致，§21.1）。"""
     conn = get_conn()
     r = load_owned_report(conn, report_id, user, allow_admin_read=True)
-    return json.loads(r["report_json"])
+    return _serialize_report(r)
 
 
 @router.post("/reports/{report_id}/feedback", status_code=status.HTTP_201_CREATED)

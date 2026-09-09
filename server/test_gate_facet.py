@@ -88,11 +88,15 @@ def test_classifier_english_level():
 
 
 def test_classifier_number_range():
-    """数值断言：std_name 内嵌数字+量纲 → metric 阈值；解析不出 → None。"""
+    """数值断言：std_name 内嵌数字+量纲 → metric 阈值；解析不出 → None。
+
+    2026-09-09（SSOT §16.2 数值条件方向）：params 增 operator（「岁以上」→ gt、
+    「及以上」→ gte——方向以原断言文本为准，作废统一 >=）。
+    """
     f = _cls("年龄30岁以上")
-    assert f == {"facet_key": "number_range", "params": {"threshold": 30.0, "unit": "岁", "metric": "age"}}
+    assert f == {"facet_key": "number_range", "params": {"threshold": 30.0, "unit": "岁", "metric": "age", "operator": "gt"}}
     f = _cls("每周出勤4天及以上")
-    assert f == {"facet_key": "number_range", "params": {"threshold": 4.0, "unit": "天/周", "metric": "weekly_days"}}
+    assert f == {"facet_key": "number_range", "params": {"threshold": 4.0, "unit": "天/周", "metric": "weekly_days", "operator": "gte"}}
     # 无数字 / 无 metric 词 → None（长尾勾选组）
     assert _cls("年龄三十岁以上") is None  # 中文数字不解析
     assert _cls("5年以上") is None  # 无 metric 词（经验类由 base 字段承载，不进分类器）
@@ -159,18 +163,32 @@ def _items_of(model_id: str) -> list[dict]:
 
 
 def test_merge_equivalent_degree_same_assertion():
-    """A 类合并核心：「本科及以上学历」+「全日制本科学历及以上」→ 一行（更窄措辞保留，
-    jds/evidences 并集——r 与 occ 口径随并集走高）。"""
+    """A 类合并（SSOT §16.2 合并限定保留，2026-09-09 修订）：
+
+    - 「本科及以上学历」+「全日制本科学历及以上」→ **不再合并**（学习形式限定词
+      「全日制」是指断言的组成部分——验收 15；2026-09-08「可合并」例作废）；
+    - 同 threshold 且学习形式限定一致（学士或硕士学位 / 本科及以上学历）→ 仍合并
+      一行（更窄措辞保留，jds/evidences 并集——r 与 occ 口径随并集走高）。"""
     pid = _seed_position_with_jds([
         [_qual("本科及以上学历")],
         [_qual("全日制本科学历及以上")],
     ])
     mid = _run_aggregate(pid)
     items = [it for it in _items_of(mid) if it["category"] == "qualification"]
-    assert len(items) == 1, f"同断言不同措辞应合并为一行，实得 {[i['std_name'] for i in items]}"
-    kept = items[0]
+    names = {it["std_name"] for it in items}
+    # 学习形式限定不一致 → 保守不合并（验收 15）
+    assert names == {"本科及以上学历", "全日制本科学历及以上"}, names
+
+    pid2 = _seed_position_with_jds([
+        [_qual("本科及以上学历")],
+        [_qual("学士或硕士学位")],
+    ])
+    mid2 = _run_aggregate(pid2)
+    items2 = [it for it in _items_of(mid2) if it["category"] == "qualification"]
+    assert len(items2) == 1, f"同断言不限定的不同措辞应合并为一行，实得 {[i['std_name'] for i in items2]}"
+    kept = items2[0]
     # std_name 取更窄措辞（词更长）
-    assert kept["std_name"] == "全日制本科学历及以上"
+    assert kept["std_name"] == "本科及以上学历"
     assert kept["facet_key"] == "education_degree"
     assert json.loads(kept["facet_params_json"]) == {"threshold": 1}
     # evidences/jds 并集：occ=2（两个 JD）、r=1.0（两组各自 full-jd）
@@ -196,20 +214,33 @@ def test_merge_not_cross_facet_or_wordface():
 
 
 def test_merge_school_tier_and_english():
-    """school_tier / english_level 同档合并；跨 facet 不合。"""
+    """school_tier / english_level 合并面（SSOT §16.2 合并限定保留，2026-09-09）：
+
+    - 同档且白名词剔除后残留一致（211院校毕业 / 211院校；英语四级 / 大学英语四级）
+      → 合并；
+    - 残留不一致（英语四级 vs CET4——「CET」是词表外修饰词）→ 保守不合并
+      （宁可漏合并也不错合并）；跨 facet 不合。"""
     pid = _seed_position_with_jds([
         [_qual("211院校毕业")],
         [_qual("211院校"), _qual("英语四级")],
-        [_qual("CET4")],
+        [_qual("英语四级水平")],
     ])
     mid = _run_aggregate(pid)
     items = _items_of(mid)
     by_facet = {}
     for it in items:
         by_facet.setdefault(it["facet_key"] or "None", []).append(it["std_name"])
-    assert len(by_facet["school_tier"]) == 1, "两个 211 断言应合并"
-    assert len(by_facet["english_level"]) == 1, "四级×2 措辞（英语四级/CET4）应合并"
+    assert len(by_facet["school_tier"]) == 1, "两个 211 断言（残留一致）应合并"
+    assert len(by_facet["english_level"]) == 1, "四级×2 措辞（英语四级/大学英语四级）应合并"
     assert by_facet["school_tier"] != by_facet["english_level"]
+
+    pid2 = _seed_position_with_jds([
+        [_qual("英语四级")],
+        [_qual("CET4")],
+    ])
+    mid2 = _run_aggregate(pid2)
+    names2 = {it["std_name"] for it in _items_of(mid2) if it["category"] == "qualification"}
+    assert names2 == {"英语四级", "CET4"}, f"词表外修饰词（CET）不一致应保守不合并，实得 {names2}"
 
 
 # ---------- 3) v2 渲染（SLAM 场景） ----------
@@ -271,7 +302,8 @@ def test_v2_render_slam_scenario():
     # 此处为渲染侧同 facet 归并）
     edu = by_name.get("education_degree")
     assert edu is not None and edu["type"] == "select"
-    assert edu["options"] == ["专科", "本科", "硕士", "博士"]
+    # SSOT §16.2 表单选项覆盖真实情况（2026-09-09）：学历四档扩为五选项（其他出口）
+    assert edu["options"] == ["专科", "本科", "硕士", "博士", "其他（尚未取得/境外学历等）"]
     assert set(edu["items"]) == {"本科及以上学历", "硕士及以上学历"}
     # 勾选组：复合断言 + 专业类共 5 项
     checked = by_name.get("checked")
@@ -456,7 +488,9 @@ def test_full_chain_render_submit_gate_rows():
     form = render_form_instance(conn, sid)
     fields = {f["name"]: f for f in form["fields"]}
     assert set(fields) == {"years_of_experience", "education_degree", "english_level", "checked"}
-    assert set(fields["education_degree"]["items"]) == {"全日制本科学历及以上"}  # A 类合并后唯一学历行
+    # SSOT §16.2 合并限定保留（2026-09-09）：学习形式限定不一致不合并——两条学历行
+    # （本科及以上学历 / 全日制本科学历及以上）同宿主进 education_degree select
+    assert set(fields["education_degree"]["items"]) == {"本科及以上学历", "全日制本科学历及以上"}
     fi_id = form["form_instance_id"]
     # ④ submit：本科 + 六级 + 勾专业；复合断言不勾（= 否）
     payload = {"years_of_experience": 6, "education_degree": "本科",
@@ -470,14 +504,16 @@ def test_full_chain_render_submit_gate_rows():
               " JOIN competency_item ci ON ci.item_id=qs.item_id"
               " WHERE qs.session_id=? AND qs.gate_result IS NOT NULL", (sid,))
     by_name = {r["std_name"]: r["gate_result"] for r in rows}
-    assert by_name == {"全日制本科学历及以上": "true", "英语六级": "true",
+    assert by_name == {"全日制本科学历及以上": "true", "本科及以上学历": "true",
+                       "英语六级": "true",
                        "计算机相关专业": "true", "211硕士及以上学历": "false"}
     # ⑤ payload 两段式落库（facet 原始答案 + derived，审计可复现）
     stored = json.loads(_q("SELECT payload_json FROM form_instance WHERE form_instance_id=?",
                            (fi_id,))[0]["payload_json"])
     assert stored["schema_version"] == "v2"
     assert stored["facet_answers"] == payload
-    assert stored["derived"] == {"全日制本科学历及以上": True, "英语六级": True,
+    assert stored["derived"] == {"全日制本科学历及以上": True, "本科及以上学历": True,
+                                 "英语六级": True,
                                  "计算机相关专业": True, "211硕士及以上学历": False}
     conn.close()
 

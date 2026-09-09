@@ -63,10 +63,25 @@ REFINE_MIN_TOKENS = int(os.environ.get("REFINE_MIN_TOKENS", "500"))
 # 单题追问上限（07 §7.2）
 FOLLOWUP_MAX = int(os.environ.get("FOLLOWUP_MAX", "2"))
 
+# ---- 模块二·客观题结构化判分（SSOT §17，2026-09-09 U5b）----
+# 整段说明文本形态答案键的「要点包含计数」全命中率阈值：关键实体命中率 ≥ 该值判 5 分、
+# ≥0.3 判 3（部分命中，首版保守两档）、<0.3 判 1。既有先例（BAD_CASE_DIVERGENCE_THRESHOLD）
+# 与 ADJUDICATE_CONFLICT_THRESHOLD 同为集中 config 的评分链判定常量。
+OBJECTIVE_KEYPOINT_HIT_RATIO = 0.6
+
 # ---- 模块二·Phase 3 计时（SSOT §15——40/20/6 硬编码非开放参数）----
 SESSION_TOTAL_MINUTES = 40
 QUESTION_TIMEOUT_MINUTES = 20
 ABANDON_HOURS = 6
+
+# ---- 模块二·题库契约过渡开关（SSOT §9.4 契约第 1 条 / §13 旧题处理，2026-09-09）----
+# 新题生成无条件写满五测量字段（measurement_target / evidence_requirement /
+# observable_level_max / observable_level_min / rubric_version——代码侧强制）；
+# 存量旧行五字段全 NULL（不迁移不回填——机械填值不能制造可靠锚点，修复文档 §十三
+# 「旧题处理」）。默认 False：选题/开考检查不按字段过滤（现状行为，存量岗位可继续
+# 开考）；True 时白名单只认五字段齐全的 active 题（任一 NULL 视为「待审核」，新
+# 测评不选用）。打 True 须先确认存量岗位已用新契约重新生成题库。
+QBANK_STRICT_FIELDS = os.environ.get("QBANK_STRICT_FIELDS", "").strip().lower() in ("1", "true", "yes")
 # 滑窗 Token 上限（SSOT §31-2 开放参数：「参数待定，留接口」——
 # 已裁决 8000（关口包 [03-007]，2026-09-05），mock 模式全量直通）
 MAX_CONTEXT_TOKENS = 8000  # 已裁决值（关口包 [03-007]——不再 checkpoint 停车）
@@ -98,6 +113,13 @@ MAX_SUGGESTION_LENGTH = 2000
 # 重大冲突极差阈值（§19：观测等级极差 ≥ 阈值判冲突取低）——历史在 aggregation.py 模块级，
 # 2026-09-06 转正集中到 config（值不变，SSOT §14）。
 ADJUDICATE_CONFLICT_THRESHOLD = 2
+
+# ---- 模块三·报告完整性门控（SSOT §20.1/§20.3/§31-3，U4 2026-09-09）----
+# 未测量比例阈值：正式范围内未测量项占比 > 0.2 → 无完整综合分（total_score=None）+
+# PROVISIONAL + HUMAN_REVIEW_REQUIRED（review_reason_code=UNMEASURED_RATIO_HIGH）。
+# 值沿用 2026-09-05 关口 A 裁决 0.2；语义由 IMPUTED 补算比例改为未测量比例
+# （§20.1 作废比例补算——旧 aggregation.py IMPUTE_RATIO_THRESHOLD 更名承接）。
+UNMEASURED_RATIO_THRESHOLD = 0.2
 
 # ---- 模块一·消歧/归岗（SSOT §31-4）----
 # 词典候选 top10 匹配阈值：已裁决 0.5（difflib ratio + 子串包含，2026-09-06），

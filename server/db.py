@@ -104,7 +104,13 @@ CREATE TABLE IF NOT EXISTS competency_item (
   -- 聚合落 item 行时由确定性分类器预打标（关键词词表 + 内嵌数字解析，无 LLM）；
   -- 渲染端只读不重跑分类；存量行 NULL → 整组降级勾选组 fallback。全可空无 DB CHECK。
   facet_key         TEXT,
-  facet_params_json TEXT
+  facet_params_json TEXT,
+  -- ============ 测评范围列（SSOT §20.1.A，U4 2026-09-09）============
+  -- 1=正式计分项（participant）/ 0=岗位背景资料项（reference-only，不占权重、
+  -- 不出雷达、不进总分、不进覆盖率分母）。NULL 视为 1——存量全部默认正式范围
+  -- （§20.1.A「存量模型无范围标记时默认全部 gate=0 能力项为正式计分范围」），
+  -- 无破坏迁移；0/1 代码校验（N11 无 DB CHECK）。
+  in_scope         INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS competency_dict (
@@ -292,7 +298,13 @@ CREATE TABLE IF NOT EXISTS question_score (
   evidence_spans_json      TEXT,
   measurement_target       TEXT,
   rubric_version           TEXT,
-  scorer_version           TEXT
+  scorer_version           TEXT,
+  -- ============ 评分批次列（SSOT §20.2.A，U6 2026-09-09）============
+  -- 不可变批次标识：score_session 每次成功落库生成一个 batch，全部评分行携带；
+  -- 同会话新评分追加保存（DELETE+重插作废——completed 会话拒绝重评分）；
+  -- report 行经 report_json.scoring_batch_id 绑定生成时所依据的批次（归属一致）。
+  -- 存量行 NULL（无批次概念的历史评分，接受——新行才携带）。
+  scoring_batch_id         TEXT
 );
 
 -- ============ 表单实例表（SSOT §16.1——03-01 form_instance 不可变 schema 快照）============
@@ -318,7 +330,10 @@ CREATE TABLE IF NOT EXISTS form_instance (
 CREATE TABLE IF NOT EXISTS report (
   report_id   TEXT PRIMARY KEY,
   session_id  TEXT NOT NULL REFERENCES assessment_session,
-  total_score REAL NOT NULL,
+  -- ============ 完整性门控（SSOT §20.3，U4 2026-09-09）：未测量比例 > 0.2 → 无综合分 ============
+  -- NOT NULL DEFAULT 0.0 作废（2026-09-09 前旧库行为进化处理）：无综合分 = NULL，
+  -- 不得以 0 分冒充（各消费接口/页面须支持显示）。存量行有值保留不重算。
+  total_score REAL,
   gate_passed INTEGER NOT NULL,
   report_json TEXT NOT NULL,
   created_at  TEXT NOT NULL,
@@ -1145,6 +1160,77 @@ def _migrate_session_hidden_at(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE assessment_session ADD COLUMN hidden_at TEXT")
 
 
+def _migrate_competency_item_in_scope(conn: sqlite3.Connection) -> None:
+    """SSOT §20.1.A（U4，2026-09-09）：competency_item 加测评范围列 in_scope。
+
+    存量库 PRAGMA 嗅探 ALTER（幂等，同 competency_item_facet 先例）；新库表已含
+    列（尾部 _DDL）自然跳过。存量行保持 NULL——聚合消费侧 NULL 视为 1（全部默认
+    正式计分范围，无破坏迁移，§20.1.A 存量语义）；全可空无 DB CHECK（N11）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(competency_item)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL）
+    if "in_scope" not in cols:
+        conn.execute("ALTER TABLE competency_item ADD COLUMN in_scope INTEGER")
+
+
+def _migrate_report_total_score_nullable(conn: sqlite3.Connection) -> None:
+    """SSOT §20.3（U4，2026-09-09）：report.total_score NOT NULL → 可空。
+
+    SQLite 不能 ALTER 列放宽，走建新表替换法（同 llm_trace/feedback/_migrate_position_inactive
+    迁移先例：CREATE *_new → INSERT SELECT 拷值 → DROP → RENAME）。存量行值原样
+    保留（有值的不动，不重算不归零）；新 INSERT 允许 NULL（无综合分不以 0 冒充）。
+
+    嗅探条件：sqlite_master 的建表 SQL 含 "total_score REAL NOT NULL" 才重建
+    （新库走 _DDL 已是可空口径；已迁移库二次 init_db 直接跳过）。NOT NULL 带默认值
+    0.0 的存量形态由旧 _DDL 而来，重建后与 _DDL 最新口径一致。
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='report'"
+    ).fetchone()
+    if row is None or "total_score REAL NOT NULL" not in (row[0] or ""):
+        return  # 表不存在（新建走 _DDL）或已放宽（幂等）
+    conn.executescript("""
+    BEGIN;
+    CREATE TABLE report_new (
+      report_id   TEXT PRIMARY KEY,
+      session_id  TEXT NOT NULL REFERENCES assessment_session,
+      total_score REAL,
+      gate_passed INTEGER NOT NULL,
+      report_json TEXT NOT NULL,
+      created_at  TEXT NOT NULL,
+      report_status          TEXT,
+      review_status          TEXT,
+      version                INTEGER,
+      review_request_reason  TEXT,
+      reviewer_id            TEXT,
+      review_note            TEXT,
+      review_outcome         TEXT,
+      reviewed_at            TEXT,
+      publish_confirmed_by   TEXT,
+      published_at           TEXT
+    );
+    INSERT INTO report_new SELECT * FROM report;
+    DROP TABLE report;
+    ALTER TABLE report_new RENAME TO report;
+    COMMIT;
+    """)
+
+
+def _migrate_question_score_scoring_batch(conn: sqlite3.Connection) -> None:
+    """SSOT §20.2.A（U6，2026-09-09）：question_score 加评分批次列 scoring_batch_id。
+
+    存量库 PRAGMA 嗅探 ALTER（幂等，同 qbank_task_progress 先例）；新库表已含列
+    （尾部 _DDL）自然跳过。存量行保持 NULL（历史评分无批次概念，不回填不虚构——
+    归属锚定只保证未来新评分行）；全可空无 DB CHECK（N11）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(question_score)").fetchall()}
+    if not cols:
+        return  # 表不存在（新建走 _DDL）
+    if "scoring_batch_id" not in cols:
+        conn.execute("ALTER TABLE question_score ADD COLUMN scoring_batch_id TEXT")
+
+
 MIGRATIONS: list[tuple[int, str, Callable]] = [
     (1, "llm_trace", _migrate_llm_trace),
     (2, "feedback_status", _migrate_feedback_status),
@@ -1167,6 +1253,9 @@ MIGRATIONS: list[tuple[int, str, Callable]] = [
     (19, "suggestion", _migrate_suggestion),
     (20, "competency_item_facet", _migrate_competency_item_facet),
     (21, "session_hidden_at", _migrate_session_hidden_at),
+    (22, "competency_item_in_scope", _migrate_competency_item_in_scope),
+    (23, "report_total_score_nullable", _migrate_report_total_score_nullable),
+    (24, "question_score_scoring_batch_id", _migrate_question_score_scoring_batch),
 ]
 
 

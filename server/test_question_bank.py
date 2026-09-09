@@ -32,14 +32,14 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def _seed_model() -> tuple[str, str, dict]:
-    """造一个 confirmed 模型：2 hard_skill(一重一轻) + 1 soft_skill + 1 experience + 1 qualification。"""
+    """造一个 confirmed 模型：2 hard_skill（rl 5/rl 3 各一）+ 1 soft_skill + 1 experience + 1 qualification。"""
     conn = get_conn()
     pid = new_id("pos")
     mid = new_id("m")
     conn.execute("INSERT INTO position(position_id, name, status, created_at) VALUES(?,?,?,?)",
                  (pid, "后端开发工程师", "active", now_iso()))
     items = [
-        {"std_name": "Python", "category": "hard_skill", "required_level": 4,
+        {"std_name": "Python", "category": "hard_skill", "required_level": 5,
          "importance": "required", "weight": 0.19, "evidence": [{"text": "精通Python"}]},
         {"std_name": "Redis", "category": "hard_skill", "required_level": 3,
          "importance": "preferred", "weight": 0.05, "evidence": [{"text": "熟悉Redis"}]},
@@ -80,7 +80,7 @@ def check_generation(pid: str, mid: str) -> None:
         by.setdefault((r["std_name"], r["category"]), []).append(dict(r))
 
     py = by.get(("Python", "hard_skill"), [])
-    check("Python(weight>10%) 3 题 easy/medium/hard",
+    check("Python(required_level=5) 3 题 easy/medium/hard（§17 修订：weight 解耦）",
           [q["difficulty"] for q in py] == ["easy", "medium", "hard"] and len(py) == 3,
           f"实际 {[(q['difficulty']) for q in py]}")
     check("Python easy 为客观题带 answer_key",
@@ -90,7 +90,7 @@ def check_generation(pid: str, mid: str) -> None:
           and [q["chain_seq"] for q in py] == [1, 2, 3])
 
     redis = by.get(("Redis", "hard_skill"), [])
-    check("Redis(weight<=10%) 2 题 easy/medium",
+    check("Redis(required_level=3) 2 题 easy/medium",
           [q["difficulty"] for q in redis] == ["easy", "medium"])
 
     soft = by.get(("沟通能力", "soft_skill"), [])
@@ -108,6 +108,16 @@ def check_generation(pid: str, mid: str) -> None:
     check("全部题为岗位题（无 scope=general 新行）", len(pos_qs) == len(rows))
     check("四要素齐全(std_name/category/qtype/scope)",
           all(r["std_name"] and r["category"] and r["qtype"] and r["scope"] for r in rows))
+
+    # §9.4 契约第 1 条（2026-09-09）：新题五测量字段全部写满 + 查表正确
+    check("五测量字段全部非空（measurement_target 等 + rubric_version）",
+          all(r["measurement_target"] and r["evidence_requirement"]
+              and r["observable_level_max"] and r["observable_level_min"]
+              and r["rubric_version"] == "v2" for r in rows))
+    _lvl = {"easy": (3, 2), "medium": (4, 3), "hard": (5, 4)}
+    check("observable_level_max/min 按难度查表（easy 3/2 · medium 4/3 · hard 5/4）",
+          all((r["observable_level_max"], r["observable_level_min"])
+              == _lvl[r["difficulty"]] for r in rows if r["difficulty"]))
 
     traces = conn.execute("SELECT COUNT(*) c FROM llm_trace WHERE call_type='question_gen'").fetchone()
     check("question_gen 调用落 llm_trace", traces["c"] == 7, f"实际 {traces['c']}")
@@ -227,7 +237,9 @@ def test_prompts() -> None:
 
 def _seed_position_and_items() -> tuple[str, str]:
     """归一化回归用种子：active 岗位 + confirmed 模型 + 1 个 hard_skill 项 + QUEUED task 行
-    （task 行由 confirm/retry 端点插入，generate_question_bank 只 UPDATE 最新行——与生产一致）。"""
+    （task 行由 confirm/retry 端点插入，generate_question_bank 只 UPDATE 最新行——与生产一致）。
+    required_level=4 → §17 修订下两档（easy/medium，与打桩的 2 次 LLM 调用对齐——旧规则
+    weight>0.10 三档时曾致「降级路径任务」隐藏 FAIL）。"""
     conn = get_conn()
     pid = new_id("pos")
     mid = new_id("m")
@@ -321,8 +333,8 @@ def test_generate_question_bank_rubric_list_normalized(monkeypatch):
           isinstance(subj["rubric"], str) and subj["rubric"] == "要点一。\n要点二。\n要点三。"
           and subj["rubric"].count("\n") == 2, f"实际 {subj['rubric']!r}")
     obj = [r for r in rows if r["qtype"] == "objective"][0]
-    check("objective answer_key list 归一为 | 连接（scoring 正则分支口径）",
-          obj["answer_key"] == "栅格地图|拓扑地图", f"实际 {obj['answer_key']!r}")
+    check("objective answer_key list 多元素 → [any_of] 前缀 + 换行 join（§17 过渡标记）",
+          obj["answer_key"] == "[any_of] 栅格地图\n拓扑地图", f"实际 {obj['answer_key']!r}")
     check("objective 行 rubric 仍为 NULL", obj["rubric"] is None)
 
 

@@ -26,7 +26,8 @@ router = APIRouter(prefix="/api/admin", tags=["admin-jds"], dependencies=[Depend
 
 @router.get("/positions/options")
 def list_position_options(
-    position_status: str | None = Query(default=None, alias="status")
+    position_status: str | None = Query(default=None, alias="status"),
+    banked: bool = Query(default=False),
 ) -> list[dict]:
     """岗位轻量选项（改归/合并目标下拉 / 详情页名称查找用）：id+名称，全量不分页。
 
@@ -35,6 +36,11 @@ def list_position_options(
     active/inactive/pending_review 三个合法值（其他值 400），改归/合并目标
     下拉传 status=active。形参避开 status——函数体内 fastapi.status 模块名
     已被占用（撞名 AttributeError）。
+
+    banked 过滤参数（SSOT §23 测试中心评测运行，2026-09-09）：仅留存在
+    status='active' 题库行的岗位（已落库且使用中）——测试中心虚拟考生下拉传
+    status=active&banked=1（原全量可选中未落库/已下架岗位，任务启动即失败）。
+    可与 status 组合；不传 = 不过滤。
     """
     if position_status not in (None, "", "active", "inactive", "pending_review"):
         raise HTTPException(
@@ -42,7 +48,12 @@ def list_position_options(
             f"非法 status 过滤值：{position_status}（仅支持 active/inactive/pending_review）",
         )
     where = " WHERE status=?" if position_status else ""
-    params = (position_status,) if position_status else ()
+    params: list = [position_status] if position_status else []
+    if banked:
+        where += (" AND" if where else " WHERE") + (
+            " EXISTS(SELECT 1 FROM question_bank qb"
+            " WHERE qb.position_id=position.position_id AND qb.status='active')"
+        )
     conn = get_conn()
     rows = conn.execute(
         f"SELECT position_id, name FROM position{where} ORDER BY created_at DESC",

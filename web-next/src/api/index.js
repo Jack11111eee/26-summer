@@ -153,7 +153,10 @@ export const admin = {
     runConsistency: (sessionId, runs) => api.post('/admin/eval/consistency', { session_id: sessionId, runs }),
     runVirtualCandidates: (positionId) => api.post('/admin/eval/virtual-candidates', { position_id: positionId }),
     getResult: (taskId) => api.get(`/admin/eval/results/${taskId}`),
-    getHistory: (limit = 20) => api.get('/admin/eval/history', { params: { limit } })
+    getHistory: (limit = 20) => api.get('/admin/eval/history', { params: { limit } }),
+    // 历史删除（SSOT §23，2026-09-09）：仅终态可删（completed/failed），running 409
+    deleteResult: (taskId) => api.delete(`/admin/eval/results/${taskId}`),
+    batchDeleteResults: (taskIds) => api.post('/admin/eval/results/batch-delete', { task_ids: taskIds })
   },
   trace: {
     list: (params) => api.get('/admin/trace/list', { params }),
@@ -162,6 +165,7 @@ export const admin = {
   },
   feedback: {
     list: (status) => api.get('/admin/feedback/list', { params: status ? { status } : {} }),
+    getDetail: (feedbackId) => api.get(`/admin/feedback/${feedbackId}`),
     review: (feedbackId, note = '') => api.post(`/admin/feedback/${feedbackId}/review`, { note }),
     badCase: (feedbackId, note = '') => api.post(`/admin/feedback/${feedbackId}/bad-case`, { note })
   },

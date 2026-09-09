@@ -237,3 +237,171 @@ def test_eval_history_endpoint():
     r = client.get("/api/admin/eval/history", headers=headers)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+# ---------- eval 历史删除 + options banked 过滤（SSOT §23，2026-09-09） ----------
+
+
+def _seed_eval_rows(n_terminal: int = 2) -> list[str]:
+    """插 n_terminal 条终态 + 1 条 running 历史，返回终态 task_id 列表。"""
+    conn = get_conn()
+    ids = []
+    for i in range(n_terminal):
+        tid = new_id("ev")
+        ids.append(tid)
+        conn.execute(
+            "INSERT INTO eval_results(task_id, test_name, status, created_at, completed_at)"
+            " VALUES(?,?,?,?,?)",
+            (tid, "scoring_consistency", "completed" if i % 2 == 0 else "failed",
+             now_iso(), now_iso()),
+        )
+    conn.commit()
+    conn.close()
+    return ids
+
+
+def _seed_running_eval_row() -> str:
+    tid = new_id("ev")
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO eval_results(task_id, test_name, status, created_at)"
+        " VALUES(?,?, 'running', ?)",
+        (tid, "virtual_candidates", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    return tid
+
+
+def test_eval_delete_single_terminal():
+    headers = _auth()
+    ids = _seed_eval_rows(1)
+    r = client.delete(f"/api/admin/eval/results/{ids[0]}", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == 1
+    # 历史中不再出现
+    rows = [h for h in client.get("/api/admin/eval/history", headers=headers).json()
+            if h["task_id"] == ids[0]]
+    assert not rows
+
+
+def test_eval_delete_running_409():
+    headers = _auth()
+    tid = _seed_running_eval_row()
+    r = client.delete(f"/api/admin/eval/results/{tid}", headers=headers)
+    assert r.status_code == 409, r.text
+    # 行仍在
+    r2 = client.get(f"/api/admin/eval/results/{tid}", headers=headers)
+    assert r2.status_code == 200
+
+
+def test_eval_delete_unknown_404():
+    headers = _auth()
+    r = client.delete("/api/admin/eval/results/not-exist", headers=headers)
+    assert r.status_code == 404, r.text
+
+
+def test_eval_batch_delete_happy_path():
+    headers = _auth()
+    ids = _seed_eval_rows(3)
+    r = client.post("/api/admin/eval/results/batch-delete",
+                    json={"task_ids": ids}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == 3
+    rows = [h for h in client.get("/api/admin/eval/history", headers=headers).json()
+            if h["task_id"] in ids]
+    assert not rows
+
+
+def test_eval_batch_delete_containing_running_409_no_partial_delete():
+    """批量含 running 行 → 整体 409，终态行也不删（不留半途状态）。"""
+    headers = _auth()
+    ids = _seed_eval_rows(2)
+    running = _seed_running_eval_row()
+    r = client.post("/api/admin/eval/results/batch-delete",
+                    json={"task_ids": [*ids, running]}, headers=headers)
+    assert r.status_code == 409, r.text
+    # 部分删除防御：终态行原样保留
+    rows = {h["task_id"] for h in client.get("/api/admin/eval/history", headers=headers).json()}
+    assert set(ids) <= rows
+
+
+def test_eval_batch_delete_unknown_404():
+    headers = _auth()
+    ids = _seed_eval_rows(1)
+    r = client.post("/api/admin/eval/results/batch-delete",
+                    json={"task_ids": [*ids, "ev_not_exist"]}, headers=headers)
+    assert r.status_code == 404, r.text
+    # 先校验后变异：合法行也不删
+    rows = {h["task_id"] for h in client.get("/api/admin/eval/history", headers=headers).json()}
+    assert set(ids) <= rows
+
+
+def test_eval_batch_delete_empty_and_duplicate_422():
+    headers = _auth()
+    r = client.post("/api/admin/eval/results/batch-delete",
+                    json={"task_ids": []}, headers=headers)
+    assert r.status_code == 422, r.text
+    ids = _seed_eval_rows(1)
+    r = client.post("/api/admin/eval/results/batch-delete",
+                    json={"task_ids": [ids[0], ids[0]]}, headers=headers)
+    assert r.status_code == 422, r.text
+
+
+def _seed_position_with_bank(pid: str, name: str, st: str,
+                             qb_status: str | None) -> None:
+    """造岗位 + 可选一条题库行（qb_status None = 不落题）。"""
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO position(position_id, name, status, created_at) VALUES(?,?,?,?)",
+        (pid, name, st, now_iso()),
+    )
+    if qb_status:
+        conn.execute(
+            "INSERT INTO question_bank(question_id, scope, position_id, std_name,"
+            " category, qtype, stem, source, status, created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (new_id("qb"), "position", pid, "Python", "hard_skill", "objective",
+             "题干", "human", qb_status, now_iso()),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_options_banked_filter():
+    """?banked=1 只回有 active 题库行的岗位；archived 行不算；与 status 组合生效。"""
+    headers = _auth()
+    # 1: active+有题（应出现）；2: active+无题（排除——题库未落库）
+    # 3: active+仅 archived 题（排除——非使用中）；4: inactive+有题（status 组合排除）；
+    # 5: pending_review+有题（status 组合排除）
+    _seed_position_with_bank(new_id("p"), "有题岗", "active", "active")
+    _seed_position_with_bank(new_id("p"), "无题岗", "active", None)
+    _seed_position_with_bank(new_id("p"), "归档题岗", "active", "archived")
+    _seed_position_with_bank(new_id("p"), "下架有题岗", "inactive", "active")
+    _seed_position_with_bank(new_id("p"), "待审有题岗", "pending_review", "active")
+
+    r = client.get("/api/admin/positions/options",
+                   params={"banked": 1}, headers=headers)
+    assert r.status_code == 200, r.text
+    names = {x["name"] for x in r.json()}
+    assert "有题岗" in names
+    assert "无题岗" not in names
+    assert "归档题岗" not in names
+    # banked 单独传（不与 status 组合）：inactive/pending 的有题岗也入列
+    # （banked 只看题库，岗位状态过滤仍由 status 参数职责承担）
+    assert "下架有题岗" in names
+    assert "待审有题岗" in names
+
+    # 组合（测试中心实际传参）：status=active&banked=1
+    r2 = client.get("/api/admin/positions/options",
+                    params={"status": "active", "banked": 1}, headers=headers)
+    assert r2.status_code == 200, r2.text
+    names2 = {x["name"] for x in r2.json()}
+    assert "有题岗" in names2
+    assert "无题岗" not in names2 and "归档题岗" not in names2
+    assert "下架有题岗" not in names2 and "待审有题岗" not in names2
+
+    # 不传 banked = 不过滤（改归/合并目标下拉既有语义不变）
+    r3 = client.get("/api/admin/positions/options", headers=headers)
+    names3 = {x["name"] for x in r3.json()}
+    assert {"有题岗", "无题岗", "归档题岗", "下架有题岗", "待审有题岗"} <= names3

@@ -100,8 +100,9 @@ def _seed(position_name: str, model_version: int = 1,
     """
     if items is None:
         items = [
+            # §17 2026-09-09 修订：hard_skill 三档条件 = required_level>4（与 weight 解耦）
             {"std_name": "Python", "category": "hard_skill", "importance": "required",
-             "weight": 0.2, "required_level": 4},
+             "weight": 0.2, "required_level": 5},
         ]
     _UUID[0] += 1
     ts = f"2026-09-08T00:00:{_UUID[0] % 60:02d}.{_UUID[0]:06d}+00:00"
@@ -182,10 +183,10 @@ def test_progress_advance(headers):
     from server.services.question_bank import generate_question_bank
 
     items = [
-        # hard weight>10% → 3 档
+        # hard required_level>4 → 3 档（§17 2026-09-09 修订：与 weight 解耦）
         {"std_name": "Python", "category": "hard_skill", "importance": "required",
-         "weight": 0.2, "required_level": 4},
-        # hard weight<=10% → 2 档
+         "weight": 0.2, "required_level": 5},
+        # hard required_level<=4 → 2 档（weight 0.05 不再是判据）
         {"std_name": "Redis", "category": "hard_skill", "importance": "preferred",
          "weight": 0.05, "required_level": 3},
         # soft → 2 档
@@ -225,7 +226,7 @@ def test_progress_counts_skipped_tiers(headers):
     from server.services.question_bank import generate_question_bank
 
     pid, mid, tid = _seed("补缺岗")
-    # 预置 easy 档 1 题（模拟上次生成一半中断）：Python hard_skill >10% → 3 档
+    # 预置 easy 档 1 题（模拟上次生成一半中断）：Python hard_skill required_level>4 → 3 档
     _insert_bank_question(pid, mid, "Python", "easy", "预置题")
     generate_question_bank(pid, mid)
     row = _q("SELECT status, total, done FROM question_bank_task WHERE task_id=?", (tid,))[0]
@@ -339,8 +340,9 @@ def test_endpoints_detail_traces_and_coverage(headers):
     pid, mid, tid = _seed(
         "详情岗",
         items=[
+            # §17 2026-09-09 修订：required_level>4 → 3 档（weight 解耦）
             {"std_name": "Python", "category": "hard_skill", "importance": "required",
-             "weight": 0.2, "required_level": 4},
+             "weight": 0.2, "required_level": 5},
         ],
     )
     generate_question_bank(pid, mid)  # mock 生成 3 档 → SUCCEEDED + 3 条 trace

@@ -48,11 +48,58 @@ def _assert_report_transition(from_state: str, to_state: str) -> None:
         raise ValueError(f"非法 report_status 迁移: {from_state} → {to_state}")
 
 
+def _latest_scoring_batch_id(session_id: str) -> str | None:
+    """该会话最新评分批次（SSOT §20.2.A）：CREATE MAX(created_at, rowid) 的批次行。
+
+    rowid 并列兜底同 created_at 的批次间排序（同秒多批极端形态）；无批次行
+    （存量会话/测试直插评分行）返回 None——报告照生成（无批次概念的历史形态）。
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT scoring_batch_id FROM question_score"
+        " WHERE session_id=? AND scoring_batch_id IS NOT NULL"
+        " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    return row["scoring_batch_id"] if row else None
+
+
+def _review_request_reason(agg: dict, session_id: str) -> str | None:
+    """复核原因归类文本（SSOT §21.1 复核原因与报告状态一致的校验依据）。
+
+    review_status=HUMAN_REVIEW_REQUIRED 时按触发源归类：
+    - review_reason_code=UNMEASURED_RATIO_HIGH → 转可读文本（U4 单列 reason code
+      属结构化口径，表列承载人读归类）；
+    - observation_status=NO_VALID_OBSERVATION → 无有效观测；
+    - required 缺失（覆盖 required_covered < required_total）→ 必备项缺失；
+    - 其余（§19 冲突上浮）→ 观测冲突待复核。
+    非 HUMAN_REVIEW_REQUIRED → None（无复核要求即无复核原因）。
+    """
+    if agg.get("review_status") != "HUMAN_REVIEW_REQUIRED":
+        return None
+    if agg.get("review_reason_code") == "UNMEASURED_RATIO_HIGH":
+        return "UNMEASURED_RATIO_HIGH：正式范围内未测量比例超阈值（无综合分）"
+    if agg.get("observation_status") == "NO_VALID_OBSERVATION":
+        return "NO_VALID_OBSERVATION：正式范围内无有效观测"
+    cov = agg.get("coverage") or {}
+    if cov.get("required_total") and (cov.get("required_covered") or 0) < cov["required_total"]:
+        return "REQUIRED_ITEM_MISSING：必备能力项存在未测量项（§20.2）"
+    return "SCORE_CONFLICT：观测冲突待人工复核（§19）"
+
+
 def _insert_report_row(conn, session_id: str, *, status: str, report_json: dict,
-                       review_status: str | None = None, total_score: float = 0.0,
-                       gate_passed: int = 0, report_id: str | None = None) -> str:
+                       review_status: str | None = None, total_score: float | None = 0.0,
+                       gate_passed: int = 0, report_id: str | None = None,
+                       review_request_reason: str | None = None) -> str:
     """写终态 report 行：优先把 GENERATING 占位行原地转终态（复用版本，不残留占位行），
-    无占位则版本化 INSERT。返回 report_id。发布字段本计划置 NULL。"""
+    无占位则版本化 INSERT。返回 report_id。发布字段本计划置 NULL。
+
+    review_request_reason（§21.1 人工复核字段，U6 2026-09-09）：生成时若
+    review_status=HUMAN_REVIEW_REQUIRED 落归类原因（报告读回透传——「复核原因与
+    报告状态一致」的校验依据）。
+
+    total_score 可 None（§20.3 完整性门控：未测量比例超阈 → 无综合分，不以 0 冒充；
+    列已迁移 NULLABLE；GENERATING/FAILED 占位由调用方写 0.0 保持兼容）。"""
     _assert_report_status(status)
     if report_id is None:
         report_id = new_id("rpt")
@@ -64,10 +111,11 @@ def _insert_report_row(conn, session_id: str, *, status: str, report_json: dict,
     if placeholder is not None:
         conn.execute(
             "UPDATE report SET report_id=?, total_score=?, gate_passed=?, report_json=?,"
-            " report_status=?, review_status=?, created_at=?"
+            " report_status=?, review_status=?, review_request_reason=?, created_at=?"
             " WHERE report_id=? AND report_status='GENERATING'",
             (report_id, total_score, gate_passed,
-             json.dumps(report_json, ensure_ascii=False), status, review_status, now_iso(),
+             json.dumps(report_json, ensure_ascii=False), status, review_status,
+             review_request_reason, now_iso(),
              placeholder["report_id"]),
         )
         return report_id
@@ -76,10 +124,11 @@ def _insert_report_row(conn, session_id: str, *, status: str, report_json: dict,
     ).fetchone()[0] or 0)
     conn.execute(
         "INSERT INTO report(report_id, session_id, total_score, gate_passed, report_json,"
-        " report_status, review_status, version, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?)",
+        " report_status, review_status, review_request_reason, version, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
         (report_id, session_id, total_score, gate_passed,
-         json.dumps(report_json, ensure_ascii=False), status, review_status, version, now_iso()),
+         json.dumps(report_json, ensure_ascii=False), status, review_status,
+         review_request_reason, version, now_iso()),
     )
     return report_id
 
@@ -108,8 +157,10 @@ def _load_question_reviews(session_id: str) -> list[dict]:
     """逐题回顾：题面/回答/双分/证据/理由（07 §10.5 第⑤段）。"""
     conn = get_conn()
     rows = conn.execute(
+        # aq.seq：展示元数据透传（讨论稿 §十八 2026-09-09）——逐题回顾按真实题号展示，
+        # 不以评分列表下标重排；经 dict(r) 自动带出，不改评分逻辑。
         "SELECT qs.item_id, qs.question_id, qs.score_live, qs.score_final, qs.score_state,"
-        " qs.evidence_quote, qs.reason,"
+        " qs.evidence_quote, qs.reason, aq.seq,"
         " b.stem, b.qtype, b.std_name, b.category"
         " FROM question_score qs"
         " JOIN assessment_question aq ON aq.question_id=qs.question_id"
@@ -267,7 +318,9 @@ def generate_report(session_id: str) -> dict:
             "gate_details": agg["gate_items"],
             "radar_data": radar_data,
             "item_details": [
-                {**it, "score": round(it.get("score") or 0.0, 2)}
+                # score=None（UNMEASURED/reference）保持 None——「无结果」而非 0
+                # （§20.1 作废补算；§20.3 未测项得分为无结果）；Report.vue fmtScore(None)='—'
+                {**it, "score": round(it["score"], 2) if it.get("score") is not None else None}
                 for it in agg["item_scores"]
             ],
             "strengths": agg["strengths"],
@@ -277,11 +330,18 @@ def generate_report(session_id: str) -> dict:
             "suggestions_text": llm_out.get("suggestions_text", ""),
             "question_reviews": question_reviews,
             "review_status": agg.get("review_status"),
+            "review_reason_code": agg.get("review_reason_code"),
             "observation_status": agg.get("observation_status"),
             "provisional": agg.get("provisional", False),
             "coverage": agg.get("coverage", {}),
+            # §20.2.A 批次绑定（U6）：报告 JSON 记录生成所依据的评分批次 id，
+            # 与 question_score.scoring_batch_id 行一致（归属一致）；无批次行
+            # （存量/测试直插形态）为 None——报告照生成。
+            "scoring_batch_id": _latest_scoring_batch_id(session_id),
             "created_at": now_iso(),
         }
+        # §21.1 复核原因（U6）：HUMAN_REVIEW_REQUIRED 时的归类文本，报告读回透传
+        review_request_reason = _review_request_reason(agg, session_id)
 
         # 七项一致性校验（聚合后、版本化 INSERT 前）；⑦ 只校验 LLM 产出的文案段（不信任 LLM 文案，
         # 而非候选人可控文本——WR-06）
@@ -290,12 +350,14 @@ def generate_report(session_id: str) -> dict:
             llm_out.get("weaknesses_text"),
             llm_out.get("suggestions_text"),
         )))
-        errors = _run_consistency_checks(agg, session_id, report_text=llm_text)
+        errors = _run_consistency_checks(agg, session_id, report_text=llm_text,
+                                         review_request_reason=review_request_reason)
         if errors:
             _insert_report_row(
                 conn, session_id, status="FAILED",
                 report_json={"error": "; ".join(errors)[:200]},
                 review_status=agg.get("review_status"), report_id=report_id,
+                review_request_reason=review_request_reason,
             )
             conn.commit()
             return {"report_id": report_id, "session_id": session_id,
@@ -311,6 +373,7 @@ def generate_report(session_id: str) -> dict:
             review_status=agg.get("review_status"),
             total_score=agg["total_score"], gate_passed=int(gate_passed),
             report_json=report_data, report_id=report_id,
+            review_request_reason=review_request_reason,
         )
 
         # report→trace 运行时 trace_link 写点（D-56 闭合五要素审计链）

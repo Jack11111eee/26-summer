@@ -5,7 +5,7 @@
       :title="CONFIRM_META[confirmState.kind]?.title || '请确认'"
       :message="confirmTextMap[confirmState.kind]"
       :confirm-text="confirmState.kind === 'publish' ? '发布' : '确认'"
-      :danger="confirmState.kind === 'bad_case'"
+      :danger="confirmState.kind === 'bad_case' || confirmState.kind === 'eval_delete'"
       @close="confirmState.show = false"
       @confirm="onConfirm"
     />
@@ -47,7 +47,6 @@
               <button class="btn primary" :disabled="running" @click="runVirtual">运行</button>
             </div>
           </section>
-
           <!-- 当前任务卡 -->
           <section v-if="current" class="block card">
             <div class="block-head">
@@ -65,13 +64,34 @@
           </section>
         </div>
 
-        <!-- 右栏：运行历史 -->
+        <!-- 右栏：运行历史（终态行可勾选/删除——SSOT §23，2026-09-09；运行中行禁选） -->
         <aside>
           <section class="block card">
-            <div class="block-head"><span class="block-title">运行历史</span></div>
+            <div class="block-head">
+              <span class="block-title">运行历史</span>
+              <template v-if="history.length">
+                <label v-if="deletableHistory.length" class="cell-sub" style="cursor: pointer; margin-right: 8px">
+                  <input v-model="selectAll" type="checkbox" /> 全选
+                </label>
+                <button
+                  v-if="confirmState.deleteIds.length"
+                  class="row-btn row-btn-danger"
+                  @click="askBatchDelete"
+                >删除所选（{{ confirmState.deleteIds.length }}）</button>
+              </template>
+            </div>
             <table>
               <tbody>
                 <tr v-for="h in history" :key="h.task_id" style="cursor: pointer" @click="loadTask(h.task_id)">
+                  <td style="width: 28px" @click.stop>
+                    <input
+                      v-if="isTerminal(h)"
+                      v-model="confirmState.deleteIds"
+                      :value="h.task_id"
+                      type="checkbox"
+                      @click.stop
+                    />
+                  </td>
                   <td>
                     <div class="cell-main" style="font-size: 12px">{{ h.test_name }}</div>
                     <div class="cell-sub">{{ formatTime(h.created_at) }}</div>
@@ -81,6 +101,10 @@
                     <span v-else-if="h.status === 'failed'" class="tag tag-red">失败</span>
                     <span v-else class="tag warm">运行中</span>
                   </td>
+                  <td v-if="isTerminal(h)" style="width: 44px">
+                    <button class="row-btn row-btn-danger" @click.stop="askDeleteOne(h)">删除</button>
+                  </td>
+                  <td v-else></td>
                 </tr>
                 <tr v-if="!history.length"><td class="empty-row">暂无历史</td></tr>
               </tbody>
@@ -202,7 +226,7 @@
         </div>
         <table>
           <thead>
-            <tr><th style="width: 11%">标准名</th><th style="width: 9%">类别</th><th style="width: 24%">反馈</th><th class="num" style="width: 7%">得分</th><th style="width: 9%">状态</th><th style="width: 12%">创建时间</th><th style="width: 28%">操作</th></tr>
+            <tr><th style="width: 10%">标准名</th><th style="width: 8%">类别</th><th style="width: 18%">反馈</th><th style="width: 8%">提交人</th><th class="num" style="width: 6%">得分</th><th style="width: 8%">状态</th><th style="width: 11%">创建时间</th><th style="width: 31%">操作</th></tr>
           </thead>
           <tbody>
             <template v-for="f in feedbacks" :key="f.feedback_id">
@@ -210,6 +234,7 @@
                 <td v-clip><span class="cell-main">{{ f.std_name }}</span></td>
                 <td><span class="tag">{{ categoryLabel(f.category) }}</span></td>
                 <td v-clip class="cell-sub">{{ f.feedback_text || '—' }}</td>
+                <td v-clip class="cell-sub">{{ f.username || '—' }}</td>
                 <td class="num">{{ f.total_score ?? '—' }}</td>
                 <td>
                   <span v-if="f.status === 'pending'" class="tag warm">待处理</span>
@@ -219,6 +244,7 @@
                 <td>{{ formatTime(f.created_at) }}</td>
                 <td>
                   <div class="row-actions">
+                    <button class="row-btn" @click="openFeedbackDetail(f)">详情</button>
                     <button v-if="f.status === 'pending'" class="row-btn" @click="askFeedback(f, 'review')">标记已处理</button>
                     <button v-if="f.status !== 'bad_case'" class="row-btn row-btn-danger" @click="askFeedback(f, 'bad_case')">标 bad case</button>
                     <button class="row-btn row-btn-solid" @click="askPublish(f)">发布报告</button>
@@ -226,7 +252,7 @@
                 </td>
               </tr>
             </template>
-            <tr v-if="!feedbacks.length && !feedbackLoading"><td colspan="7" class="empty-row">暂无反馈</td></tr>
+            <tr v-if="!feedbacks.length && !feedbackLoading"><td colspan="8" class="empty-row">暂无反馈</td></tr>
           </tbody>
         </table>
       </section>
@@ -270,6 +296,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { admin, adminPositions, errMsg } from '../../api'
 import { UiTabs, UiDrawer, UiConfirm, toast } from '../../components/ui'
 import { categoryLabel, formatTime } from '../../lib/labels'
@@ -303,10 +330,10 @@ const traceDetail = ref(null)
 const traceMaxPage = computed(() => Math.max(1, Math.ceil(traceTotal.value / TRACE_LIMIT) || 1))
 
 const feedbackKind = ref('objection') // 反馈区切换：objection（逐分异议）/ suggestion（意见反馈 §22.1）
-const feedbackStatus = ref('pending')
+const feedbackStatus = ref('') // ''=全部状态；默认全量而非锁死 pending
 const feedbacks = ref([])
 const feedbackLoading = ref(false)
-const suggestionStatus = ref('pending')
+const suggestionStatus = ref('') // ''=全部状态
 const suggestions = ref([])
 const suggestionLoading = ref(false)
 
@@ -322,30 +349,65 @@ function onFeedbackKind(kind) {
   else loadFeedback()
 }
 
-const confirmState = reactive({ show: false, kind: '', feedback: null, suggestion: null })
+const confirmState = reactive({ show: false, kind: '', feedback: null, suggestion: null, deleteIds: [] })
 
 const prettyResult = computed(() =>
   current.value?.result ? JSON.stringify(current.value.result, null, 2) : '— 生成中 —'
 )
 
+// ---- 历史删除（SSOT §23，2026-09-09）：仅终态行可删 ----
+function isTerminal(h) {
+  return h.status === 'completed' || h.status === 'failed'
+}
+
+// 历史重拉后清掉已消失行的勾选（删除完成/刷新均走 getHistory 后调用）
+function pruneSelection() {
+  const alive = new Set(history.value.map(h => h.task_id))
+  confirmState.deleteIds = confirmState.deleteIds.filter(id => alive.has(id))
+}
+
+const deletableHistory = computed(() => history.value.filter(isTerminal))
+
+// 全选 = 终态行全部勾上 / 取消 = 清空（-running 行天然不进 checkbox v-model）
+const selectAll = computed({
+  get: () => deletableHistory.value.length > 0
+    && confirmState.deleteIds.length === deletableHistory.value.length,
+  set: (v) => { confirmState.deleteIds = v ? deletableHistory.value.map(h => h.task_id) : [] }
+})
+
 // ---- 通用加载 ----
 async function reloadAll() {
   try {
     const [oRes, hRes] = await Promise.all([
-      adminPositions.positionOptions(),
+      // banked=1（SSOT §23，2026-09-09）：虚拟考生下拉只列已落库且使用中的 active 岗
+      adminPositions.positionOptions({ status: 'active', banked: 1 }),
       admin.eval.getHistory()
     ])
     positionOptions.value = oRes.data
     history.value = hRes.data
+    // 岗位过滤收紧后，已选岗位可能不再可选——清选防悬空提交
+    if (evalForm.positionId && !positionOptions.value.some(o => o.position_id === evalForm.positionId)) {
+      evalForm.positionId = ''
+    }
+    pruneSelection()
   } catch (e) {
     toast(errMsg(e, '加载失败'), 'error')
   }
+  loadActiveTab()
+}
+
+// 当前 tab 对应列表：trace/feedback 切入即拉（eval 无列表）
+function loadActiveTab() {
   if (tab.value === 'trace') loadTraces()
-  if (tab.value === 'feedback') {
+  else if (tab.value === 'feedback') {
     if (feedbackKind.value === 'suggestion') loadSuggestions()
     else loadFeedback()
   }
 }
+
+// 页内 tab 切换即重拉目标列表（与顶栏刷新/keep-alive 静默刷新同哲学，无首屏双拉：
+// 首次 setup 的 reloadAll 已按当时 tab 拉过，watch 无 immediate）
+watch(tab, loadActiveTab)
 
 // ---- 评测运行 ----
 let pollTimer = null
@@ -503,10 +565,49 @@ function askFeedback(f, kind) {
   confirmState.show = true
 }
 
+// 异议详情深链（SSOT §22.2）：跳报告页 ?feedback_id= 定位（横幅/明细行+逐题回顾双高亮/自动滚动）
+const router = useRouter()
+function openFeedbackDetail(f) {
+  router.push(`/assessment/report/${f.session_id}?feedback_id=${f.feedback_id}`)
+}
+
 function askPublish(f) {
   confirmState.kind = 'publish'
   confirmState.feedback = f
   confirmState.show = true
+}
+
+// 删除所选（批量）/ 删除单条：确认后走同一段删除逻辑
+function askBatchDelete() {
+  if (!confirmState.deleteIds.length) return
+  confirmState.kind = 'eval_delete'
+  confirmState.show = true
+}
+
+function askDeleteOne(h) {
+  confirmState.kind = 'eval_delete'
+  confirmState.deleteIds = [h.task_id]
+  confirmState.show = true
+}
+
+async function deleteSelected() {
+  const ids = [...confirmState.deleteIds]
+  try {
+    if (ids.length === 1) await admin.eval.deleteResult(ids[0])
+    else await admin.eval.batchDeleteResults(ids)
+    confirmState.deleteIds = []
+    toast(ids.length === 1 ? '已删除 1 条历史' : `已删除 ${ids.length} 条历史`)
+    // 删除后重拉历史（含当前任务卡对应行被删的清理）
+    const hRes = await admin.eval.getHistory()
+    history.value = hRes.data
+    pruneSelection()
+    if (current.value && !history.value.some(h => h.task_id === current.value.task_id)) {
+      current.value = null
+      stopPoll()
+    }
+  } catch (e) {
+    toast(errMsg(e, '删除失败'), 'error')
+  }
 }
 
 const CONFIRM_META = {
@@ -519,6 +620,12 @@ const CONFIRM_META = {
     act: (s) => admin.suggestions.review(s.suggestion_id),
     ok: '已标记处理',
     reload: loadSuggestions
+  },
+  eval_delete: {
+    title: '删除运行历史',
+    act: deleteSelected,
+    ok: '',
+    reload: null // deleteSelected 自带历史重拉
   }
 }
 
@@ -526,18 +633,21 @@ const confirmTextMap = computed(() => ({
   review: '确认标记「' + confirmState.feedback?.std_name + '」异议为已处理？（不改分，仅留痕）',
   'bad_case': '确认标「' + confirmState.feedback?.std_name + '」异议为 bad case？（沉淀为评测素材）',
   publish: '确认为该反馈所属报告执行发布？（发布后考生可见最终报告）',
-  suggestion_review: '确认标记用户「' + confirmState.suggestion?.username + '」的意见反馈为已处理？（reviewed + 处理留痕）'
+  suggestion_review: '确认标记用户「' + confirmState.suggestion?.username + '」的意见反馈为已处理？（reviewed + 处理留痕）',
+  eval_delete: '确认删除 ' + (confirmState.deleteIds.length === 1 ? '这 1 条' : '所选 ' + confirmState.deleteIds.length + ' 条')
+    + '评测运行历史？删除后不可恢复（仅清运行记录，不动业务数据）。'
 }))
 
 async function onConfirm() {
   const meta = CONFIRM_META[confirmState.kind]
   const target = confirmState.kind === 'suggestion_review' ? confirmState.suggestion : confirmState.feedback
   confirmState.show = false
-  if (!meta || !target) return
+  // eval_delete 目标在 confirmState.deleteIds，不走 feedback/suggestion 实体
+  if (!meta || (confirmState.kind !== 'eval_delete' && !target)) return
   try {
     await meta.act(target)
-    toast(meta.ok)
-    await meta.reload()
+    if (meta.ok) toast(meta.ok)
+    if (meta.reload) await meta.reload()
   } catch (e) {
     toast(errMsg(e, '操作失败'), 'error')
   }
