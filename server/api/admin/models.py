@@ -84,17 +84,26 @@ def get_aggregate_progress(position_id: str) -> dict:
 
 @router.get("/positions/{position_id}/model")
 def get_current_model(position_id: str) -> dict:
-    """当前生效模型：draft/stalled 优先，否则最新 confirmed。无则 404。
+    """当前生效模型：draft/stalled（新于最新 confirmed 版的）优先，否则最新 confirmed。无则 404。
 
     §8.5 读侧合并：draft/stalled 时附 evidence_exclusion active 行回各 item 的
     evidence（每条含 excluded: true + reason/excluded_by/excluded_at，前端灰显/
     恢复）；confirmed 返回入库快照不合并（快照存库前已剥离，天然不含排除条目）。
     excluded 标记是读取时实时合并的当期状态、非版本历史快照（历史以表内审计列为准）。
+
+    「当前」口径（2026-09-09 修正，SSOT §8.6）：draft/stalled 仅当其版本高于该岗位
+    最新 confirmed 版时才算待处理——被后续 confirm 取代的旧 draft/stalled 行（死
+    草稿）不再遮蔽 confirmed。候选侧 (assessment) 的「最新 confirmed」口径不受影响。
     """
     conn = get_conn()
     row = conn.execute(
         "SELECT model_id, version, status, model_json, created_at FROM competency_model"
-        " WHERE position_id=? ORDER BY "
+        " WHERE position_id=?"
+        " AND (status='confirmed'"
+        "      OR version > (SELECT COALESCE(MAX(version),0) FROM competency_model m2"
+        "                   WHERE m2.position_id=competency_model.position_id"
+        "                   AND m2.status='confirmed'))"
+        " ORDER BY "
         "   CASE status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, version DESC LIMIT 1",
         (position_id,),
     ).fetchone()
@@ -481,9 +490,15 @@ _AGG_LATEST_WHERE = (
     " OR (a2.created_at = at.created_at AND a2.rowid > at.rowid)))"
 )
 
-# 最新模型优先序：stalled > draft > confirmed（与 GET /positions/{id}/model 同口径）
+# 最新模型优先序：stalled > draft > confirmed（与 GET /positions/{id}/model 同口径，
+# 2026-09-09 修正：draft/stalled 须新于该岗位最新 confirmed 版——被 confirm 取代的
+# 死草稿不夺取「最新」资格，confirmed 行照常可见）
 _MODEL_LATEST_ROW = (
     "SELECT model_id, version, status FROM competency_model WHERE position_id=?"
+    " AND (status='confirmed'"
+    "      OR version > (SELECT COALESCE(MAX(version),0) FROM competency_model m2"
+    "                   WHERE m2.position_id=competency_model.position_id"
+    "                   AND m2.status='confirmed'))"
     " ORDER BY CASE status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,"
     " version DESC LIMIT 1"
 )
@@ -512,19 +527,28 @@ def list_aggregate_tasks(page: int = 1, page_size: int = 20,
     has_model = " EXISTS (SELECT 1 FROM competency_model m WHERE m.position_id=p.position_id)"
     has_task = " EXISTS (SELECT 1 FROM aggregate_task at2 WHERE at2.position_id=p.position_id)"
     if model_status in ("draft", "confirmed", "stalled"):
-        # 最新模型命中筛选状态（与 _MODEL_LATEST_ROW 的 ORDER BY 完全镜像：「状态
-        # 优先序 stalled>draft>confirmed 先分组、组内 version/rowid 取新」——低优先
-        # 序状态的高版本不夺取最新资格）。m 合格 ⇔ 不存在排序更前的 m2。
+        # 最新模型命中筛选状态（与 _MODEL_LATEST_ROW 完全镜像，2026-09-09 同口径修正：
+        # 候选行限定「confirmed 或新于最新 confirmed 版」，死草稿/被超越的 stalled 行
+        # 不参与夺取「最新」资格；组内序不变——状态优先序先分组、version/rowid 取新，
+        # m 合格 ⇔ 限定集内不存在排序更前的 m2）
         where.append(
             " EXISTS (SELECT 1 FROM competency_model m WHERE m.position_id=p.position_id"
-            f" AND m.status=? AND NOT EXISTS ("
+            f" AND m.status=?"
+            " AND (m.status='confirmed'"
+            "      OR m.version > (SELECT COALESCE(MAX(version),0) FROM competency_model mc"
+            "                      WHERE mc.position_id=m.position_id AND mc.status='confirmed'))"
+            " AND NOT EXISTS ("
             "   SELECT 1 FROM competency_model m2 WHERE m2.position_id=m.position_id"
+            "   AND (m2.status='confirmed'"
+            "        OR m2.version > (SELECT COALESCE(MAX(version),0) FROM competency_model mc2"
+            "                        WHERE mc2.position_id=m2.position_id"
+            "                        AND mc2.status='confirmed'))"
             "   AND ((CASE m2.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
             "        < CASE m.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END)"
             "    OR (CASE m2.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
             "        = CASE m.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
             "        AND (m2.version > m.version"
-            "            OR (m2.version = m.version AND m2.rowid > m.rowid))))))"
+            "            OR (m2.version = m.version AND m2.rowid > m.rowid)))))) "
         )
         params.append(model_status)
     if task_status in ("RUNNING", "SUCCEEDED", "FAILED"):
@@ -598,16 +622,38 @@ def list_aggregate_tasks(page: int = 1, page_size: int = 20,
             d["task"] = None
         items.append(d)
 
-    # summary（不随筛选变——KPI/徽标要的是全库口径）
+    # summary（不随筛选变——KPI/徽标要的是全库口径；2026-09-09 与「最新模型」口径
+    # 对齐：各状态计数 = 最新模型落于该状态的 active 岗位数——与筛选口径互为镜像，
+    # KPI 数字与列表/筛选自洽，被 confirm 取代的死草稿不再计入草稿数）
     def _count_positions(sql: str) -> int:
         return conn.execute(sql).fetchone()["c"]
+    # 「最新模型为 <status>」的 active 岗位计数（与 _MODEL_LATEST_ROW 同口径的岗位级
+    # 聚合；EXISTS 形式供 COUNT 使用）
+    def _latest_model_status_count(status_val: str) -> int:
+        return _count_positions(
+            "SELECT COUNT(*) c FROM position p WHERE p.status='active'"
+            " AND EXISTS (SELECT 1 FROM competency_model m WHERE m.position_id=p.position_id"
+            f" AND m.status='{status_val}'"
+            " AND (m.status='confirmed'"
+            "      OR m.version > (SELECT COALESCE(MAX(version),0) FROM competency_model mc"
+            "                      WHERE mc.position_id=m.position_id AND mc.status='confirmed'))"
+            " AND NOT EXISTS ("
+            "   SELECT 1 FROM competency_model m2 WHERE m2.position_id=m.position_id"
+            "   AND (m2.status='confirmed'"
+            "        OR m2.version > (SELECT COALESCE(MAX(version),0) FROM competency_model mc2"
+            "                        WHERE mc2.position_id=m2.position_id"
+            "                        AND mc2.status='confirmed'))"
+            "   AND ((CASE m2.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
+            "        < CASE m.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END)"
+            "    OR (CASE m2.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
+            "        = CASE m.status WHEN 'stalled' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END"
+            "        AND (m2.version > m.version"
+            "            OR (m2.version = m.version AND m2.rowid > m.rowid))))))"
+        )
     summary = {
-        "draft_positions": _count_positions(
-            "SELECT COUNT(DISTINCT position_id) c FROM competency_model WHERE status='draft'"),
-        "confirmed_positions": _count_positions(
-            "SELECT COUNT(DISTINCT position_id) c FROM competency_model WHERE status='confirmed'"),
-        "stalled_positions": _count_positions(
-            "SELECT COUNT(DISTINCT position_id) c FROM competency_model WHERE status='stalled'"),
+        "draft_positions": _latest_model_status_count("draft"),
+        "confirmed_positions": _latest_model_status_count("confirmed"),
+        "stalled_positions": _latest_model_status_count("stalled"),
         "running_tasks": _count_positions(
             "SELECT COUNT(*) c FROM aggregate_task WHERE status='RUNNING'"),
     }
