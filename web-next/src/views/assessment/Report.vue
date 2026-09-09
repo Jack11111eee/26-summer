@@ -6,7 +6,9 @@
       <!-- 生成中 / 失败 -->
       <div v-if="phase === 'generating'" class="generating">
         <p class="serif">正在生成你的测评报告…</p>
-        <p class="field-hint">通常需要数十秒；生成完成后本页会自动展示。</p>
+        <!-- §十九：前台轮询到点只停本页刷新，后台仍在生成——提示切换，不伪称失败 -->
+        <p v-if="!pollStopped" class="field-hint">通常需要数十秒；生成完成后本页会自动展示。</p>
+        <p v-else class="field-hint">报告仍在生成中（后台任务未超时，服务端看门狗兜底 60 分钟，并非失败）。本页已暂停自动刷新，可稍后回到本页查看；生成完成后会自动展示结果。</p>
         <span class="dot" style="margin: 18px auto 0; display: block; width: 7px; height: 7px"></span>
       </div>
 
@@ -248,6 +250,8 @@
 <script setup>
 // 报告页：bootstrap（GET by-session；404→POST 触发→3s 轮询，上限 40）→ 五段渲染。
 // 雷达为手写 SVG（required 虚线轮廓 vs actual 填充），无外部图表依赖。
+// 轮询健康度（临时讨论稿 §十九，2026-09-09）：到上限只停本页刷新不伪称失败、
+// 防请求重叠（pollBusy）、防过期响应覆盖新状态（pollGen 代数核对）、401/403 停轮询给真实原因。
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { assessment, errMsg } from '../../api'
@@ -273,6 +277,9 @@ const POLL_MS = 3000
 const MAX_POLLS = 40
 let pollTimer = null
 let polls = 0
+let pollBusy = false // in-flight 守卫：上一 tick 未返回则跳过本次，防请求重叠
+let pollGen = 0 // 轮询代数：每次 startPoll 递增，过期代次的响应直接丢弃
+const pollStopped = ref(false) // 前台已停止轮询（后台仍在生成）：generating 分支据它显示补充提示
 
 // ---- 雷达几何 ----
 const RADAR_W = 460
@@ -461,16 +468,23 @@ async function regenerate() {
 
 function startPoll() {
   polls = 0
+  pollStopped.value = false
+  pollBusy = false
+  const gen = ++pollGen
   pollTimer = setInterval(async () => {
     polls++
     if (polls > MAX_POLLS) {
+      // §十九：前台采样到点只停本页刷新——后台任务未超时（服务端看门狗兜底），不伪称失败
       stopPoll()
-      phase.value = 'failed'
-      failText.value = '生成超时（超过 2 分钟），可点击重新生成'
+      pollStopped.value = true
       return
     }
+    if (pollBusy) return // §十九 防重叠：上一 tick 请求在途，跳过本次
+    pollBusy = true
     try {
       const { data } = await assessment.getReportBySession(sessionId)
+      // §十九 防过期覆盖：本代已被 stopPoll+重启（代数不匹配）或 phase 已离开 generating → 丢弃本次结果
+      if (gen !== pollGen || phase.value !== 'generating') return
       if (data.report_status === 'GENERATING') return
       stopPoll()
       if (data.report_status === 'FAILED') {
@@ -480,7 +494,18 @@ function startPoll() {
       }
       report.value = data
       phase.value = 'ready'
-    } catch { /* 404（尚未写行）→ 继续轮询 */ }
+    } catch (e) {
+      // §十九 区分错误：401/403 停轮询并给真实原因（这才是真失败）；
+      // 404（尚未写行）、无 response 的网络抖动、5xx → 继续轮询，是否失败以服务端任务状态为准
+      if (e?.response?.status === 401 || e?.response?.status === 403) {
+        stopPoll()
+        phase.value = 'failed'
+        failText.value = e?.response?.status === 401 ? '登录已失效，请重新登录后查看' : '当前账号无权限查看该报告'
+        return
+      }
+    } finally {
+      if (gen === pollGen) pollBusy = false // 旧代请求不碰新一代的守卫位
+    }
   }, POLL_MS)
 }
 
