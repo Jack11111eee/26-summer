@@ -12,7 +12,7 @@ import json
 
 from .. import config
 from ..db import get_conn
-from .aggregation import aggregate_session_scores
+from .aggregation import aggregate_session_scores, gate_conclusion
 from .llm import call_llm_json
 from .pipeline import new_id, now_iso
 from .prompts.report import REPORT_SYSTEM, report_prompt
@@ -295,7 +295,10 @@ def generate_report(session_id: str) -> dict:
             "actual": [it["actual_level"] for it in radar_items],
         }
 
-        gate_passed = all(g["passed"] for g in agg["gate_items"]) if agg["gate_items"] else True
+        # §16.2 层 3（2026-09-09）：只有必需条件影响资格结论——major_group 组内
+        # OR、preferred 不参与、PENDING 不计满足（取代 all(passed) 逐条 AND）。
+        conclusion = gate_conclusion(agg["gate_items"])
+        gate_passed = conclusion["passed"] if agg["gate_items"] else True
 
         # LLM 生成优劣/建议文字（绑证据）；trace_out 拿 report LLM 调 trace_id（供 trace_link）
         item_ids = [s["item_id"] for s in agg["strengths"]] + [w["item_id"] for w in agg["weaknesses"]]
@@ -316,6 +319,7 @@ def generate_report(session_id: str) -> dict:
             "total_score": agg["total_score"],
             "gate_passed": gate_passed,
             "gate_details": agg["gate_items"],
+            "gate_summary": conclusion,
             "radar_data": radar_data,
             "item_details": [
                 # score=None（UNMEASURED/reference）保持 None——「无结果」而非 0
