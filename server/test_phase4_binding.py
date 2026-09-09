@@ -1,7 +1,7 @@
 """Phase 4 题库版本绑定测试（REF-2.5 / REF-3.4——SSOT §9.2「有效题目 = active 且 model/version 匹配」）。
 
-- 落库绑定：generate_question_bank 每行写 model_id/model_version/item_id/rubric_version='v1'，
-  measurement_target/evidence_requirement 留 NULL
+- 落库绑定：generate_question_bank 每行写 model_id/model_version/item_id/rubric_version='v2'
+  + 五测量字段非空（§9.4 契约第 1 条，2026-09-09 生效；v1 时代的「测量列留 NULL」作废）
 - 判重键升级：v1 生成后 v2（新 model_id + version=2）生成不因 v1 active 行跳过
 - 消费侧：v2 未生成题库时 readiness 返回 QUESTION_BANK_INCOMPLETE；selection 只取版本匹配行
 
@@ -64,8 +64,9 @@ def _seed_position() -> str:
 def _seed_model(pid: str, version: int) -> tuple[str, dict]:
     """建 confirmed competency_model + competency_item，返回 (mid, {(std_name,category): item_id})。
 
-    Python(weight>10% → 3 题) + 沟通能力(2 题) = 5 题；后端开发经验(experience) 不生成
-    题（SSOT §9.1 2026-09-07——exp/qual 只走表单链），保留在模型中验证跳过行为。
+    Python(required_level=5 → 3 题，§17 2026-09-09 修订：hard 档与 weight 解耦)
+    + 沟通能力(2 题) = 5 题；后端开发经验(experience) 不生成题（SSOT §9.1
+    2026-09-07——exp/qual 只走表单链），保留在模型中验证跳过行为。
     """
     conn = get_conn()
     mid = new_id("cm")
@@ -88,7 +89,8 @@ def _seed_model(pid: str, version: int) -> tuple[str, dict]:
         conn.execute(
             "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
             " importance, weight, gate) VALUES(?,?,?,?,?,?,?,?)",
-            (item_id, mid, it["std_name"], it["category"], 3, it["importance"], it["weight"], 0),
+            (item_id, mid, it["std_name"], it["category"],
+             5 if it["category"] == "hard_skill" else 3, it["importance"], it["weight"], 0),
         )
     conn.commit()
     conn.close()
@@ -96,7 +98,9 @@ def _seed_model(pid: str, version: int) -> tuple[str, dict]:
 
 
 def test_generate_writes_binding_columns():
-    """REF-2.5：落库每行写 model_id/model_version/item_id/rubric_version='v1'，证据列留 NULL。"""
+    """REF-2.5：落库每行写 model_id/model_version/item_id/rubric_version + 五测量
+    字段（§9.4 契约第 1 条，2026-09-09：新契约生效——rubric_version='v2'、测量
+    字段由代码生成非空；旧「留 NULL」断言随契约生效作废）。"""
     pid = _seed_position()
     mid, items_by_key = _seed_model(pid, 1)
     generate_question_bank(pid, mid)
@@ -111,9 +115,12 @@ def test_generate_writes_binding_columns():
         expected_item_id = items_by_key[(r["std_name"], r["category"])]
         assert r["item_id"] == expected_item_id, \
             f"item_id 未绑定（{r['std_name']}/{r['category']}）: {r['item_id']} != {expected_item_id}"
-        assert r["rubric_version"] == "v1", f"rubric_version 应为 'v1': {r['std_name']}"
-        assert r["measurement_target"] is None, f"measurement_target 应留 NULL: {r['std_name']}"
-        assert r["evidence_requirement"] is None, f"evidence_requirement 应留 NULL: {r['std_name']}"
+        assert r["rubric_version"] == "v2", \
+            f"rubric_version 应为 'v2'（§9.4 契约 2026-09-09）: {r['std_name']}"
+        assert r["measurement_target"], f"measurement_target 非空: {r['std_name']}"
+        assert r["evidence_requirement"], f"evidence_requirement 非空: {r['std_name']}"
+        assert r["observable_level_max"] in (3, 4, 5), r["observable_level_max"]
+        assert r["observable_level_min"] in (2, 3, 4), r["observable_level_min"]
 
 
 def test_v2_generation_not_skipped_by_v1():
