@@ -48,7 +48,16 @@ export const SCORE_STATE_LABELS = {
   NOT_MEASURED: '未纳入计分',
   IMPUTED_LOW: '按低档补算',
   IMPUTED_DEFAULT: '按默认档补算',
-  OBSERVED: '有观测数据'
+  OBSERVED: '有观测数据',
+  // 评分/排除态枚举（讨论稿 §十八 2026-09-09：逐题回顾终评状态展示 + missing_reasons 对象渲染）
+  SCORED: '已评分',
+  REFUSED: '拒答',
+  INVALIDATED: '题库无效',
+  INCOMPLETE: '回答不完整',
+  INSUFFICIENT_EVIDENCE: '证据不足',
+  NOT_ADMINISTERED: '未实际出题',
+  // 聚合 missing_warnings 已知 reason 文案（aggregation.py 直写中文 reason，原样成 key）
+  'qualification 缺失（不补算）': '资格项缺失（不补算）'
 }
 
 export function categoryLabel(c) {
