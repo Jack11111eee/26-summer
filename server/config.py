@@ -99,6 +99,13 @@ MAX_SUGGESTION_LENGTH = 2000
 # 2026-09-06 转正集中到 config（值不变，SSOT §14）。
 ADJUDICATE_CONFLICT_THRESHOLD = 2
 
+# ---- 模块三·报告完整性门控（SSOT §20.1/§20.3/§31-3，U4 2026-09-09）----
+# 未测量比例阈值：正式范围内未测量项占比 > 0.2 → 无完整综合分（total_score=None）+
+# PROVISIONAL + HUMAN_REVIEW_REQUIRED（review_reason_code=UNMEASURED_RATIO_HIGH）。
+# 值沿用 2026-09-05 关口 A 裁决 0.2；语义由 IMPUTED 补算比例改为未测量比例
+# （§20.1 作废比例补算——旧 aggregation.py IMPUTE_RATIO_THRESHOLD 更名承接）。
+UNMEASURED_RATIO_THRESHOLD = 0.2
+
 # ---- 模块一·消歧/归岗（SSOT §31-4）----
 # 词典候选 top10 匹配阈值：已裁决 0.5（difflib ratio + 子串包含，2026-09-06），
 # 由 services/pipeline._dict_candidates 消费；清洗标题词表不启用（见上方摘除说明）。

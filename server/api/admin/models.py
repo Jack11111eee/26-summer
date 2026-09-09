@@ -28,6 +28,9 @@ class ModelItem(BaseModel):
     level_reason: str | None = None
     occurrence: dict = {}
     evidence: list = []
+    # 测评范围（§20.1.A，U4 数据面）：1=正式计分 / 0=reference 背景资料；None → 存 1
+    # （存量默认正式范围）。编辑白名单最小接入——管理 UI/审核页接线为后续工单。
+    in_scope: int | None = Field(default=None, ge=0, le=1)
 
 
 class ModelUpdateBody(BaseModel):
@@ -171,14 +174,16 @@ def update_model(model_id: str, body: ModelUpdateBody) -> dict:
     # §8.5：两处落库均不含 excluded 条目）
     conn.execute("DELETE FROM competency_item WHERE model_id=?", (model_id,))
     for it in stored_items:
+        # in_scope（§20.1.A）：None → 1（默认正式范围；显式 0 = reference 背景资料）
         conn.execute(
             "INSERT INTO competency_item(item_id, model_id, std_name, category, required_level,"
-            " importance, weight, years, gate, level_reason, occurrence_json, evidence_json)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            " importance, weight, years, gate, level_reason, occurrence_json, evidence_json, in_scope)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (new_id("c"), model_id, it["std_name"], it["category"], it["required_level"],
              it["importance"], it["weight"], it["years"], it["gate"],
              it["level_reason"], json.dumps(it["occurrence"]),
-             json.dumps(it["evidence"], ensure_ascii=False)),
+             json.dumps(it["evidence"], ensure_ascii=False),
+             1 if it.get("in_scope") in (None, 1) else 0),
         )
     conn.commit()
     return {"model_id": model_id, "status": "draft", "saved": True}
