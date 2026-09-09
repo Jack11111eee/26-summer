@@ -253,6 +253,10 @@ def aggregate_session_scores(session_id: str) -> dict:
             gate_items.append({
                 "item_id": item_id, "std_name": item["std_name"],
                 "passed": passed, "reason": reason,
+                # 展示元数据透传（讨论稿 §四 2026-09-09）：gate_details 带 category，
+                # 供报告页资格折叠分组（旧报告缺列时前端用 item_details 兜底）。
+                # 仅透传不改聚合语义。
+                "category": item["category"],
                 "facet_key": item.get("facet_key"),
             })
             item_scores.append({
