@@ -88,7 +88,12 @@ export const adminPositions = {
   reviewPosition: (positionId, action) => api.post(`/admin/positions/${positionId}/review`, { action }),
   listOrphanJds: (params) => api.get('/admin/jds/orphan', { params }),
   reassignJd: (jdId, positionId) => api.post(`/admin/jds/${jdId}/reassign`, { position_id: positionId }),
-  positionOptions: () => api.get('/admin/positions/options'),
+  // 不传 params = 全量（详情页名称查找语义）；改归/合并目标下拉传 { status: 'active' }
+  positionOptions: (params) => api.get('/admin/positions/options', { params }),
+  // 岗位生命周期（SSOT §8，2026-09-09）：active⇄inactive 手动下架/上架
+  setPositionStatus: (positionId, status) => api.post(`/admin/positions/${positionId}/status`, { status }),
+  // 岗位合并（SSOT §8，2026-09-09）：source 的 JD+别名全量并入 target、source 删除；响应含 moved_jds/moved_aliases
+  mergePosition: (sourceId, targetId) => api.post(`/admin/positions/${sourceId}/merge`, { target_id: targetId }),
   listJds: (positionId) => api.get(`/admin/positions/${positionId}/jds`),
   jdDetail: (jdId) => api.get(`/admin/jds/${jdId}`),
   reparseJd: (jdId) => api.post(`/admin/jds/${jdId}/reparse`),

@@ -23,8 +23,8 @@
         <table>
           <thead>
             <tr>
-              <th style="width: 34%">job_title</th><th style="width: 16%">company</th><th style="width: 10%">source</th><th style="width: 12%">status</th>
-              <th style="width: 13%">created_at</th><th style="width: 15%; text-align: right">action</th>
+              <th style="width: 34%">job_title</th><th style="width: 14%">company</th><th style="width: 10%">source</th><th style="width: 12%">status</th>
+              <th style="width: 13%">created_at</th><th style="width: 17%; text-align: left">action</th>
             </tr>
           </thead>
           <tbody>
@@ -40,9 +40,18 @@
               </td>
               <td>{{ formatTime(j.created_at) }}</td>
               <td>
-                <div class="row-actions">
+                <div class="row-actions" style="justify-content: flex-start; flex-wrap: wrap; gap: 6px">
                   <button class="row-btn" @click="openArchive(j)">工序留档</button>
                   <button v-if="j.status === 'failed'" class="row-btn row-btn-solid" :disabled="acting" @click="reparse(j)">重新解析</button>
+                  <select
+                    v-if="reassignOptions.length"
+                    class="select"
+                    :value="reassignSel[j.jd_id] || ''"
+                    @change="onReassign(j, $event)"
+                  >
+                    <option value="" disabled>改归岗位…</option>
+                    <option v-for="o in reassignOptions" :key="o.position_id" :value="o.position_id">{{ o.name }}</option>
+                  </select>
                 </div>
               </td>
             </tr>
@@ -153,6 +162,9 @@ const importing = ref(false)
 
 const jds = ref([])
 const positionName = ref('')
+// 行内改归（SSOT §8，2026-09-09）：目标岗位候选（active 且非本岗位）
+const reassignOptions = ref([])
+const reassignSel = reactive({})
 
 const importState = reactive({
   show: false, mode: 'paste', jdText: '', company: '',
@@ -170,6 +182,14 @@ const canImport = computed(() =>
 
 let pollTimer = null
 
+// 行内改归目标候选：进页拉一次；加载失败不阻断列表（select 不渲染）
+async function loadReassignOptions() {
+  try {
+    const { data } = await adminPositions.positionOptions({ status: 'active' })
+    reassignOptions.value = data.filter((o) => o.position_id !== positionId)
+  } catch { /* 候选加载失败不阻断 JD 清单 */ }
+}
+
 async function loadName() {
   try {
     const { data } = await adminPositions.positionOptions()
@@ -186,7 +206,7 @@ async function loadJds() {
 async function init() {
   loading.value = true
   try {
-    await Promise.all([loadName(), loadJds()])
+    await Promise.all([loadName(), loadJds(), loadReassignOptions()])
     loaded.value = true
     schedulePoll()
   } catch (e) {
@@ -273,6 +293,23 @@ async function reparse(j) {
     toast(errMsg(e, '重新解析失败'), 'error')
   } finally {
     acting.value = false
+  }
+}
+
+// 行内改归（SSOT §8，2026-09-09）：已归属 JD 改归到 active 岗位（排除本岗位）。
+// 本岗位最后一条被改走时不做联动（空巢下架由管理员决定，by-design）。
+async function onReassign(j, e) {
+  const target = e.target.value
+  if (!target) return
+  try {
+    await adminPositions.reassignJd(j.jd_id, target)
+    toast('JD 已改归')
+    delete reassignSel[j.jd_id]
+    e.target.value = ''
+    await loadJds()
+  } catch (err) {
+    toast(errMsg(err, '改归失败'), 'error')
+    e.target.value = ''
   }
 }
 
