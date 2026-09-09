@@ -391,6 +391,71 @@ def test_list_endpoint_latest_model_order():
     assert not any(x["position_id"] == pid for x in rdf["items"])
 
 
+def test_list_endpoint_superseded_draft_shadow():
+    """死草稿遮蔽（2026-09-09 修正口径）：被 confirm 取代的旧 draft 行不夺取
+    「最新模型」资格——行内/筛选/summary 三处均按 confirmed 计（修前真实库形态：
+    KPI 6 个已确认岗位、筛选 confirmed 命中 0）。变体：新草稿（版本高于最新
+    confirmed）照常压过 confirmed 入草稿侧。
+    """
+    client, headers = _client_and_login()
+    # 岗 1：v1 draft → v2 confirm（confirm 不动旧草稿行 → v1 成死草稿）
+    pid_dead = _seed_position(name="死草稿遮蔽岗DD")
+    _seed_parsed_jd(pid_dead)
+    # 岗 2：v1 draft → v2 confirm → v3 新聚合（新草稿）
+    pid_new = _seed_position(name="新草稿压过岗NN")
+    _seed_parsed_jd(pid_new)
+
+    conn = get_conn()
+    for pid, rows in [(pid_dead, [(1, "draft"), (2, "confirmed")]),
+                      (pid_new, [(1, "draft"), (2, "confirmed"), (3, "draft")])]:
+        for version, status_val in rows:
+            conn.execute(
+                "INSERT INTO competency_model(model_id, position_id, version, status,"
+                " model_json, created_at) VALUES(?,?,?,?,?,?)",
+                (new_id("cm"), pid, version, status_val,
+                 json.dumps({"items": []}), now_iso()))
+    conn.commit()
+    conn.close()
+
+    # 行内取数：死草稿岗显示 confirmed v2；新草稿岗显示 draft v3
+    r = client.get("/api/admin/aggregate-tasks", headers=headers,
+                   params={"q": "DD", "page_size": 50}).json()
+    row_dead = next((x for x in r["items"] if x["position_id"] == pid_dead), None)
+    assert row_dead is not None
+    assert row_dead["model"]["status"] == "confirmed"
+    assert row_dead["model"]["version"] == 2
+
+    r = client.get("/api/admin/aggregate-tasks", headers=headers,
+                   params={"q": "NN", "page_size": 50}).json()
+    row_new = next((x for x in r["items"] if x["position_id"] == pid_new), None)
+    assert row_new is not None
+    assert row_new["model"]["status"] == "draft"
+    assert row_new["model"]["version"] == 3
+
+    # 筛选：confirmed 命中死草稿岗（本 bug 修前命中 0）；draft 不命中死草稿岗
+    rc = client.get("/api/admin/aggregate-tasks", headers=headers,
+                    params={"q": "DD", "model_status": "confirmed", "page_size": 50}).json()
+    assert any(x["position_id"] == pid_dead for x in rc["items"])
+    rd = client.get("/api/admin/aggregate-tasks", headers=headers,
+                    params={"q": "DD", "model_status": "draft", "page_size": 50}).json()
+    assert not any(x["position_id"] == pid_dead for x in rd["items"])
+    # 新草稿岗（v3 > 最新 confirmed v2）在 draft 筛选命中——压过 confirmed 不回落
+    rn = client.get("/api/admin/aggregate-tasks", headers=headers,
+                    params={"q": "NN", "model_status": "draft", "page_size": 50}).json()
+    assert any(x["position_id"] == pid_new for x in rn["items"])
+
+    # summary 与筛选口径互为镜像：无 q 时 total == summary 对应计数（修前两口径打架）
+    for st, key in [("confirmed", "confirmed_positions"), ("draft", "draft_positions")]:
+        cur = client.get("/api/admin/aggregate-tasks", headers=headers,
+                         params={"model_status": st, "page_size": 200}).json()
+        assert cur["total"] == cur["summary"][key]
+
+    # GET /positions/{id}/model 同口径：死草稿岗的当前模型 = confirmed v2
+    r = client.get(f"/api/admin/positions/{pid_dead}/model", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["version"] == 2 and r.json()["status"] == "confirmed"
+
+
 def test_list_endpoint_requires_admin():
     """/admin/aggregate-tasks 鉴权：无 token 401。"""
     from server.main import app
