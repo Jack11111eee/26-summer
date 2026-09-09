@@ -541,11 +541,19 @@ def _existing_score_rows(conn, session_id: str) -> int:
     ).fetchone()["c"]
 
 
-def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
+def score_session(session_id: str, *, allow_completed: bool = False,
+                  progress_cb=None) -> dict:
     """对会话内所有已回答题目打分并落 question_score（score_state 生产态）。
 
     评分批次（SSOT §20.2.A，U6 2026-09-09）：每次成功落库生成 batch_id = new_id("sb")，
     全部 INSERT 行携带——报告经 report_json.scoring_batch_id 绑定批次（归属一致）。
+
+    progress_cb（§21.1 生成进度透传，2026-09-09）：可选回调 (done, total)——
+    循环前先报告 (0, len(answered))，之后每题顶部报告 (i, total)（i = 正在评的
+    第几题，含拒答/无 item 映射的快行；total 单源于本函数的 answered 计数）。
+    约束承诺：cb 调用期间本函数不持写事务（循环期 conn 只读、写库统一在末尾
+    单事务），cb 实现方负责吞掉自身异常（不得写 question_score）——异常吞噬
+    职责在 cb 实现方，本层不另包裹。默认 None 零影响。
 
     completed 护栏（REF-8.2 + §20.2.A 历史证据链保护，U6 2026-09-09）：
     - 会话 completed 且已有非 gate 评分行 → **一律拒绝重评分**（ValueError），即使
@@ -609,7 +617,12 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
     # 1) 内存计算（含 LLM 调用，此时本 conn 未持写事务）
     pending_rows: list[tuple] = []
     trace_links: list[tuple[str, str, str]] = []  # (trace_id, score_id, question_id)
-    for q in answered:
+    # 进度开评一报（total 在此单源定死——调用方不另行 COUNT，防谓词漂移）
+    if progress_cb is not None:
+        progress_cb(0, len(answered))
+    for i, q in enumerate(answered, 1):
+        if progress_cb is not None:
+            progress_cb(i, len(answered))
         # item_id 取值：优先实例列（02-02 v2.0 item 绑定），NULL 回退 competency_item 查询（过渡）
         item_id = q["item_id"] or _find_item_id(session["model_id"], q["std_name"], q["category"])
         if item_id is None:
