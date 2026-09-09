@@ -257,7 +257,11 @@ def list_sessions(page: int = 1, page_size: int = 20,
         "SELECT s.session_id, s.position_id, p.name AS position_name, s.model_version,"
         " s.status, s.phase, s.created_at, s.ended_at, s.abandoned_at,"
         " (SELECT COUNT(*) FROM assessment_question aq"
-        "  WHERE aq.session_id=s.session_id AND aq.answered_at IS NOT NULL) AS answered_count"
+        "  WHERE aq.session_id=s.session_id AND aq.answered_at IS NOT NULL) AS answered_count,"
+        # 最新报告行 total_score（§20.3 可 NULL —— 无综合分不以 0 冒充，历史行显示
+        # 「未形成综合分」；无报告行（未生成/作废）自然 NULL）
+        " (SELECT r.total_score FROM report r WHERE r.session_id=s.session_id"
+        "  ORDER BY r.created_at DESC, r.version DESC LIMIT 1) AS total_score"
         f" FROM assessment_session s LEFT JOIN position p ON p.position_id=s.position_id"
         f" WHERE {where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
         [*params, page_size, offset],

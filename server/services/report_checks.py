@@ -12,7 +12,9 @@ HIRING_REDLINE_WORDS = ("建议录用", "不予录用", "排名第", "推荐淘�
 def _run_consistency_checks(agg: dict, session_id: str, report_text: str = "") -> list[str]:
     """七项一致性校验：全过返回 []，任一失败返回错误字符串列表。
 
-    ① 数字可重算（重算 total_score 与 agg["total_score"] 一致，浮点差 < 0.01）
+    ① 数字可重算（重算 total_score 与 agg["total_score"] 一致，浮点差 < 0.01；
+      total_score=None（§20.3 完整性门控无综合分）→ 跳过本项——无值无可重算，
+      校验语义是「有总分时重算必等」，不虚构 0 分参与比较）
     ② weight 总和一致（agg 内 item weight 之和 == 模型快照 weight 之和，含 gate）
     ③ 引用 question/message 属于该 session（question_score 的 question_id 反查
        assessment_question 必须同 session）
@@ -25,10 +27,11 @@ def _run_consistency_checks(agg: dict, session_id: str, report_text: str = "") -
     errors: list[str] = []
     conn = get_conn()
 
-    # ① 数字可重算
-    recomputed = round(sum(it.get("score") or 0.0 for it in agg.get("item_scores", [])), 2)
-    if abs(recomputed - (agg.get("total_score") or 0.0)) >= 0.01:
-        errors.append(f"总分不可重算: agg={agg.get('total_score')} recomputed={recomputed}")
+    # ① 数字可重算（total_score=None → 无综合分报告跳过——不冒充 0 分）
+    if agg.get("total_score") is not None:
+        recomputed = round(sum(it.get("score") or 0.0 for it in agg.get("item_scores", [])), 2)
+        if abs(recomputed - (agg.get("total_score") or 0.0)) >= 0.01:
+            errors.append(f"总分不可重算: agg={agg.get('total_score')} recomputed={recomputed}")
 
     # ② weight 总和一致（agg vs 模型快照，含 gate）
     agg_weight = round(sum(it.get("weight") or 0.0 for it in agg.get("item_scores", [])), 4)
@@ -82,6 +85,13 @@ def _run_consistency_checks(agg: dict, session_id: str, report_text: str = "") -
         agg.get("provisional") and agg.get("review_status") == "HUMAN_REVIEW_REQUIRED"
     ):
         errors.append("item 冲突 human_review 为真但顶层未标 PROVISIONAL/HUMAN_REVIEW_REQUIRED")
+    # §20.3 复核原因单列：未测量比例超阈时必须有独立 reason code，不得混进冲突/required
+    if agg.get("review_reason_code") == "UNMEASURED_RATIO_HIGH" and not (
+        agg.get("total_score") is None
+        and agg.get("provisional")
+        and agg.get("review_status") == "HUMAN_REVIEW_REQUIRED"
+    ):
+        errors.append("review_reason_code=UNMEASURED_RATIO_HIGH 但未按无综合分契约落 provisional/HUMAN_REVIEW_REQUIRED")
 
     # ⑦ 文案无录用判断表述（D-002 红线词表；report_text 由调用方序列化后传入）
     if report_text and any(w in report_text for w in HIRING_REDLINE_WORDS):

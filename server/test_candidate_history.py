@@ -633,9 +633,11 @@ def test_sweep_timeout_finalizes_via_positions():
     cp = next(e for e in evs if e["event_type"] == "SESSION_COMPLETED")
     assert gt["sequence_no"] < es["sequence_no"] < cp["sequence_no"], \
         f"GLOBAL_TIMEOUT < ENTERED_SCORING < COMPLETED，实得 {[e['event_type'] for e in evs]}"
-    # 0 分：超时收尾不产生已答题，total_score 保持 0 占位
+    # 无综合分（SSOT §20.3 U4：超时收尾不产生已答题 → 正式范围内未测量比例 1.0
+    # > 0.2 阈值 → total_score=None 完整性门控，不以 0 分冒充——旧「0 分占位」
+    # 断言随之作废）。旧报告未重算：存量行有值保留由迁移测试覆盖。
     rpt = _q("SELECT total_score FROM report WHERE session_id=?", (sid,))[0]
-    assert rpt["total_score"] == 0.0
+    assert rpt["total_score"] is None
 
 
 def test_sweep_timeout_then_create_new_session():

@@ -49,10 +49,13 @@ def _assert_report_transition(from_state: str, to_state: str) -> None:
 
 
 def _insert_report_row(conn, session_id: str, *, status: str, report_json: dict,
-                       review_status: str | None = None, total_score: float = 0.0,
+                       review_status: str | None = None, total_score: float | None = 0.0,
                        gate_passed: int = 0, report_id: str | None = None) -> str:
     """写终态 report 行：优先把 GENERATING 占位行原地转终态（复用版本，不残留占位行），
-    无占位则版本化 INSERT。返回 report_id。发布字段本计划置 NULL。"""
+    无占位则版本化 INSERT。返回 report_id。发布字段本计划置 NULL。
+
+    total_score 可 None（§20.3 完整性门控：未测量比例超阈 → 无综合分，不以 0 冒充；
+    列已迁移 NULLABLE；GENERATING/FAILED 占位由调用方写 0.0 保持兼容）。"""
     _assert_report_status(status)
     if report_id is None:
         report_id = new_id("rpt")
@@ -267,7 +270,9 @@ def generate_report(session_id: str) -> dict:
             "gate_details": agg["gate_items"],
             "radar_data": radar_data,
             "item_details": [
-                {**it, "score": round(it.get("score") or 0.0, 2)}
+                # score=None（UNMEASURED/reference）保持 None——「无结果」而非 0
+                # （§20.1 作废补算；§20.3 未测项得分为无结果）；Report.vue fmtScore(None)='—'
+                {**it, "score": round(it["score"], 2) if it.get("score") is not None else None}
                 for it in agg["item_scores"]
             ],
             "strengths": agg["strengths"],
@@ -277,6 +282,7 @@ def generate_report(session_id: str) -> dict:
             "suggestions_text": llm_out.get("suggestions_text", ""),
             "question_reviews": question_reviews,
             "review_status": agg.get("review_status"),
+            "review_reason_code": agg.get("review_reason_code"),
             "observation_status": agg.get("observation_status"),
             "provisional": agg.get("provisional", False),
             "coverage": agg.get("coverage", {}),

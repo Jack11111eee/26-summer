@@ -115,35 +115,126 @@ def test_adjudicate_conflict_lower():
     assert review is False
 
 
-def test_impute_r_math():
-    from server.services.aggregation import _impute_r
+def test_unmeasured_no_imputation():
+    """§20.1（2026-09-09 U4）：作废比例补算——_impute_r 已删除，缺失普通项标
+    UNMEASURED（无个人等级、score=None、不进总分），无 3.41 式补算值。"""
 
-    # r = Σ w_i·s_i / Σ w_i，s_i=(score−1)/4
-    r = _impute_r([{"weight": 0.5, "score": 5}, {"weight": 0.5, "score": 1}])
-    assert abs(r - 0.5) < 1e-6  # (0.5*1.0 + 0.5*0.0)/1.0 = 0.5
+    # 作废孤儿清理：_impute_r / NORMALIZE_IMPUTED / IMPUTE_RATIO_THRESHOLD 不存在
+    import server.services.aggregation as agg_mod
+    assert not hasattr(agg_mod, "_impute_r"), "§20.1 作废补算：_impute_r 应已删除"
+    assert not hasattr(agg_mod, "NORMALIZE_IMPUTED"), "补算 source 标签应已删除"
+    assert not hasattr(agg_mod, "IMPUTE_RATIO_THRESHOLD"), "旧常量应更名 UNMEASURED_RATIO_THRESHOLD（config）"
 
-    # weight 全 0 → den=0 → 不除零返回 None
-    r = _impute_r([{"weight": 0.0, "score": 5}])
-    assert r is None
-
-    # 单观察 → r = 该观察自身归一化值 = (3−1)/4 = 0.5
-    r = _impute_r([{"weight": 0.3, "score": 3}])
-    assert abs(r - 0.5) < 1e-6
-
-
-def test_impute_no_valid_observation():
-    from server.services.aggregation import _impute_r
-
-    # O=∅ → _impute_r 返回 None
-    assert _impute_r([]) is None
-
-    # 聚合层：preferred 缺失 + 无任何 SCORED → NO_VALID_OBSERVATION + HUMAN_REVIEW_REQUIRED
+    # O=∅ 聚合层：preferred 缺失 + 无任何 SCORED → NO_VALID_OBSERVATION + HUMAN_REVIEW_REQUIRED
     session_id, _ = _seed_session([
         {"std_name": "沟通能力", "category": "soft_skill", "importance": "preferred", "weight": 0.2},
     ])
     agg = aggregate_session_scores(session_id)
     assert agg["observation_status"] == "NO_VALID_OBSERVATION"
     assert agg["review_status"] == "HUMAN_REVIEW_REQUIRED"
+
+
+def test_unmeasured_missing_items_get_no_level():
+    """§20.1：11 项观测 + 286 项缺失——无任何补算行：缺失项 actual_level=None、
+    status=UNMEASURED、score=None（不是 0），不进优势/短板；已观测项等级正常。"""
+    import server.services.aggregation as agg_mod
+    from server.services.aggregation import _normalize_score
+
+    # 已测两项（Python 5 分 / 沟通 3 分）+ 未测 8 项（scope=10）→ unmeasured_ratio=0.8 > 0.2
+    items = [{"std_name": "Python", "category": "hard_skill",
+              "importance": "preferred", "weight": 0.3}]
+    items.append({"std_name": "沟通能力", "category": "soft_skill",
+                  "importance": "preferred", "weight": 0.2})
+    for i in range(8):
+        items.append({"std_name": f"未测能力{i}", "category": "hard_skill",
+                      "importance": "plus", "weight": 0.05})
+    session_id, item_ids = _seed_session(items)
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO question_score(score_id, session_id, question_id, item_id, score_final,"
+        " score_state, created_at) VALUES(?,?,?,?,?,?,?)",
+        (new_id("qs"), session_id, None, item_ids[0], 5, "SCORED", now_iso()),
+    )
+    conn.execute(
+        "INSERT INTO question_score(score_id, session_id, question_id, item_id, score_final,"
+        " score_state, created_at) VALUES(?,?,?,?,?,?,?)",
+        (new_id("qs"), session_id, None, item_ids[1], 3, "SCORED", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    agg = aggregate_session_scores(session_id)
+
+    # 无任何补算行（缺失项 actual_level 全 None——不是 3.41 式补算值）
+    missing_rows = [it for it in agg["item_scores"] if it["item_id"] in set(item_ids[2:])]
+    assert len(missing_rows) == 8
+    for it in missing_rows:
+        assert it["actual_level"] is None, "缺失项不得有个人等级（§20.1 作废补算）"
+        assert it["status"] == "UNMEASURED"
+        assert it["no_data"] is True
+        assert it["score"] is None, "未测项得分为「无结果」而非 0（§20.3）"
+
+    # 已观测项照常（等级非 None）
+    observed = {it["item_id"]: it for it in agg["item_scores"] if it["item_id"] in set(item_ids[:2])}
+    assert observed[item_ids[0]]["actual_level"] == 5
+    assert observed[item_ids[1]]["actual_level"] == 3.0
+
+    # 未测量比例门控（验收 12 核心）：0.8 > 0.2 → total_score None + 无综合分契约
+    assert agg["total_score"] is None
+    assert agg["provisional"] is True
+    assert agg["review_reason_code"] == "UNMEASURED_RATIO_HIGH"
+    assert agg["review_status"] == "HUMAN_REVIEW_REQUIRED"
+
+
+def test_unmeasured_ratio_below_threshold_score_normal():
+    """§20.3：比例 ≤ 0.2 时总分照常（仅已测项加权和——物理解释：已测项权重和 < 1，
+    总分即部分测量结果，不出 PROVISIONAL）。"""
+    items = [
+        {"std_name": "Python", "category": "hard_skill",
+         "importance": "preferred", "weight": 0.5},
+        {"std_name": "未测能力", "category": "hard_skill",
+         "importance": "plus", "weight": 0.1},
+    ]
+    session_id, item_ids = _seed_session(items)
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO question_score(score_id, session_id, question_id, item_id, score_final,"
+        " score_state, created_at) VALUES(?,?,?,?,?,?,?)",
+        (new_id("qs"), session_id, None, item_ids[0], 5, "SCORED", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    agg = aggregate_session_scores(session_id)
+    # unmeasured_ratio = 1/2 = 0.5 —— 仍超阈值；改 10 项测 9 项（0.1 ≤ 0.2）验证正常路径
+    assert agg["total_score"] is None
+    assert agg["review_reason_code"] == "UNMEASURED_RATIO_HIGH"
+
+
+def test_unmeasured_ratio_low_threshold():
+    """§20.3：10 项测 9 项（未测比例 0.1 ≤ 阈值 0.2）→ 总分照常，无综合分门控不触发。"""
+    items = [
+        {"std_name": "Python", "category": "hard_skill",
+         "importance": "preferred", "weight": 0.5},
+    ]
+    for i in range(9):
+        items.append({"std_name": f"其他能力{i}", "category": "hard_skill",
+                      "importance": "preferred", "weight": 0.05})
+    session_id, item_ids = _seed_session(items)
+    conn = get_conn()
+    for idx in range(9):  # 测前 9 项（含 Python）
+        conn.execute(
+            "INSERT INTO question_score(score_id, session_id, question_id, item_id, score_final,"
+            " score_state, created_at) VALUES(?,?,?,?,?,?,?)",
+            (new_id("qs"), session_id, None, item_ids[idx], 3, "SCORED", now_iso()),
+        )
+    conn.commit()
+    conn.close()
+    agg = aggregate_session_scores(session_id)
+    # 未测比例 = 1/10 = 0.1 ≤ 0.2 → 总分照常（仅为已测项加权和）
+    assert agg["total_score"] is not None
+    assert agg["review_reason_code"] is None
+    assert agg["provisional"] is False
+    # total = Σ(w×(lv-1)/4)×100：Python 0.5×0.5×100 + 8 项 0.05×0.5×100 = 25 + 20 = 45
+    assert abs(agg["total_score"] - 45.0) < 0.01, f"实际 {agg['total_score']}"
 
 
 def test_required_missing_provisional():

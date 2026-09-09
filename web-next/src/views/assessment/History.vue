@@ -53,7 +53,7 @@
               <span v-else-if="it.status === 'in_progress' && it.phase === 'PAUSED'" class="tb-badge">已暂停</span>
             </div>
             <p class="field-hint">
-              {{ formatTime(it.created_at) }} · 已答 {{ it.answered_count }} 题<template v-if="remainingOf(it) != null"> · 剩余约 {{ remainingOf(it) }} 分钟</template>
+              {{ formatTime(it.created_at) }} · 已答 {{ it.answered_count }} 题<template v-if="remainingOf(it) != null"> · 剩余约 {{ remainingOf(it) }} 分钟</template><template v-if="scoreText(it)"> · 综合分 {{ scoreText(it) }}</template>
             </p>
           </div>
           <div class="hist-actions">
@@ -116,6 +116,14 @@ const STATUS_FILTERS = [
 function remainingOf(it) {
   if (it.status !== 'in_progress' || it.session_elapsed_seconds == null) return null
   return Math.max(0, Math.round((40 * 60 - it.session_elapsed_seconds) / 60))
+}
+
+// 综合分文案（SSOT §20.3 无综合分契约，U4）：NULL → 「—（未形成综合分）」不以 0 冒充；
+// 仅有报告行的 completed 场展示（未生成/作废统不展示——分母语义不存在）
+function scoreText(it) {
+  if (it.status !== 'completed' || it.total_score === undefined) return ''
+  if (it.total_score == null) return '—（未形成综合分）'
+  return String(Math.round(Number(it.total_score) * 10) / 10)
 }
 
 function onFilter(v) {
