@@ -148,6 +148,7 @@ body.admin {
 
 /* 行操作：常显但偏淡，悬停所在条目后变实 */
 .admin .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.admin .row-actions .select { min-width: 0; max-width: 100%; } /* select 宽度取最宽 option，长岗位名会撑破 fixed 表格列溢出视窗；钳回列宽 */
 .admin .row-btn {
   height: 26px; padding: 0 12px; font-size: 12px; font-weight: 600; border-radius: 8px;
   border: 1px solid #d8d8d4; background: #fff; color: var(--ink-2);
