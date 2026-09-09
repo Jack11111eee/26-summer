@@ -220,7 +220,9 @@ def test_full_chain_from_jd_text():
         " WHERE position_id=? AND model_id=? ORDER BY created_at DESC LIMIT 1",
         (pid, model["model_id"]))
     assert qbt["status"] == "SUCCEEDED", qbt
-    assert qbt["done"] == qbt["total"] and qbt["total"] == 16, qbt  # 4×3 档 + 2×2 档
+    # U5a（2026-09-09）：三档条件 required_level>4（旧 weight>0.10 作废）——种子 4 个
+    # hard_skill 项 required_level=3 → 全两档：4×2 档 + 2×2 档 = 12
+    assert qbt["done"] == qbt["total"] and qbt["total"] == 12, qbt
 
     questions = _q(
         "SELECT std_name, category, difficulty, qtype FROM question_bank"
@@ -228,7 +230,8 @@ def test_full_chain_from_jd_text():
         (model["model_id"], model["version"]))
     hard_qs = [qn for qn in questions if qn["category"] == "hard_skill"]
     soft_qs = [qn for qn in questions if qn["category"] == "soft_skill"]
-    assert (len(hard_qs), len(soft_qs)) == (12, 4), questions
+    # U5a 档位规则：hard 4 项全两档（required_level=3 ≤ 4）→ 8 题；soft 2×2 档 = 4 题
+    assert (len(hard_qs), len(soft_qs)) == (8, 4), questions
     # required 项全覆盖 + 7:3 配额可行（readiness 第 4/5 项基线：hard≥7 / soft≥3）
     assert {qn["std_name"] for qn in questions} == _EXPECTED_ITEMS - {"相关工作经验"}, questions
     assert not any(qn["std_name"] == "相关工作经验" for qn in questions), "experience 不生成题（§9.1）"
