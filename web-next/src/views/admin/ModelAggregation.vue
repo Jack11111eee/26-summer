@@ -113,6 +113,11 @@
               <template v-else-if="r.task">
                 <span class="tag">{{ triggerLabel(r.task.trigger_source) }}</span>
                 <span class="cell-sub"> {{ r.task.status === 'SUCCEEDED' ? '完成' : r.task.status }}</span>
+                <!-- confirmed 行重聚合入口（SSOT §8.6，2026-09-09）：换血链起点，
+                     产物为 draft v+1 → 审核页确认 → 新题库生成+旧库归档（§9.2） -->
+                <span v-if="r.model?.status === 'confirmed'" class="ag-confirm" @click.stop>
+                  <button class="row-btn" :disabled="acting" @click="reaggregate(r)">重聚合（升版本）</button>
+                </span>
               </template>
               <span v-else class="cell-sub">—</span>
             </td>
@@ -231,7 +236,7 @@ function stopPoll() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 }
 
-// ---- 行内快捷重聚合（仅 stalled 行 / FAILED 且无模型行；409 守卫在后端） ----
+// ---- 行内快捷重聚合（stalled 行 / FAILED 且无模型行 / confirmed 行——SSOT §8.6，2026-09-09；409 守卫在后端） ----
 async function reaggregate(r) {
   if (acting.value) return
   acting.value = true
@@ -283,4 +288,7 @@ onBeforeUnmount(() => {
 .ag-bar-fill { height: 100%; border-radius: 3px; background: var(--ink-1); transition: width 0.3s ease; }
 .ag-line { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
 .ag-err { font-size: 12px; color: var(--danger); }
+/* confirmed 行重聚合按钮与「手动 完成」同格内并排（task 列 30% 宽足够）；
+   row-btn 依赖的全局样式在 admin.css，span 换 div 语义不变 */
+.ag-confirm { display: inline-flex; gap: 8px; margin-left: 8px; vertical-align: middle; }
 </style>
