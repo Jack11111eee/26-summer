@@ -326,3 +326,33 @@ body.admin {
   transition: opacity .18s ease; transition-delay: 0s;
 }
 .admin td[data-tip]:hover::after { opacity: 1; transition-delay: .5s; }
+
+/* ---- 异议详情页内覆盖层（SSOT §22.2 2026-09-09 修订：跳深链改页内嵌入） ----
+   全屏面板（比 drawer 大一档：承载报告整页），z-index 压在 admin 各层之上（60/modal100/
+   drawer95 同量级下取 120，toast 300 依旧最顶）；头部一行标题+关闭，正文交给嵌入 Report。 */
+.admin .fbd-overlay { position: fixed; inset: 0; z-index: 120; background: rgba(38,38,42,.32); }
+.admin .fbd-panel {
+  position: fixed; inset: 18px 24px; z-index: 121; background: #fff; border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(38,38,42,.18); display: flex; flex-direction: column; overflow: hidden;
+}
+.admin .fbd-head {
+  padding: 14px 20px; border-bottom: 1px solid #eef0f3; display: flex; align-items: center; gap: 12px;
+}
+.admin .fbd-head-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.admin .fbd-title { font-size: 14px; font-weight: 700; }
+.admin .fbd-sub { font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin .fbd-close {
+  margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--ink-2); background: none;
+  border: 1px solid #d8d8d4; border-radius: 8px; padding: 6px 12px; cursor: pointer;
+}
+.admin .fbd-close:hover { color: var(--ink-1); border-color: var(--ink-1); }
+.admin .fbd-body { flex: 1; overflow-y: auto; }
+.admin .fbd-loading, .admin .fbd-error { padding: 48px 24px; text-align: center; color: var(--ink-3); font-size: 13px; }
+.admin .fbd-error { color: var(--danger); }
+/* 打印：覆盖层开时（body[data-fbd]，viewer onMounted 挂标记）只印报告正文——
+   管理壳（雾团/侧栏/edge）与测试中心列表整页隐藏；未开覆盖层的常规管理端打印不受影响 */
+@media print {
+  body.admin[data-fbd] .bg, body.admin[data-fbd] .edge, body.admin[data-fbd] .sidebar,
+  body.admin[data-fbd] .main, body.admin[data-fbd] .fbd-overlay, body.admin[data-fbd] .fbd-head { display: none !important; }
+  body.admin[data-fbd] .fbd-panel { position: static; inset: auto; box-shadow: none; border-radius: 0; }
+}
