@@ -398,7 +398,7 @@ def test_input_as_data_in_prompt():
     question = {"category": "hard_skill", "qtype": "subjective", "difficulty": "easy",
                 "stem": "讲一个项目。"}
     history = [{"role": "user", "content": "你好"}, {"role": "assistant", "content": "请继续"}]
-    prompt = _build_user_prompt(session, question, history, _INJECTION_ANSWER, False)
+    prompt = _build_user_prompt(session, question, history, _INJECTION_ANSWER)
     assert f"候选人：{_INJECTION_ANSWER}" in prompt, "候选人输入应以「候选人：」前缀进入 prompt"
 
 

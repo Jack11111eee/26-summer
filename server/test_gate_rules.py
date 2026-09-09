@@ -434,3 +434,140 @@ def test_old_params_without_operator_gte_compat():
     assert derive_gate_payload({"number_age": 30}, items) == {"年龄30岁以上": True}
     assert derive_gate_payload({"number_age": 35}, items) == {"年龄30岁以上": True}
     assert derive_gate_payload({"number_age": 29}, items) == {"年龄30岁以上": False}
+
+
+
+# ---------- 7) major_group 组内 OR + 条件性质分层（SSOT §16.2 层 2/3，2026-09-09） ----------
+
+def _seed_session_full(items: list[dict], occurrence: dict[str, dict] | None = None) -> tuple[str, str]:
+    """_seed_session_with_gate_items 变体：可按 std_name 补 occurrence_json
+    （req ≥ REQ_THRESHOLD(0.5) → required；< → preferred；缺省无行 → 保守 required）。
+    返回 (session_id, user_id)。"""
+    sid, uid = _seed_session_with_gate_items(items)
+    if occurrence:
+        conn = get_conn()
+        model_id = conn.execute(
+            "SELECT model_id FROM assessment_session WHERE session_id=?", (sid,)).fetchone()["model_id"]
+        for name, occ in occurrence.items():
+            conn.execute(
+                "UPDATE competency_item SET occurrence_json=? WHERE model_id=? AND std_name=?",
+                (json.dumps(occ), model_id, name))
+        conn.commit()
+        conn.close()
+    return sid, uid
+
+
+def _submit_v2_form(sid: str, uid: str, answers: dict) -> dict:
+    """真 v2 链提交：render_form_instance → validate_and_submit（六维校验 +
+    derive_gate_payload 派生 + gate 行落库）。answers 为 facet 原始答案。"""
+    from server.services.forms import render_form_instance, validate_and_submit
+    conn = get_conn()
+    try:
+        form = render_form_instance(conn, sid)
+        conn.commit()
+        user = {"user_id": uid}
+        result = validate_and_submit(
+            conn, session_id=sid, form_instance_id=form["form_instance_id"],
+            payload=answers, expected_revision=1, user=user)
+        conn.commit()
+        assert result["ok"], f"v2 提交失败: {result}"
+        return result
+    finally:
+        conn.close()
+
+
+def test_major_group_or_semantics():
+    """组内 OR（用户场景：计算机专业勾了计算机——数学相关专业不得判未通过）：
+    组内任一勾选 → 维度满足；未勾成员 severity='covered'（不进失败计数、不进
+    firstFailed 警示、gate_summary.passed=True）；全组未勾 → fail。"""
+    from server.services.aggregation import aggregate_session_scores
+    items = [
+        {"std_name": "计算机相关专业", "category": "qualification", "facet_key": "major_group"},
+        {"std_name": "数学相关专业", "category": "qualification", "facet_key": "major_group"},
+        {"std_name": "英语六级", "category": "qualification", "facet_key": "english_level",
+         "facet_params": {"threshold": 6}},
+    ]
+    sid, uid = _seed_session_full(items)
+    _submit_v2_form(sid, uid, {"checked": ["计算机相关专业"], "english_level": "六级",
+                               "years_of_experience": 5})
+    agg = aggregate_session_scores(sid)
+    gate = {g["std_name"]: g for g in agg["gate_items"]}
+    # 原始事实（审计不动）：勾了计算机 → passed=True；数学未勾 → passed=False
+    assert gate["计算机相关专业"]["passed"] is True
+    assert gate["数学相关专业"]["passed"] is False
+    # 结论层（OR）
+    assert gate["计算机相关专业"]["severity"] == "ok"
+    assert gate["数学相关专业"]["severity"] == "covered"
+    assert gate["数学相关专业"]["nature"] == "required"  # 无 occurrence → 保守 required
+    assert gate["英语六级"]["severity"] == "ok"
+    gs = agg["gate_summary"]
+    # required_total=2（专业组整组 1 + 英语六级 1）；组满足；英语通过
+    assert gs["passed"] is True
+    assert gs["required_total"] == 2 and gs["required_satisfied"] == 2
+
+    # 全组未勾 → fail
+    sid2, uid2 = _seed_session_full(items)
+    _submit_v2_form(sid2, uid2, {"checked": [], "english_level": "六级",
+                                 "years_of_experience": 5})
+    agg2 = aggregate_session_scores(sid2)
+    gate2 = {g["std_name"]: g for g in agg2["gate_items"]}
+    assert gate2["数学相关专业"]["severity"] == "fail"
+    assert gate2["计算机相关专业"]["severity"] == "fail"
+    assert gate2["英语六级"]["severity"] == "ok"
+    assert agg2["gate_summary"]["passed"] is False
+
+
+def test_nature_preferred_not_blocking():
+    """层 3（条件性质）：preferred（req < 0.5）未满足 → optional 不算失败；required
+    未满足才 fail；preferred 不阻断 gate_conclusion.passed。"""
+    from server.services.aggregation import aggregate_session_scores
+    items = [
+        {"std_name": "英语六级", "category": "qualification", "facet_key": "english_level",
+         "facet_params": {"threshold": 6}},
+        {"std_name": "本科及以上学历", "category": "qualification"},
+    ]
+    # 英语六级行 req=0.2 → preferred；其余无 occurrence → 保守 required
+    sid, uid = _seed_session_full(items, occurrence={"英语六级": {"req": 0.2, "occ": 5, "r": 1.0}})
+    # 本科及以上学历无 facet_key → 勾选组长尾：勾选即真
+    _submit_v2_form(sid, uid, {"english_level": "均未通过", "checked": ["本科及以上学历"],
+                               "education_degree": "硕士", "years_of_experience": 5})
+    agg = aggregate_session_scores(sid)
+    gate = {g["std_name"]: g for g in agg["gate_items"]}
+    assert gate["英语六级"]["nature"] == "preferred"
+    assert gate["英语六级"]["severity"] == "optional"  # preferred 未满足 → optional
+    assert gate["本科及以上学历"]["nature"] == "required"
+    assert gate["本科及以上学历"]["severity"] == "ok"  # 硕士 ≥ 本科
+    gs = agg["gate_summary"]
+    assert gs["required_total"] == 1 and gs["required_satisfied"] == 1
+    assert gs["optional_fail"] == 1  # preferred 未满足提示计数
+    assert gs["passed"] is True  # preferred 未满足不阻断
+
+
+def test_gate_passed_uses_conclusion():
+    """report.gate_passed 换 gate_conclusion（缺陷修复验收：勾计算机缺数学
+    （covered）→ 报告 gate_passed=1（旧口径 all(passed) 为 0）。"""
+    items = [
+        {"std_name": "计算机相关专业", "category": "qualification", "facet_key": "major_group"},
+        {"std_name": "数学相关专业", "category": "qualification", "facet_key": "major_group"},
+    ]
+    sid, uid = _seed_session_full(items)
+    _submit_v2_form(sid, uid, {"checked": ["计算机相关专业"], "years_of_experience": 5})
+    from server.services.report import generate_report
+    rpt = generate_report(sid)
+    assert rpt["gate_passed"] is True  # 旧口径 False → 修复后 True
+    assert rpt["gate_summary"]["passed"] is True
+    sev = {g["std_name"]: g["severity"] for g in rpt["gate_details"]}
+    assert sev == {"计算机相关专业": "ok", "数学相关专业": "covered"}
+    assert "fail" not in sev.values()
+
+
+def test_pending_not_counted_satisfied():
+    """PENDING_CONFIRMATION 的必需条目进分母不计满足（结论不吹通过）。"""
+    from server.services.aggregation import gate_conclusion
+    out = gate_conclusion([
+        {"facet_key": None, "nature": "required", "passed": False, "status": "PENDING_CONFIRMATION"},
+        {"facet_key": None, "nature": "required", "passed": True, "status": "SATISFIED"},
+    ])
+    assert out["passed"] is False
+    assert out["required_satisfied"] == 1 and out["required_total"] == 2
+    assert out["pending_count"] == 1

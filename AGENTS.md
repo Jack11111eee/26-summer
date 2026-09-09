@@ -81,6 +81,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 5. **合并过的分支及时清理**：已并入 m5 的主题分支积压会让拓扑难读；删除由用户本人执行（deny 规则）。
 6. **主工作树被其他会话占用时（未提交改动 / 已切走分支），切换分支用临时 worktree 旁路**（`git worktree add <tmp> <branch>`，完成后 `worktree remove`），不碰、不 stash、不改别人的工作。
 7. **主工作树钉死在 `feature/m5-assessment`，任何会话不得在主 checkout 上签出其他分支**：主树是全仓库共享的 m5 集成位（跑服务基线），在主树上 `git checkout` 自己的主题分支 = 私占共享资源（2026-09-08 事故：并行会话陆续在主树切走分支，另一会话的合并静默落在别人分支上）。主题分支一律 `git worktree add ../26s-<话题> <分支名>` 开独立工作区实施（沿用 `26s-*` 命名惯例）；对 m5 的合并/提交/推送是主树上仅有的合法写操作，且每次动手前先 `git branch --show-current` 复核——发现主树不在 m5 就停手复位（绝不带着别人的未提交改动硬切分支；等该会话归位或报告用户裁决）。
+8. **并行会话按文件面积分区，同文件工作必须串行**：开并行批次前先按文件/模块划界，互不相交才并行；碰同一文件（尤其 Report.vue / candidate.css / Chat.vue 等热文件）的修复排队串行或并进同一条分支。冲突的根源是面积相交，流程只能减轻、不能消除——从源头不相交比事后解冲突便宜（2026-09-09 商定）。
+9. **SSOT 修订与其实现坐同一条 topic 分支合入 m5**：授权与写作顺序不变（先文档后代码），但合入顺序绑定——文档 commit 与实现 commit 同分支、同次进 m5，禁止「文档先行进 m5、实现滞留他支」留下基线说了没做的窗口（2026-09-09 §22.2 教训：doc commit b8a8d96 先入 m5，实现两笔还在 feedback-detail 支）。
 
 ## 6. Project Context（本项目约定）
 

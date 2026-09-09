@@ -1324,6 +1324,41 @@ def _write_failed_report(session_id: str, error: str) -> None:
         conn.close()
 
 
+def _latest_generating_report_id(conn, session_id: str) -> str | None:
+    """任务链开头的占位行解析：本会话最新 GENERATING 行 report_id（同 _insert_report_row
+    的 ORDER BY 口径），无占位行（全场超时收尾同步链路径）返回 None——进度整体 no-op。"""
+    row = conn.execute(
+        "SELECT report_id FROM report WHERE session_id=? AND report_status='GENERATING'"
+        " ORDER BY created_at DESC, version DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    return row["report_id"] if row is not None else None
+
+
+def _update_report_progress(report_id: str, progress: dict) -> None:
+    """生成进度写入 GENERATING 占位行 report_json（§21.1 瞬态进度区，2026-09-09）。
+
+    独立小事务（自开连接 commit close，不持事务跨 LLM 调用）。
+    WHERE 钉死 report_id + report_status='GENERATING'——本任务自己的占位行：
+    看门狗超时翻 FAILED 后僵尸线程的进度写 0 行命中（no-op）；超龄接管双
+    GENERATING 行并存时新旧任务各写各行，不互相污染。终态行由
+    _insert_report_row/_write_failed_report 整体替换 report_json，progress 无残渣。
+    进度是糖：写失败不杀链，但落 stderr 留痕（「兜底不静默」纪律，REF-8.3）。
+    """
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE report SET report_json=? WHERE report_id=? AND report_status='GENERATING'",
+            (json.dumps(progress, ensure_ascii=False), report_id),
+        )
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 - 进度写入失败绝不打断评分/报告链
+        print(f"[report-progress] session progress 写入失败 report_id={report_id}: {e!r}",
+              file=sys.stderr)
+    finally:
+        conn.close()
+
+
 def _run_report_task(session_id: str) -> None:
     """后台任务内层：评分→报告串行链本体（D-08 方案 B，SSOT §21.1 前端完成后由服务端执行）。
 
@@ -1338,6 +1373,9 @@ def _run_report_task(session_id: str) -> None:
     - generate_report 返回 FAILED dict 不抛异常（§21.1 执行性补充）→ 写 TASK_FAILED
       事件（payload 带 error 摘要）+ **不记** TASK_SUCCEEDED(step=report)——事件
       状态与真实报告状态不得矛盾。
+    - §21.1 生成进度透传（2026-09-09）：有 GENERATING 占位行时评分子步逐题、
+      报告子步入口各写一次进度（_update_report_progress 小事务，失败不杀链）；
+      无占位行（超时收尾同步链）进度整体 no-op。
     """
     from ..services.scoring import _existing_score_rows
 
@@ -1362,14 +1400,29 @@ def _run_report_task(session_id: str) -> None:
                 ).fetchone()["status"] == "completed"
                 and _existing_score_rows(conn, session_id) > 0
             )
+            # §21.1 生成进度透传（2026-09-09）：解析本任务占位行（无占位行的
+            # 全场超时收尾同步链路径进度整体 no-op）；评分 cb 与报告阶段共用它
+            progress_report_id = _latest_generating_report_id(conn, session_id)
         finally:
             conn.close()
         if not skip_scoring:
-            score_session(session_id, allow_completed=True)
+            # 进度写走 cb（total 单源于 score_session 的 answered 计数——不在本层
+            # 另发 COUNT，防两处谓词漂移导致 bar 分母错位）；report_json 形如
+            # {"progress": {...}}（SSOT §21.1 瞬态进度区键名）
+            progress_cb = None
+            if progress_report_id is not None:
+                def progress_cb(idx: int, total: int) -> None:
+                    _update_report_progress(progress_report_id, {"progress": {
+                        "stage": "scoring", "done": idx, "total": total}})
+            score_session(session_id, allow_completed=True, progress_cb=progress_cb)
             _append_task_event(session_id, "TASK_SUCCEEDED", payload={"step": "score"})
         else:
             _append_task_event(session_id, "TASK_STARTED",
                                payload={"note": "会话已有评分批次，跳过评分子步（§20.2.A 幂等重链）"})
+        # 报告子步（两分支汇合，skip_scoring 路径同样有进度）：bar 满格 + 报告文案阶段
+        if progress_report_id is not None:
+            _update_report_progress(progress_report_id,
+                                     {"progress": {"stage": "report"}})
         # 报告子步：检查返回值 report_status（FAILED 不抛异常——不得误记成功，§21.1）
         report_out = generate_report(session_id)
         if isinstance(report_out, dict) and report_out.get("report_status") == "FAILED":

@@ -32,8 +32,8 @@ _INJECTION_WORDS = ("忽略上面的指令", "无视之前的指令", "无视以
 _CONFIRM_REPLY = "可以不回答这道题吗？跳过后将不再回到该题。"
 
 
-def _load_session_question(session_id: str, question_id: str) -> tuple[dict, dict, bool]:
-    """返回 (session_row, question_row(join bank), is_last_question)。"""
+def _load_session_question(session_id: str, question_id: str) -> tuple[dict, dict]:
+    """返回 (session_row, question_row(join bank))。"""
     conn = get_conn()
     session = conn.execute(
         "SELECT s.*, p.name AS position_name FROM assessment_session s"
@@ -46,12 +46,7 @@ def _load_session_question(session_id: str, question_id: str) -> tuple[dict, dic
         " WHERE aq.question_id=?",
         (question_id,),
     ).fetchone()
-    last = conn.execute(
-        "SELECT COUNT(*) c FROM assessment_question"
-        " WHERE session_id=? AND answered_at IS NULL AND question_id<>?",
-        (session_id, question_id),
-    ).fetchone()["c"] == 0
-    return dict(session), dict(question), last
+    return dict(session), dict(question)
 
 
 def _count_followups(session_id: str, question_id: str) -> int:
@@ -95,7 +90,7 @@ def _truncate_history(history: list[dict], max_tokens: int) -> list[dict]:
 
 
 def _build_user_prompt(session: dict, question: dict, history: list[dict],
-                       user_message: str, is_last: bool) -> str:
+                       user_message: str) -> str:
     lines = [
         f"岗位：{session['position_name']}",
         f"当前题目（{question['category']}/{question['qtype']}，难度 {question.get('difficulty') or '无'}）：",
@@ -107,8 +102,6 @@ def _build_user_prompt(session: dict, question: dict, history: list[dict],
         role = {"user": "候选人", "assistant": "面试官", "system": "系统"}[m["role"]]
         lines.append(f"{role}：{m['content']}")
     lines.append(f"候选人：{user_message}")
-    lines.append("")
-    lines.append("系统提示：" + ("这是最后一题。" if is_last else "后面还有题目。"))
     return "\n".join(lines)
 
 
@@ -225,7 +218,7 @@ def decide_next_action(session_id: str, question_id: str, user_message: str) -> 
     is_last 语义已废除——finish 由 select_next_question 池耗尽在 API 层触发（02-02）。
     """
     conn = get_conn()
-    session, question, _is_last = _load_session_question(session_id, question_id)
+    session, question = _load_session_question(session_id, question_id)
     history_rows = conn.execute(
         "SELECT role, content FROM assessment_message WHERE session_id=?"
         " ORDER BY created_at, rowid",
@@ -242,7 +235,7 @@ def decide_next_action(session_id: str, question_id: str, user_message: str) -> 
     try:
         result = call_llm_json(
             "interviewer", session_id, INTERVIEWER_SYSTEM,
-            _build_user_prompt(session, question, history, user_message, _is_last),
+            _build_user_prompt(session, question, history, user_message),
             mock_fn=_mock_interview,
         )
     except RuntimeError:

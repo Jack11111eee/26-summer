@@ -1,11 +1,19 @@
 <template>
   <div class="page">
     <div class="report-body">
-      <span class="back-link" @click="goBack">← 返回测评历史</span>
+      <!-- embedded（管理端覆盖层）不渲染候选端返回链接——关闭/后退由外层 viewer 承担（§22.2） -->
+      <span v-if="!embedded" class="back-link" @click="goBack">← 返回测评历史</span>
 
       <!-- 生成中 / 失败 -->
       <div v-if="phase === 'generating'" class="generating">
         <p class="serif">正在生成你的测评报告…</p>
+        <!-- §21.1 生成进度透传：占位行 progress（有则渲染，无（旧占位行/超时收尾链）回退静态文案） -->
+        <template v-if="progress">
+          <div class="gen-bar" role="progressbar" :aria-valuenow="progressPct" aria-valuemin="0" aria-valuemax="100">
+            <div class="gen-bar-fill" :style="{ width: progressPct + '%' }"></div>
+          </div>
+          <p class="gen-line">{{ progressText }}</p>
+        </template>
         <!-- §十九：前台轮询到点只停本页刷新，后台仍在生成——提示切换，不伪称失败 -->
         <p v-if="!pollStopped" class="field-hint">通常需要数十秒；生成完成后本页会自动展示。</p>
         <p v-else class="field-hint">报告仍在生成中（后台任务未超时，服务端看门狗兜底 60 分钟，并非失败）。本页已暂停自动刷新，可稍后回到本页查看；生成完成后会自动展示结果。</p>
@@ -32,7 +40,9 @@
 
         <div class="rep-actions">
           <button class="btn-ghost" @click="printReport">打印 / 导出 PDF</button>
-          <button class="btn-ghost btn-theme" @click="toggleTheme">{{ isDark ? '日间' : '夜间' }}</button>
+          <!-- embedded：正文明暗跟候选人快照（.fbd-scope[data-theme]），此按钮切的全局
+               主题对嵌入报告不生效，藏之防「看似失灵」；打印不变 -->
+          <button v-if="!embedded" class="btn-ghost btn-theme" @click="toggleTheme">{{ isDark ? '日间' : '夜间' }}</button>
         </div>
 
         <!-- ① 顶部结果摘要（§三：综合结果 + 状态 + 覆盖一行 + 报告编号降为辅助信息） -->
@@ -60,24 +70,31 @@
             </div>
           </div>
 
-          <!-- 资格核验折叠（§四：原生 details 默认折叠，49 项不撑满首屏） -->
+          <!-- 资格核验折叠（§四：原生 details 默认折叠，49 项不撑满首屏；
+               §16.2 层 2/3：专业列举组内 OR、条件性质分层——计数按结论口径，
+               逐行按 severity 显示（ok/fail/pending/optional/covered）） -->
           <details v-if="(report.gate_details || []).length" class="gate-fold">
             <summary>
               <span class="gate-fold-title">
-                资格核验 {{ report.gate_details.length }} 项：通过 {{ gateSummary.passed }} · 未通过 {{ gateSummary.failed }}
+                资格核验 {{ gateSummary.total }} 项：通过 {{ gateSummary.passed }} · 未通过 {{ gateSummary.failed }}
+                <span v-if="gateSummary.pending" class="gate-fold-afford">待确认 {{ gateSummary.pending }} 项</span>
                 <span class="gate-fold-afford">展开查看逐条依据</span>
               </span>
             </summary>
-            <!-- 关键异常提示：第一条未通过（§四：组级不给 AND 结论，只提示单项） -->
+            <!-- 关键异常提示：第一条未通过必需项（§四：组级不给 AND 结论，只提示单项；
+                 preferred 未满足/组内其他列举不进警示） -->
             <div v-if="gateSummary.firstFailed" class="gate-alert">
-              存在未通过项：{{ gateSummary.firstFailed.std_name }} —— {{ gateSummary.firstFailed.reason || '未提供或不达标' }}
+              存在未通过的必需项：{{ gateSummary.firstFailed.std_name }} —— {{ gateSummary.firstFailed.reason || '未提供或不达标' }}
+            </div>
+            <div v-else-if="gateSummary.pendingItems.length" class="gate-warn">
+              存在待确认项：{{ gateSummary.pendingItems[0].std_name }}（{{ gateSummary.pendingItems[0].reason || '需人工确认' }}）共 {{ gateSummary.pendingItems.length }} 项
             </div>
             <div v-for="grp in gateGroups" :key="grp.key" class="gate-group">
               <div class="gate-group-head">{{ grp.label }}（{{ grp.items.length }} 项 · 通过 {{ grp.passedCount }}）</div>
               <div v-for="g in grp.items" :key="g.item_id" class="gate-row">
-                <span class="gate-mark" :class="g.passed ? 'ok' : 'no'">{{ g.passed ? '✓' : '✗' }}</span>
+                <span class="gate-mark" :class="gateMarkClass(g)">{{ gateMarkText(g) }}</span>
                 <span class="gate-name">{{ g.std_name }}</span>
-                <span class="chip" :class="g.passed ? '' : 'amber'">{{ g.passed ? '通过' : '未通过' }}</span>
+                <span class="chip" :class="gateChipClass(g)">{{ gateChipText(g) }}</span>
                 <span class="gate-reason">{{ g.reason || '—' }}</span>
               </div>
             </div>
@@ -296,32 +313,52 @@
 // 防请求重叠（pollBusy）、防过期响应覆盖新状态（pollGen 代数核对）、401/403 停轮询给真实原因。
 // 打印（§十九）：printReport 先记录 open 态、临时全开 details、window.print 返回后恢复；
 // beforeprint/afterprint 事件兜底（浏览器菜单打印路径）。
-// 异议深链（SSOT §22.2）：?feedback_id= 管理端进入拉详情画横幅，明细行/逐题回顾同词条高亮（候选人 403 静默降级）。
+// 异议详情定位（SSOT §22.2 2026-09-09 修订：路由深链保留 + 管理端页内嵌入双入口）：
+// 明细行/逐题回顾同 item 双高亮；路由 ?feedback_id=（候选端 403 静默降级）或
+// 管理端覆盖层 props 注入（viewer 已拉好 detail，不重复请求）。
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { assessment, admin, errMsg } from '../../api'
 import { toast } from '../../components/ui'
-import { useTheme } from '../../lib/theme'
+import { useTheme, writeAsmtTheme } from '../../lib/theme'
 import { pct, formatTime, SCORE_STATE_LABELS } from '../../lib/labels'
 
 const route = useRoute()
 const router = useRouter()
-const { theme, toggle: toggleTheme } = useTheme()
+const { theme, toggle: toggleThemeShared } = useTheme()
 const isDark = computed(() => theme.value === 'dark')
 
-const sessionId = route.params.session_id
+// 参数化（SSOT §22.2 2026-09-09 修订）：默认走路由（行为零破坏）；管理端页内覆盖层
+// （FeedbackDetailViewer）复用本组件时经 props 注入——embedded 隐藏「返回测评历史」。
+const props = defineProps({
+  sessionId: { type: String, default: '' },
+  feedbackId: { type: String, default: '' },
+  fbDetailData: { type: Object, default: null },
+  embedded: { type: Boolean, default: false }
+})
+
+const sessionId = props.sessionId || route.params.session_id
+
+// 测评主题快照（SSOT §22.2 覆盖层跟随）：候选人自己看报告时记录/同步；
+// 嵌入态（管理端覆盖层）不回写——管理员查看明暗不污染候选人原始快照。
+if (!props.embedded) writeAsmtTheme(sessionId, theme.value)
+function toggleTheme() {
+  toggleThemeShared()
+  if (!props.embedded) writeAsmtTheme(sessionId, theme.value)
+}
 
 const phase = ref('loading') // loading | generating | ready | failed
 const report = ref(null)
 const failText = ref('')
 const feedbackDone = ref(new Set())
 
-// ---- 管理端异议详情深链（SSOT §22.2）：?feedback_id= 进入时拉横幅数据 + 定位 ----
+// ---- 管理端异议详情定位（SSOT §22.2）：路由 ?feedback_id= 或管理端覆盖层 props 注入 ----
 // detail 端点 admin-only：候选人访问同 URL 得 403 → fbDetail 留 null 静默降级（页面其余照常）。
-// 另一道保险：后端返回的 session_id 与本页 URL 不符（跨报告拼 query）也不渲染。
-const fbDetail = ref(null)
-const fbDetailId = String(route.query.feedback_id || '')
-if (fbDetailId) {
+// 另一道保险：后端返回的 session_id 与本页不符（跨报告拼 query）也不渲染。
+// 嵌入态（embedded）：viewer 已拉好 detail 直接经 props 递入，本组件不再重复请求。
+const fbDetail = ref(props.fbDetailData)
+const fbDetailId = String(props.feedbackId || route.query.feedback_id || '')
+if (!props.embedded && fbDetailId) {
   admin.feedback.getDetail(fbDetailId)
     .then(({ data }) => { if (data.session_id === sessionId) fbDetail.value = data })
     .catch(() => { /* 非管理员/已删 → 静默降级 */ })
@@ -350,6 +387,28 @@ watch([phase, fbDetail], () => {
 })
 
 const fbState = reactive({ show: false, item: null, text: '', err: '', submitting: false })
+
+// ---- 生成进度（SSOT §21.1 透传，2026-09-09）：by-session GENERATING 行 spread 出的
+// data.progress，{stage:'scoring',done,total} / {stage:'report'}；无（旧占位行/
+// 全场超时收尾链无占位行）为 null——模板回退既有静态文案。到点停表后冻结条按快照保留。 ----
+const progress = ref(null)
+const progressPct = computed(() => {
+  if (!progress.value) return 0
+  if (progress.value.stage === 'report') return 100
+  const d = Number(progress.value.done) || 0
+  const t = Number(progress.value.total) || 0
+  if (t <= 0) return 0 // total 缺失/0：不显示假百分比
+  return Math.min(100, Math.max(0, Math.round((d / t) * 100)))
+})
+const progressText = computed(() => {
+  const p = progress.value
+  if (!p) return ''
+  if (p.stage === 'report') return '评分完成，正在生成报告文字…'
+  const d = Number(p.done) || 0
+  const t = Number(p.total) || 0
+  if (t <= 0) return '正在逐题评分…' // total 未知：不显示 X/N 计数
+  return `正在逐题评分：第 ${Math.min(d, t)} / ${t} 题`
+})
 
 const POLL_MS = 3000
 const MAX_POLLS = 40
@@ -453,14 +512,61 @@ const GATE_FACET_LABELS = {
 }
 const gateSummary = computed(() => {
   const details = report.value?.gate_details || []
-  const passed = details.filter((g) => g.passed).length
+  // §16.2 层 2/3：计数按 severity——通过 = ok/covered/optional(passed)；未通过
+  // = fail + optional(未满足)；待确认单列不混入未通过。旧报告（无 severity）回退
+  // passed 二值口径，渲染不坏。
+  const hasSeverity = details.some((g) => g.severity)
+  const passed = hasSeverity
+    ? details.filter((g) => g.severity === 'ok' || g.severity === 'covered' || (g.severity === 'optional' && g.passed)).length
+    : details.filter((g) => g.passed).length
+  const failed = hasSeverity
+    ? details.filter((g) => g.severity === 'fail' || (g.severity === 'optional' && !g.passed)).length
+    : details.length - passed
+  const pendingItems = hasSeverity ? details.filter((g) => g.severity === 'pending') : []
   return {
     total: details.length,
     passed,
-    failed: details.length - passed,
-    firstFailed: details.find((g) => !g.passed) || null
+    failed,
+    pending: pendingItems.length,
+    pendingItems,
+    // 警示只指必需未满足（fail）；preferred/covered/pending 不进警示
+    firstFailed: hasSeverity ? details.find((g) => g.severity === 'fail') || null
+      : details.find((g) => !g.passed) || null
   }
 })
+// §16.2 逐行 severity 渲染（旧报告无 severity 回退 passed 二值）
+const severityOf = (g) => g.severity || (g.passed ? 'ok' : 'fail')
+const gateMarkText = (g) => {
+  const s = severityOf(g)
+  if (s === 'ok') return '✓'
+  if (s === 'fail') return '✗'
+  if (s === 'pending') return '?'
+  if (s === 'covered') return '·'
+  return '◇' // optional
+}
+const gateMarkClass = (g) => {
+  const s = severityOf(g)
+  if (s === 'ok') return 'ok'
+  if (s === 'fail') return 'no'
+  return 'mid' // pending/covered/optional 中性色
+}
+const gateChipText = (g) => {
+  const s = severityOf(g)
+  if (s === 'ok') return '通过'
+  if (s === 'fail') return '未通过'
+  if (s === 'pending') return '待确认'
+  if (s === 'covered') return '专业达标' // 组内其他列举（组已满足，本条不单独判定）
+  return '优先项未满足' // optional（§16.2 层 3：未满足不算失败）
+}
+const gateChipClass = (g) => {
+  const s = severityOf(g)
+  if (s === 'fail') return 'amber'
+  if (s === 'pending') return 'amber'
+  return ''
+}
+// gate_groups 组头计数（passedCount）与组级通过口径同步（severity ok 计通过；
+// covered 属已满足组但本条未勾，不计——组头计数含 covered 会误导为逐条全过）
+const groupPassed = (g) => severityOf(g) === 'ok'
 // §四 旧报告兼容：gate_details 缺 category 时用同报告 item_details 按 item_id 补展示分类
 const gateCategoryOf = (g, categoryById) => g.category || categoryById.get(g.item_id) || null
 const gateGroups = computed(() => {
@@ -487,7 +593,7 @@ const gateGroups = computed(() => {
     key: k,
     label: GATE_FACET_LABELS[k] || '其他条件',
     items: buckets.get(k),
-    passedCount: buckets.get(k).filter((g) => g.passed).length
+    passedCount: buckets.get(k).filter((g) => groupPassed(g)).length
   }))
 })
 
@@ -525,10 +631,13 @@ async function bootstrap() {
   stopPoll()
   phase.value = 'loading'
   failText.value = ''
+  // 每轮入口清进度（宿旧占位行读到的 progress 不带到新一轮——首 tick 前无残影）
+  progress.value = null
   try {
     const { data } = await assessment.getReportBySession(sessionId)
     if (data.report_status === 'GENERATING') {
       phase.value = 'generating'
+      progress.value = data.progress || null
       startPoll()
       return
     }
@@ -572,6 +681,7 @@ async function bootstrap() {
 // 重新生成：POST 才能触发后端超龄 GENERATING 接管 / FAILED 重生成（bootstrap 只 GET，会原样读回旧状态）。
 async function regenerate() {
   stopPoll()
+  progress.value = null // 同 bootstrap：新一轮清旧进度
   try {
     await assessment.generateReport(sessionId)
     phase.value = 'generating'
@@ -614,7 +724,11 @@ function startPoll() {
       const { data } = await assessment.getReportBySession(sessionId)
       // §十九 防过期覆盖：本代已被 stopPoll+重启（代数不匹配）或 phase 已离开 generating → 丢弃本次结果
       if (gen !== pollGen || phase.value !== 'generating') return
-      if (data.report_status === 'GENERATING') return
+      if (data.report_status === 'GENERATING') {
+        // §21.1 进度透传：仍在途 → 刷新进度（必须先于 early-return，否则写了等于没写）
+        progress.value = data.progress || null
+        return
+      }
       stopPoll()
       if (data.report_status === 'FAILED') {
         phase.value = 'failed'
