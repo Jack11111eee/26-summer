@@ -63,24 +63,31 @@
             </div>
           </div>
 
-          <!-- 资格核验折叠（§四：原生 details 默认折叠，49 项不撑满首屏） -->
+          <!-- 资格核验折叠（§四：原生 details 默认折叠，49 项不撑满首屏；
+               §16.2 层 2/3：专业列举组内 OR、条件性质分层——计数按结论口径，
+               逐行按 severity 显示（ok/fail/pending/optional/covered）） -->
           <details v-if="(report.gate_details || []).length" class="gate-fold">
             <summary>
               <span class="gate-fold-title">
-                资格核验 {{ report.gate_details.length }} 项：通过 {{ gateSummary.passed }} · 未通过 {{ gateSummary.failed }}
+                资格核验 {{ gateSummary.total }} 项：通过 {{ gateSummary.passed }} · 未通过 {{ gateSummary.failed }}
+                <span v-if="gateSummary.pending" class="gate-fold-afford">待确认 {{ gateSummary.pending }} 项</span>
                 <span class="gate-fold-afford">展开查看逐条依据</span>
               </span>
             </summary>
-            <!-- 关键异常提示：第一条未通过（§四：组级不给 AND 结论，只提示单项） -->
+            <!-- 关键异常提示：第一条未通过必需项（§四：组级不给 AND 结论，只提示单项；
+                 preferred 未满足/组内其他列举不进警示） -->
             <div v-if="gateSummary.firstFailed" class="gate-alert">
-              存在未通过项：{{ gateSummary.firstFailed.std_name }} —— {{ gateSummary.firstFailed.reason || '未提供或不达标' }}
+              存在未通过的必需项：{{ gateSummary.firstFailed.std_name }} —— {{ gateSummary.firstFailed.reason || '未提供或不达标' }}
+            </div>
+            <div v-else-if="gateSummary.pendingItems.length" class="gate-warn">
+              存在待确认项：{{ gateSummary.pendingItems[0].std_name }}（{{ gateSummary.pendingItems[0].reason || '需人工确认' }}）共 {{ gateSummary.pendingItems.length }} 项
             </div>
             <div v-for="grp in gateGroups" :key="grp.key" class="gate-group">
               <div class="gate-group-head">{{ grp.label }}（{{ grp.items.length }} 项 · 通过 {{ grp.passedCount }}）</div>
               <div v-for="g in grp.items" :key="g.item_id" class="gate-row">
-                <span class="gate-mark" :class="g.passed ? 'ok' : 'no'">{{ g.passed ? '✓' : '✗' }}</span>
+                <span class="gate-mark" :class="gateMarkClass(g)">{{ gateMarkText(g) }}</span>
                 <span class="gate-name">{{ g.std_name }}</span>
-                <span class="chip" :class="g.passed ? '' : 'amber'">{{ g.passed ? '通过' : '未通过' }}</span>
+                <span class="chip" :class="gateChipClass(g)">{{ gateChipText(g) }}</span>
                 <span class="gate-reason">{{ g.reason || '—' }}</span>
               </div>
             </div>
@@ -476,14 +483,61 @@ const GATE_FACET_LABELS = {
 }
 const gateSummary = computed(() => {
   const details = report.value?.gate_details || []
-  const passed = details.filter((g) => g.passed).length
+  // §16.2 层 2/3：计数按 severity——通过 = ok/covered/optional(passed)；未通过
+  // = fail + optional(未满足)；待确认单列不混入未通过。旧报告（无 severity）回退
+  // passed 二值口径，渲染不坏。
+  const hasSeverity = details.some((g) => g.severity)
+  const passed = hasSeverity
+    ? details.filter((g) => g.severity === 'ok' || g.severity === 'covered' || (g.severity === 'optional' && g.passed)).length
+    : details.filter((g) => g.passed).length
+  const failed = hasSeverity
+    ? details.filter((g) => g.severity === 'fail' || (g.severity === 'optional' && !g.passed)).length
+    : details.length - passed
+  const pendingItems = hasSeverity ? details.filter((g) => g.severity === 'pending') : []
   return {
     total: details.length,
     passed,
-    failed: details.length - passed,
-    firstFailed: details.find((g) => !g.passed) || null
+    failed,
+    pending: pendingItems.length,
+    pendingItems,
+    // 警示只指必需未满足（fail）；preferred/covered/pending 不进警示
+    firstFailed: hasSeverity ? details.find((g) => g.severity === 'fail') || null
+      : details.find((g) => !g.passed) || null
   }
 })
+// §16.2 逐行 severity 渲染（旧报告无 severity 回退 passed 二值）
+const severityOf = (g) => g.severity || (g.passed ? 'ok' : 'fail')
+const gateMarkText = (g) => {
+  const s = severityOf(g)
+  if (s === 'ok') return '✓'
+  if (s === 'fail') return '✗'
+  if (s === 'pending') return '?'
+  if (s === 'covered') return '·'
+  return '◇' // optional
+}
+const gateMarkClass = (g) => {
+  const s = severityOf(g)
+  if (s === 'ok') return 'ok'
+  if (s === 'fail') return 'no'
+  return 'mid' // pending/covered/optional 中性色
+}
+const gateChipText = (g) => {
+  const s = severityOf(g)
+  if (s === 'ok') return '通过'
+  if (s === 'fail') return '未通过'
+  if (s === 'pending') return '待确认'
+  if (s === 'covered') return '专业达标' // 组内其他列举（组已满足，本条不单独判定）
+  return '优先项未满足' // optional（§16.2 层 3：未满足不算失败）
+}
+const gateChipClass = (g) => {
+  const s = severityOf(g)
+  if (s === 'fail') return 'amber'
+  if (s === 'pending') return 'amber'
+  return ''
+}
+// gate_groups 组头计数（passedCount）与组级通过口径同步（severity ok 计通过；
+// covered 属已满足组但本条未勾，不计——组头计数含 covered 会误导为逐条全过）
+const groupPassed = (g) => severityOf(g) === 'ok'
 // §四 旧报告兼容：gate_details 缺 category 时用同报告 item_details 按 item_id 补展示分类
 const gateCategoryOf = (g, categoryById) => g.category || categoryById.get(g.item_id) || null
 const gateGroups = computed(() => {
@@ -510,7 +564,7 @@ const gateGroups = computed(() => {
     key: k,
     label: GATE_FACET_LABELS[k] || '其他条件',
     items: buckets.get(k),
-    passedCount: buckets.get(k).filter((g) => g.passed).length
+    passedCount: buckets.get(k).filter((g) => groupPassed(g)).length
   }))
 })
 

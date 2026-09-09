@@ -90,18 +90,27 @@ def _observed_items(measurements: list[dict], model_items: dict) -> list[dict]:
 
 def _load_model_items(session_id: str) -> dict[str, dict]:
     """item_id → {std_name, category, required_level, importance, weight, gate, years,
-    facet_key, in_scope}（facet_key 供报告 gate 段折叠分组——SSOT §16.1，读预打标
-    不重跑；in_scope 供 §20.1.A 范围分流——NULL 视为 1 正式计分）"""
+    facet_key, in_scope, occurrence}（facet_key 供报告 gate 段折叠分组——SSOT §16.1，
+    读预打标不重跑；in_scope 供 §20.1.A 范围分流——NULL 视为 1 正式计分；occurrence
+    供 §16.2 层 3 条件性质判定——req 解析失败按空 dict 保守处理）"""
     conn = get_conn()
     rows = conn.execute(
         "SELECT ci.item_id, ci.std_name, ci.category, ci.required_level, ci.importance,"
-        " ci.weight, ci.gate, ci.years, ci.facet_key, ci.in_scope"
+        " ci.weight, ci.gate, ci.years, ci.facet_key, ci.in_scope, ci.occurrence_json"
         " FROM competency_item ci"
         " JOIN assessment_session s ON s.model_id=ci.model_id"
         " WHERE s.session_id=?",
         (session_id,),
     ).fetchall()
-    return {r["item_id"]: dict(r) for r in rows}
+    out: dict[str, dict] = {}
+    for r in rows:
+        it = dict(r)
+        try:
+            it["occurrence"] = json.loads(it.pop("occurrence_json") or "{}") or {}
+        except json.JSONDecodeError:
+            it["occurrence"] = {}
+        out[it["item_id"]] = it
+    return out
 
 
 def _load_form_payload(session_id: str) -> dict:
@@ -161,6 +170,97 @@ GATE_PENDING = "PENDING_CONFIRMATION"
 # 范围条件）。NOT_APPLICABLE：当前数据模型无 preferred gate 条目，本期只入枚举
 # 不生产（落值须等 condition nature 三层分离落地）。
 GATE_STATUSES = ("SATISFIED", "UNSATISFIED", GATE_PENDING, "NOT_APPLICABLE")
+
+# §16.2 层 3 逐条展示 severity（2026-09-09 专业列举 OR + 条件性质分层）：
+# ok=必需已满足 / fail=必需未满足 / pending=待确认 / optional=优先项（未满足不算失败）/
+# covered=major_group 组内任一满足但本条未勾（不单独判定）
+GATE_SEVERITIES = ("ok", "fail", "pending", "optional", "covered")
+
+
+def _gate_nature(item: dict) -> str:
+    """gate 条目条件性质（SSOT §16.2 层 3，2026-09-09）：required / preferred。
+
+    判据：occurrence.req（标 required 的 JD 数 ÷ 出现 JD 数——§8.1 条件口径）≥
+    REQ_THRESHOLD → required；否则 preferred。occurrence 缺失/解析失败（存量模型
+    无 occurrence_json 列值）→ 保守 required（性质不明按必需，宁严不松——与
+    _gate_check 保守方向一致）。
+    """
+    req = (item.get("occurrence") or {}).get("req")
+    if req is None:
+        return "required"
+    return "required" if float(req) >= _config.REQ_THRESHOLD else "preferred"
+
+
+def _annotate_gate_items(gate_items: list[dict], model_items: dict[str, dict]) -> None:
+    """结论层标注（SSOT §16.2 层 2 专业列举 OR + 层 3 性质分层，2026-09-09）：
+    就地写 g['nature']/g['severity']——逐条原始事实 passed/status/reason 是表单审计
+    事实，一律不动（reason 文案由报告端按 severity 组装）。
+
+    - nature：_gate_nature（required=必需 / preferred=优先）；
+    - major_group 组内 OR：facet_key='major_group' 的条目视为同一「专业背景维度」
+      ——组内任一 passed → 组满足。未勾成员标 covered（组满足）/ fail（组未满足
+      且必需）/ optional（组未满足且优先）；勾选成员 passed=True → ok；
+    - 其余条目：PENDING→pending；preferred→optional；required 按 passed → ok/fail。
+    """
+    major_satisfied = any(g["passed"] for g in gate_items
+                         if g.get("facet_key") == "major_group")
+    for g in gate_items:
+        g["nature"] = _gate_nature(model_items.get(g["item_id"]) or {})
+        if g.get("facet_key") == "major_group":
+            if g["passed"]:
+                g["severity"] = "ok"
+            elif major_satisfied:
+                g["severity"] = "covered"
+            elif g["nature"] == "preferred":
+                g["severity"] = "optional"
+            else:
+                g["severity"] = "fail"
+        elif g.get("status") == GATE_PENDING:
+            g["severity"] = "pending"
+        elif g["nature"] == "preferred":
+            g["severity"] = "optional"
+        else:
+            g["severity"] = "ok" if g["passed"] else "fail"
+
+
+def gate_conclusion(gate_items: list[dict]) -> dict:
+    """报告级资格结论（SSOT §16.2 层 3「只有必需条件影响资格结论」，2026-09-09：
+    取代 report.py 的 all(passed) 逐条 AND。
+
+    - major_group 全组按**一个**维度条件计（组内任一 passed → 维度满足）；
+    - 必需条目 PENDING_CONFIRMATION → 计分母不计满足（passed 自然为 False），
+      不用单列阻断逻辑；preferred 条目 PENDING 不阻断（不进结论分母）；
+    - preferred 条目未满足仅计 optional_fail 提示；空列表 → passed=True
+      （沿用 all([]) 语义）。
+    """
+    major_rows = [g for g in gate_items if g.get("facet_key") == "major_group"]
+    major_satisfied = any(g["passed"] for g in major_rows)
+    total = satisfied = pending_count = optional_fail = 0
+    counted_major = False
+    for g in gate_items:
+        if g.get("facet_key") == "major_group":
+            if not counted_major:
+                counted_major = True
+                total += 1
+                satisfied += 1 if major_satisfied else 0
+            continue
+        nature = g.get("nature") or "required"
+        pending = g.get("status") == GATE_PENDING
+        if pending:
+            pending_count += 1
+        if nature == "preferred":
+            if pending or not g["passed"]:
+                optional_fail += 1
+            continue
+        total += 1  # 必需条件（PENDING 未决也进分母，不计满足）
+        satisfied += 1 if (g["passed"] and not pending) else 0
+    return {
+        "passed": bool(satisfied == total),
+        "required_total": total,
+        "required_satisfied": satisfied,
+        "pending_count": pending_count,
+        "optional_fail": optional_fail,
+    }
 
 
 def _is_specialized_experience(std_name: str) -> bool:
@@ -441,6 +541,11 @@ def aggregate_session_scores(session_id: str) -> dict:
     measured_item_ids = observed_item_ids & scope_item_ids
     unmeasured_count = scope_total - len(measured_item_ids)
 
+    # §16.2 层 2/3 结论层标注（2026-09-09）：nature/severity 只写 gate_items 展示
+    # 元数据，逐条 passed/status（表单审计事实）不动；结论见 gate_summary。
+    _annotate_gate_items(gate_items, model_items)
+    gate_summary = gate_conclusion(gate_items)
+
     # O=∅（正式范围内无任何已裁决观测）→ NO_VALID_OBSERVATION + HUMAN_REVIEW_REQUIRED
     # （§20.1 不变；session 级判定——不是逐 item 打标）
     if scope_total and not observed_items:
@@ -503,6 +608,7 @@ def aggregate_session_scores(session_id: str) -> dict:
         "unmeasured_ratio": round(unmeasured_ratio, 4) if scope_total else None,
         "item_scores": item_scores,
         "gate_items": gate_items,
+        "gate_summary": gate_summary,
         "refusals": refusals,
         "missing_warnings": missing_warnings,
         "coverage": coverage,
