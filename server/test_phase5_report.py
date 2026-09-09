@@ -290,7 +290,12 @@ def test_conflict_consistency_guard():
     good_agg = dict(bad_agg)
     good_agg["provisional"] = True
     good_agg["review_status"] = "HUMAN_REVIEW_REQUIRED"
-    assert _run_consistency_checks(good_agg, session_id) == []
+    # U6 ⑨：HRR 报告须带复核原因（reason 空 → 报错）——正例分支补 reason 验全过
+    assert _run_consistency_checks(good_agg, session_id,
+                                   review_request_reason="SCORE_CONFLICT") == []
+    # ⑨ 反例：HRR 但 reason 缺 → 报错（新增语义）
+    assert any("review_request_reason 为空" in e
+               for e in _run_consistency_checks(good_agg, session_id))
 
 
 # ============ 05-03 追加：报告状态机 / 七项校验 / 版本化 / publish / FAILED ============
@@ -434,8 +439,9 @@ def test_consistency_check_fails_to_failed():
     assert _run_consistency_checks(tampered, session_id) != []
     # ⑦ 文案含红线词 → 非空
     assert _run_consistency_checks(agg, session_id, report_text="建议录用该候选人") != []
-    # 干净 agg → 全过（空列表）
-    assert _run_consistency_checks(agg, session_id) == []
+    # 干净 agg → 全过（空列表）——U6 ⑨：HRR 会话须带复核原因（生产行为：report.py
+    # _review_request_reason 落归类文本后才全过）
+    assert _run_consistency_checks(agg, session_id, review_request_reason="归类文本") == []
     # ③ 跨 session 引用 question → generate_report 写 FAILED 行
     _cross_session_question_score(session_id)
     report = generate_report(session_id)
@@ -479,11 +485,13 @@ def test_publish_flow():
     # 候选人越权 → 403
     report_id, _ = _seed_report_row("READY", "NONE")
     r = client.post(f"/api/admin/reports/{report_id}/publish", headers=_candidate_headers(),
-                    json={"review_outcome": "CONFIRMED"})
+                    json={"review_outcome": "CONFIRMED", "review_note": "rev"})
     assert r.status_code == 403
     # admin 发布 → PUBLISHED + publish_confirmed_by + published_at + REVIEW_REPORT_PUBLISH_CONFIRMED
+    # （U6 §21.1 发布语义收紧：review_outcome/review_note 均必填——缺省即 422，
+    # 免审直通默认值已作废）
     r = client.post(f"/api/admin/reports/{report_id}/publish", headers=_admin_headers(),
-                    json={"review_outcome": "CONFIRMED"})
+                    json={"review_outcome": "CONFIRMED", "review_note": "复核通过"})
     assert r.status_code == 200, r.text
     row = _q("SELECT report_status, review_status, publish_confirmed_by, published_at"
              " FROM report WHERE report_id=?", (report_id,))[0]
@@ -493,10 +501,10 @@ def test_publish_flow():
     events = _q("SELECT event_type, to_state, actor_type FROM assessment_state_event"
                 " WHERE event_type='REVIEW_REPORT_PUBLISH_CONFIRMED'")
     assert any(e["to_state"] == "PUBLISHED" and e["actor_type"] == "admin" for e in events)
-    # review 未满足（HUMAN_REVIEW_REQUIRED 且 review_outcome 非 CONFIRMED）→ 409
+    # review 未满足（HRR 报告 outcome 不在允许枚举集）→ 409 需明确复核结果
     rid2, _ = _seed_report_row("READY", "HUMAN_REVIEW_REQUIRED")
     r = client.post(f"/api/admin/reports/{rid2}/publish", headers=_admin_headers(),
-                    json={"review_outcome": "REQUIRED"})
+                    json={"review_outcome": "REQUIRED", "review_note": "x"})
     assert r.status_code == 409
 
 
@@ -598,7 +606,7 @@ def test_report_lock_freed_on_main_chain_failure(monkeypatch):
 
     session_id = _seed_divergence_session()
 
-    def _boom(agg, sid, report_text=""):
+    def _boom(agg, sid, report_text="", **kwargs):  # U6：⑨ 追加 review_request_reason kw
         raise RuntimeError("mock 主链失败（LLM 后）")
 
     monkeypatch.setattr(report_mod, "_run_consistency_checks", _boom)

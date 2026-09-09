@@ -240,18 +240,46 @@ def _latest_score_live(session_id: str, question_id: str) -> int | None:
     return row["score_live"] if row else None
 
 
+def _existing_score_rows(conn, session_id: str) -> int:
+    """该会话已存在的非 gate 评分行数（gate_result IS NOT NULL 的 gate 行不算）。"""
+    return conn.execute(
+        "SELECT COUNT(*) c FROM question_score WHERE session_id=? AND gate_result IS NULL",
+        (session_id,),
+    ).fetchone()["c"]
+
+
 def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
     """对会话内所有已回答题目打分并落 question_score（score_state 三态生产）。
 
-    completed 护栏（REF-8.2）：会话已结束即拒绝重复评分（API 与直调双路径都被护）；
-    服务端串行链（request_report 后台任务）经 allow_completed=True 内部豁免（D-03/D-08）。
-    幂等仅限 in_progress 会话内重复调用（completed 由护栏拒绝，不再触发删旧重打）。
+    评分批次（SSOT §20.2.A，U6 2026-09-09）：每次成功落库生成 batch_id = new_id("sb")，
+    全部 INSERT 行携带——报告经 report_json.scoring_batch_id 绑定批次（归属一致）。
+
+    completed 护栏（REF-8.2 + §20.2.A 历史证据链保护，U6 2026-09-09）：
+    - 会话 completed 且已有非 gate 评分行 → **一律拒绝重评分**（ValueError），即使
+      allow_completed=True——DELETE+重插会替换已终态化的评分证据链（审计断裂形态，
+      §20.2.A 作废）；修订须走管理员修订流程（先只读预演，不在本函数）。
+      调用方分析（改后语义不堵死正常链路）：
+      ① 串行链 _run_report_task（allow_completed=True）：只对「尚无评分行」的
+        completed 会话评分——request_report 三分支裁决中，终态成功报告
+        （PROVISIONAL/READY/PUBLISHED）本就 409 不重触发，FAILED/无行才允许重入；
+        超龄 GENERATING 接管重写新 version 行同理。故已评分会话重新入队时本次
+        直接跳过评分子步（幂等——不删不重算），报告子步照常以既有评分行生成；
+        未评分 completed 会话（后台链失败于评分前/接管前死亡）照常首次评分。
+      ② 显式评分端点 POST /score：completed 一律 409（既有语义不变，护栏更严）。
+      ③ 测试直调 allow_completed=True 的路径均为「先评分后生成」首次链，不受影响。
+    - 会话 in_progress 且已有评分行（评分尚未终态化，不算历史证据）→ 维持现行
+      幂等语义：删旧重打（DELETE 只清评分行，gate 行幸存——03-01）。
 
     分母契约（02-05）：
     - seal_reason='refused'（02-04 二次 DECLINED 封存）→ score_state='REFUSED'、
       score_final=0（§18 特殊状态值），不调 score_question（拒答不产生能力证据）；
     - 客观题缺 answer_key（score_question 返回 INVALIDATED）→ score_final=None 透传；
     - 其余 → score_state='SCORED'，score_final 独立落库（无 50/50 合成——D-26）。
+
+    版本快照（§20.2.A「保存真正使用的 rubric/scorer/测量目标版本」）：
+    rubric_version 从题库行读真实值（b.rubric_version，'v1' 兜底——存量行无版本时）；
+    measurement_target 从题库行读（b.measurement_target，可为 NULL）——本函数不再
+    硬编码 'v1' 与空置目标（REF-5.x 编号见表 docstring；硬编码形态作废）。
 
     实现注意：先在内存里算完全部行（含 LLM 调用），最后一次写库——避免外层
     conn 持写事务时 LLM trace 用新连接写库导致 database is locked。
@@ -262,17 +290,27 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
     ).fetchone()
     if session is None:
         raise ValueError(f"会话不存在: {session_id}")
-    if session["status"] == "completed" and not allow_completed:
-        raise ValueError("会话已结束，不允许重复评分")
+    has_existing = _existing_score_rows(conn, session_id) > 0
+    if session["status"] == "completed":
+        if has_existing:
+            # §20.2.A 历史证据链保护：completed 会话的已终态化评分不覆盖不重算
+            # （allow_completed 只豁免「未评分即 completed」的首次链，不豁免重打）
+            raise ValueError(
+                "会话已评分，修订须走管理员修订流程（评分批次不可变，SSOT §20.2.A）")
+        if not allow_completed:
+            raise ValueError("会话已结束，不允许重复评分")
     # in_progress 放行（重复调用删旧重打）
 
     answered = conn.execute(
         "SELECT aq.question_id, aq.seal_reason, aq.item_id,"
-        " b.std_name, b.category, b.qtype"
+        " b.std_name, b.category, b.qtype, b.rubric_version, b.measurement_target"
         " FROM assessment_question aq JOIN question_bank b ON b.question_id=aq.bank_question_id"
         " WHERE aq.session_id=? AND aq.answered_at IS NOT NULL",
         (session_id,),
     ).fetchall()
+
+    # 0) 评分批次（§20.2.A）：本函数成功落库即一个不可变批次
+    batch_id = new_id("sb")
 
     # 1) 内存计算（含 LLM 调用，此时本 conn 未持写事务）
     pending_rows: list[tuple] = []
@@ -290,7 +328,8 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
             pending_rows.append(
                 (new_id("qs"), session_id, q["question_id"], item_id,
                  None, 0, "REFUSED", None, "拒答（§18 score_value=0 特殊状态值）",
-                 None, "v1", None, None, now_iso())
+                 None, q["rubric_version"] or "v1", "p-score-1", q["measurement_target"],
+                 now_iso(), batch_id)
             )
             continue
 
@@ -303,7 +342,8 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
             pending_rows.append(
                 (new_id("qs"), session_id, q["question_id"], item_id,
                  None, None, "INVALIDATED", r["evidence_quote"], r["reason"],
-                 None, "v1", None, None, now_iso())
+                 None, q["rubric_version"] or "v1", "p-score-1", q["measurement_target"],
+                 now_iso(), batch_id)
             )
             continue
         score_id = new_id("qs")
@@ -311,7 +351,8 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
             (score_id, session_id, q["question_id"], item_id,
              score_live, r["score_final"], r["score_state"],
              r["evidence_quote"], r["reason"], r["evidence_spans_json"],
-             "v1", "p-score-1", None, now_iso())
+             q["rubric_version"] or "v1", "p-score-1", q["measurement_target"],
+             now_iso(), batch_id)
         )
         # 运行时 score→trace 写点（D-020）：仅主观题产 LLM trace（客观/INVALIDATED trace_id=None）
         if q["qtype"] == "subjective" and r.get("trace_id"):
@@ -321,12 +362,14 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
     # gate 行非评分重算面（03-01）：DELETE 只清评分行（gate_result IS NULL），
     # 表单链 gate 结构化结果必须幸存——顺序链 _generate_report_task 与 UI request_report
     # 都走 score_session，吞掉 gate 行会导致表单链死循环（gate 永不采集→finish 不可达）。
+    # （§20.2.A 后本 DELETE 只对 in_progress 会话可达——completed 已在护栏上方拒绝）
     conn.execute("DELETE FROM question_score WHERE session_id=? AND gate_result IS NULL", (session_id,))
     conn.executemany(
         "INSERT INTO question_score(score_id, session_id, question_id, item_id,"
         " score_live, score_final, score_state, evidence_quote, reason,"
-        " evidence_spans_json, rubric_version, scorer_version, measurement_target, created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " evidence_spans_json, rubric_version, scorer_version, measurement_target,"
+        " created_at, scoring_batch_id)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         pending_rows,
     )
     for trace_id, score_id, question_id in trace_links:
@@ -335,4 +378,5 @@ def score_session(session_id: str, *, allow_completed: bool = False) -> dict:
         link_entity(conn, trace_id=trace_id, entity_type="assessment_question",
                     entity_id=question_id, link_role="source")
     conn.commit()
-    return {"session_id": session_id, "scored_count": len(answered)}
+    return {"session_id": session_id, "scored_count": len(answered),
+            "scoring_batch_id": batch_id}
