@@ -147,6 +147,15 @@ body.admin {
 .admin td { padding: 11px 12px; border-bottom: 1px solid rgba(var(--shadow-ink),.08); font-size: 13px; vertical-align: middle; text-align: center; }
 /* 长文本定宽列：截断省略，溢出后悬停气泡（td[data-tip]）看全称 */
 .admin td.clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 纯布局 thead（无表头语义、只为 table-layout:fixed 提供列宽行）——视觉隐藏，
+   与 td 同 padding 免高度跳变；td 内 div 复用同截断（v-clip 挂在 div 上） */
+.admin thead.visually-hidden th {
+  border: none; padding: 0; height: 0; line-height: 0; font-size: 0;
+  overflow: hidden;
+}
+.admin td.clip > div, .admin td div.clip {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .admin tbody tr:last-child td { border-bottom: none; }
 .admin tbody tr:hover td { background: rgba(255,255,255,.6); border-radius: 8px; }
 .admin .cell-main { font-weight: 600; }
@@ -319,9 +328,10 @@ body.admin {
 
 /* ---- 截断单元格悬停气泡（v-clip 指令挂 data-tip）----
    悬停 0.5s 出现，移开立即消失；纯 CSS transition-delay 实现，
-   移开时 delay 归零（.tip-host:hover::after 延时出现，hover 退出即复位）。 */
-.admin td[data-tip] { position: relative; }
-.admin td[data-tip]::after {
+   移开时 delay 归零（.tip-host:hover::after 延时出现，hover 退出即复位）。
+   选择器覆盖 td 与 td 内行块（v-clip 挂 div 形态——test_name 单元格两行布局）。 */
+.admin td[data-tip], .admin td [data-tip] { position: relative; }
+.admin td[data-tip]::after, .admin td [data-tip]::after {
   content: attr(data-tip);
   position: absolute; left: 50%; top: calc(100% + 6px);
   transform: translateX(-50%);
@@ -332,7 +342,9 @@ body.admin {
   opacity: 0; pointer-events: none;
   transition: opacity .18s ease; transition-delay: 0s;
 }
-.admin td[data-tip]:hover::after { opacity: 1; transition-delay: .5s; }
+.admin td[data-tip]:hover::after, .admin td [data-tip]:hover::after {
+  opacity: 1; transition-delay: .5s;
+}
 
 /* ---- 异议详情页内覆盖层（SSOT §22.2 2026-09-09 修订：跳深链改页内嵌入） ----
    全屏面板（比 drawer 大一档：承载报告整页），z-index 压在 admin 各层之上（60/modal100/

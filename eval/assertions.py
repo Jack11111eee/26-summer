@@ -25,3 +25,16 @@ def assert_weakness_identified(report: dict, expected_weakness: str) -> tuple[bo
     names = [w.get("std_name", "") for w in report.get("weaknesses", [])]
     ok = expected_weakness in names
     return ok, f"期望短板 '{expected_weakness}' 是否命中：{ok}；实际短板={names}"
+
+
+def assert_weaknesses_within_tested(report: dict, tested_names: list[str]) -> tuple[bool, str]:
+    """断言短板定位落在被测条目集合内（非空 + 无幻影——铺满全量口径）。
+
+    虚拟考生铺满整个分母时短板取 gap×weight 最大前 3（内部排序细节由聚合层
+    测试覆盖）；本断言验证 E2E 语义「定位到实测条目」——短板集合非空且其
+    std_name 全部属于被测集合。
+    """
+    names = [w.get("std_name", "") for w in report.get("weaknesses", [])]
+    tested = set(tested_names)
+    ok = bool(names) and all(n in tested for n in names)
+    return ok, f"短板集合={names}（非空且全属被测集合：{ok}）"
