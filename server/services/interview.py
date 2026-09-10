@@ -140,7 +140,8 @@ def _mock_interview(system_prompt: str, user_prompt: str) -> dict:
                 "score_live_reason": None if is_objective else "信息不足"}
     if any(w in last_user for w in _EVIDENCE_WORDS):
         state = "VALID_EVIDENCE"
-        dims = {"relevance": True, "specificity": 2, "attribution": True}
+        dims = {"relevance": True, "specificity": 2, "attribution": True,
+                "required_points_covered": True, "source_span_available": True}
         return {"answer_state": state, "observation": dims,
                 "reply_suggestion": "好的，感谢你的回答。", "reason": "mock: 实义词充分",
                 "score_live": None if is_objective else 3,
@@ -156,17 +157,21 @@ def _mock_interview(system_prompt: str, user_prompt: str) -> dict:
 
 # ---------- 裁决层纯函数（不持 conn——Simplicity 边界） ----------
 
-def classify_observation(obs: InterviewObservation) -> tuple[bool, dict]:
-    """§11.3 排除清单代码化：单次观察是否构成充分证据。
+def classify_observation(obs: InterviewObservation, qtype: str) -> tuple[bool, dict]:
+    """§11.3：共同证据条件 + 客观题覆盖/来源，或主观题个人事实归因。
 
-    返回 (evidence_sufficient, detail)。required_points_covered/source_span_available
-    属 Phase 5 证据链强化维度——schema 保留，裁决不消费。
+    客观题名称/公式等答案无需个人经历归因；缺少覆盖或来源观察仍不足。
+    返回 (evidence_sufficient, detail)，不决定终局分数。
     """
     d = obs.observation
+    type_evidence = (
+        d.required_points_covered is True and d.source_span_available is True
+        if qtype == "objective" else d.attribution is True
+    )
     evidence_sufficient = (
         obs.answer_state == "VALID_EVIDENCE"
         and d.relevance is True
-        and d.attribution is True
+        and type_evidence
         and d.specificity >= 1
         and d.contradiction_detected is not True
         and d.uncertainty is not True
@@ -175,6 +180,8 @@ def classify_observation(obs: InterviewObservation) -> tuple[bool, dict]:
         "relevance": d.relevance,
         "specificity": d.specificity,
         "attribution": d.attribution,
+        "required_points_covered": d.required_points_covered,
+        "source_span_available": d.source_span_available,
         "contradiction_detected": d.contradiction_detected,
         "uncertainty": d.uncertainty,
     }
@@ -209,6 +216,32 @@ def decide_action(answer_state: str, evidence_sufficient: bool, followups: int,
     # 规则 6：OFF_TOPIC/NO_RECALL → followup（重定向/脚手架，受 ≤2 限制后转 next）
     # 不充分且无特殊状态的其余路径（长但空 VALID_EVIDENCE）同走 followup
     return "followup", {}
+
+
+def _reply_for_action(action: str, answer_state: str, qtype: str) -> str:
+    """§11.5：裁决后选择话术，观察层自由文本不能宣告动作或泄露答案。"""
+    if action == "confirm":
+        return _CONFIRM_REPLY
+    if action == "seal_refused":
+        return "好的，已跳过该题。"
+    if action == "followup":
+        if answer_state == "OFF_TOPIC":
+            return "请回到本题，针对题目要求作答。"
+        if answer_state == "NO_RECALL":
+            if qtype == "objective":
+                return "请先写出你能确定的部分；如果无法作答，请直接说明。"
+            return "请按事情的背景、你的做法和结果组织回答；如果无法回忆，请直接说明。"
+        if qtype == "objective":
+            return "请针对本题要求，补充或澄清你的答案。"
+        return "请针对本题要求，补充你自己的具体做法或事实。"
+    # next 可能随后转为 form/finish，仅确认记录，不预告一定还有下一题。
+    return {
+        "PROCESS_CHALLENGE": "本题用于了解与岗位要求相关的能力；测评结束后可在报告页提交意见反馈。",
+        "CONDUCT_EVENT": "请保持交流尊重，本次回应已记录。",
+        "TECHNICAL_OR_ACCESS_BARRIER": "已记录你遇到的技术或访问问题。",
+        "MODEL_UNCERTAIN": "已记录你的回答，当前信息暂无法可靠判断。",
+        "ITEM_INVALID": "已记录本题的问题，结束本题作答。",
+    }.get(answer_state, "好的，已记录你的回答。")
 
 
 def decide_next_action(session_id: str, question_id: str, user_message: str) -> dict:
@@ -255,7 +288,7 @@ def decide_next_action(session_id: str, question_id: str, user_message: str) -> 
         )
 
     # 2) 裁决层：纯函数布尔 + action（规则唯一权威）
-    evidence_sufficient, obs_detail = classify_observation(parsed)
+    evidence_sufficient, obs_detail = classify_observation(parsed, question["qtype"])
     followups = _count_followups(session_id, question_id)
     is_confirmed = _is_confirmed_refusal(session_id, question_id)
     action, extra = decide_action(parsed.answer_state, evidence_sufficient,
@@ -266,15 +299,10 @@ def decide_next_action(session_id: str, question_id: str, user_message: str) -> 
         action = "next"
         extra["reason_override"] = f"追问达上限({config.FOLLOWUP_MAX})，强制 next"
 
-    # 4) 话术：confirm 固定文案；其余取观察层建议或默认
+    # 4) 话术服从含上限护栏的最终裁决，不直接展示观察阶段的 reply_suggestion。
     answer_state = parsed.answer_state
     reason = extra.pop("reason_override", None) or parsed.reason or ""
-    if action == "confirm":
-        reply = _CONFIRM_REPLY
-    elif action == "seal_refused":
-        reply = "好的，已跳过该题。"
-    else:
-        reply = parsed.reply_suggestion or ("好的，感谢你的回答。" if action == "next" else "")
+    reply = _reply_for_action(action, answer_state, question["qtype"])
 
     # 5) 组装：5 基础键（契约不变）+ 扩展键（只加不减，Pitfall 8）
     decision = {
