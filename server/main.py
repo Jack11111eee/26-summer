@@ -1,7 +1,7 @@
 """FastAPI 应用入口：加载 .env、初始化 DB、注册路由、挂载前端静态文件。
 
 启动（开发）：  uvicorn server.main:app --reload --port 8000
-启动（演示）：  先 cd web && npm run build，再 uvicorn server.main:app --port 8000
+启动（演示）：  先 cd web-next && npm run build，再 uvicorn server.main:app --port 8000
 """
 import os
 from pathlib import Path
@@ -89,7 +89,7 @@ app.include_router(admin_eval.router)
 app.include_router(admin_reports.router)
 app.include_router(assessment.router)
 
-# 生产：挂载前端构建产物（web/dist 存在时）；API 路由已优先注册，不会被静态文件拦截
-_dist = ROOT / "web" / "dist"
+# 生产：挂载前端构建产物（web-next/dist 存在时）；API 路由已优先注册，不会被静态文件拦截
+_dist = ROOT / "web-next" / "dist"
 if _dist.exists():
     app.mount("/", StaticFiles(directory=_dist, html=True), name="static")
