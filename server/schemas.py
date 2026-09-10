@@ -75,7 +75,7 @@ class AggregateLevelResult(BaseModel):
 
 # ---- LLM#4 面试官观察输出 Schema（SSOT §11.3/§11.4，D-22）----
 # answer_state 11 态白名单（§11.4）；观察维度（§11.3 证据判定输入——
-# required_points_covered/source_span_available 属 Phase 5 证据链强化，本期保留维度不消费）
+# required_points_covered/source_span_available 自 2026-09-10 起用于客观题推进判定）
 ANSWER_STATES = Literal[
     "VALID_EVIDENCE", "NEED_CLARIFICATION", "OFF_TOPIC", "NO_RECALL", "DECLINED",
     "PROCESS_CHALLENGE", "CONDUCT_EVENT", "TECHNICAL_OR_ACCESS_BARRIER",
@@ -96,7 +96,7 @@ class ObservationDims(BaseModel):
 class InterviewObservation(BaseModel):
     answer_state: ANSWER_STATES
     observation: ObservationDims
-    reply_suggestion: Optional[str] = None    # 可选话术建议，裁决层可弃用
+    reply_suggestion: Optional[str] = None    # 兼容旧观察输出；展示话术由最终动作决定
     reason: str = ""
     # score_live 属观察层输出（REF-1.3——LLM 直产 1-5 分仅导航用途）
     score_live: Optional[int] = Field(None, ge=1, le=5)
