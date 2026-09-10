@@ -389,3 +389,126 @@ def test_llm_failure_degrades_model_uncertain(monkeypatch):
     snap = json.loads(rows[0]["path_state_snapshot"])
     assert snap.get("fail_same_difficulty") == 0, \
         f"MODEL_UNCERTAIN 七类排除不得累计 fail，实得 {snap}"
+
+
+# ---------- 2026-09-10 回归：客观题归因误判 + 结束话术与 followup 冲突 ----------
+
+def _observed_answer(**overrides):
+    observation = {
+        "relevance": True, "specificity": 2, "attribution": False,
+        "required_points_covered": True, "source_span_available": True,
+        "contradiction_detected": False, "uncertainty": False,
+    }
+    observation.update(overrides)
+    return {
+        "answer_state": "VALID_EVIDENCE", "observation": observation,
+        "reply_suggestion": "好的，这道题就到这里。",
+        "reason": "已覆盖题目要求，有可定位的作答内容。",
+    }
+
+
+@pytest.mark.parametrize("stem,answer", [
+    ("在图像分类任务中，常用的损失函数是什么？请写出其名称。", "交叉熵损失"),
+    ("请写出精确率（Precision）的计算公式。", "TP/(TP+FP)"),
+])
+def test_objective_answer_without_personal_attribution_advances(monkeypatch, stem, answer):
+    """事故观察原样进入 API：短答案 attribution=false 仍封存，并能 GET 到下一题。"""
+    import server.services.interview as interview_mod
+
+    sid, headers = _new_session(new_id("progress"))
+    qid = _cur_q(sid, headers)["question_id"]
+    conn = get_conn()
+    conn.execute(
+        "UPDATE question_bank SET qtype='objective', stem=? WHERE question_id="
+        "(SELECT bank_question_id FROM assessment_question WHERE question_id=?)",
+        (stem, qid),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(interview_mod, "call_llm_json", lambda *a, **kw: _observed_answer())
+
+    result = _answer(sid, headers, qid, answer)
+    assert result["action"] == "next"
+    assert result["next_question_id"] and result["next_question_id"] != qid
+    assert _cur_q(sid, headers)["question_id"] == result["next_question_id"]
+    assert _q("SELECT closed_at FROM assessment_question WHERE question_id=?", (qid,))[0]["closed_at"]
+    event = _q(
+        "SELECT payload_json FROM assessment_state_event WHERE assessment_question_id=?"
+        " AND event_type='OBSERVATION_CLASSIFIED'", (qid,),
+    )[0]
+    assert json.loads(event["payload_json"])["evidence_sufficient"] is True
+
+
+@pytest.mark.parametrize("qtype,overrides,expected", [
+    ("objective", {}, True),
+    ("objective", {"attribution": True}, True),
+    ("objective", {"required_points_covered": False}, False),
+    ("objective", {"required_points_covered": None}, False),
+    ("objective", {"source_span_available": False}, False),
+    ("objective", {"source_span_available": None}, False),
+    ("objective", {"relevance": False}, False),
+    ("objective", {"specificity": 0}, False),
+    ("objective", {"contradiction_detected": True}, False),
+    ("objective", {"uncertainty": True}, False),
+    ("subjective", {}, False),
+    ("subjective", {"attribution": True}, True),
+])
+def test_evidence_requirements_by_question_type(qtype, overrides, expected):
+    from server.services.interview import classify_observation
+
+    observation = InterviewObservation(**_observed_answer(**overrides))
+    assert classify_observation(observation, qtype)[0] is expected
+
+
+@pytest.mark.parametrize("state", [
+    "NEED_CLARIFICATION", "OFF_TOPIC", "NO_RECALL", "DECLINED",
+    "PROCESS_CHALLENGE", "CONDUCT_EVENT", "TECHNICAL_OR_ACCESS_BARRIER",
+    "PROMPT_INJECTION", "MODEL_UNCERTAIN", "ITEM_INVALID",
+])
+def test_objective_non_evidence_states_remain_insufficient(state):
+    from server.services.interview import classify_observation
+
+    data = _observed_answer()
+    data["answer_state"] = state
+    assert classify_observation(InterviewObservation(**data), "objective")[0] is False
+
+
+@pytest.mark.parametrize("suggestion,state", [
+    ("好的，这道题就到这里。", "VALID_EVIDENCE"),
+    ("好的，回答正确，我们进入下一题。", "VALID_EVIDENCE"),
+    ("看起来这道题暂时没有作答思路，我们先跳过，进入下一题。", "NO_RECALL"),
+    ("本场测评已完成。", "OFF_TOPIC"),
+    ("", "NEED_CLARIFICATION"),
+    (None, "NEED_CLARIFICATION"),
+])
+def test_followup_reply_obeys_action_and_limit(monkeypatch, suggestion, state):
+    """实际 SSE/落库同为追问；到上限强制推进时，不能继续输出模型的追问。"""
+    import server.services.interview as interview_mod
+
+    sid, headers = _new_session(new_id("reply"))
+    qid = _cur_q(sid, headers)["question_id"]
+    data = _observed_answer()
+    data["answer_state"] = state
+    data["reply_suggestion"] = suggestion
+    monkeypatch.setattr(interview_mod, "call_llm_json", lambda *a, **kw: data)
+
+    for _ in range(config.FOLLOWUP_MAX):
+        result = _answer(sid, headers, qid, _SHORT_ANSWER)
+        assert result["action"] == "followup"
+        assert result["next_question_id"] is None
+        assert "请" in result["reply"]
+        assert any(word in result["reply"] for word in ("补充", "回答", "作答"))
+        assert all(word not in result["reply"] for word in ("下一题", "就到这里", "跳过", "正确", "测评已完成"))
+        assert _cur_q(sid, headers)["question_id"] == qid
+        saved = _q(
+            "SELECT content, action FROM assessment_message WHERE question_id=?"
+            " AND role='assistant' ORDER BY rowid DESC LIMIT 1", (qid,),
+        )[0]
+        assert saved == {"content": result["reply"], "action": "followup"}
+
+    data["reply_suggestion"] = "请继续补充你的回答。"
+    result = _answer(sid, headers, qid, _SHORT_ANSWER)
+    assert result["action"] == "next"
+    assert "请" not in result["reply"] and "补充" not in result["reply"]
+    assert result["next_question_id"] != qid
+    assert _q("SELECT followup_count FROM assessment_question WHERE question_id=?", (qid,))[0]["followup_count"] == config.FOLLOWUP_MAX
