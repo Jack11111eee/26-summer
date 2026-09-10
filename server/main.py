@@ -1,14 +1,16 @@
 """FastAPI 应用入口：加载 .env、初始化 DB、注册路由、挂载前端静态文件。
 
 启动（开发）：  uvicorn server.main:app --reload --port 8000
-启动（演示）：  先 cd web && npm run build，再 uvicorn server.main:app --port 8000
+启动（演示）：  先 cd web-next && npm run build，再 uvicorn server.main:app --port 8000
 """
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -89,7 +91,28 @@ app.include_router(admin_eval.router)
 app.include_router(admin_reports.router)
 app.include_router(assessment.router)
 
-# 生产：挂载前端构建产物（web/dist 存在时）；API 路由已优先注册，不会被静态文件拦截
-_dist = ROOT / "web" / "dist"
+# 生产：挂载前端构建产物（web-next/dist 存在时）；API 路由已优先注册，不会被静态文件拦截
+_dist = ROOT / "web-next" / "dist"
 if _dist.exists():
     app.mount("/", StaticFiles(directory=_dist, html=True), name="static")
+
+# SPA 深链回退：前端为 history 路由（createWebHistory），/login、/assessment/... 等路径
+# 刷新/直开时后端没有对应静态文件，StaticFiles 会 404——须回送 index.html 交给前端路由。
+# 仅回退非 /api 路径；API 404（未知 session 等）保持 JSON 语义，不打扰前端错误处理。
+# dist 不存在（开发模式）或 index.html 缺失时维持 FastAPI 默认 404，不改变本地行为。
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _spa_fallback(request: Request, exc: StarletteHTTPException):
+    if (
+        exc.status_code == 404
+        and not request.url.path.startswith(("/api/", "/docs", "/openapi.json", "/redoc"))
+        and (_dist / "index.html").is_file()
+    ):
+        return FileResponse(_dist / "index.html")
+    headers = getattr(exc, "headers", None)
+    if headers:
+        return JSONResponse(
+            {"detail": exc.detail}, status_code=exc.status_code, headers=headers
+        )
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)

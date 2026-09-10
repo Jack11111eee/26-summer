@@ -68,7 +68,7 @@ JD 文本 ──► 胜任力模型（模块一）──► 有界动态测评�
 ├── design/                 # 设计与需求文档（见「权威文档」）
 ├── data/                   # 运行时数据（git 忽略）：app.db、jd_corpus 语料、backups 备份
 ├── eval/                   # 模块四独立评测：一致性(b) + 虚拟考生(c) + fixtures
-├── scripts/                # seed_admin.py（种子管理员）、jd_corpus_normalize.py（语料归一）
+├── scripts/                # 一次性/运维脚本：seed_admin（种子管理员）、jd_corpus_normalize（语料归一）、backfill_jd_source_title（源标题回填）、dict_governance（词典治理）、review_gate_positions（岗位审核轮）等
 ├── prototype/              # 高保真静态原型（仅视觉参考，不作功能验收依据）
 ├── research/               # 研究稿 / 缺口登记等参考文档
 ├── .planning/              # GSD 推进记录：ROADMAP / STATE / PROJECT / 决策 / 需求条目
@@ -162,7 +162,7 @@ CI 位于 `.github/workflows/ci.yml`，push / PR 时执行上述后端测试与�
 ## 当前状态
 
 - 里程碑 v2.0 六阶段（P0 安全与主链 → 动态选题与有界循环 → 表单/SSE/幂等/计时 → 题库版本绑定与模块一收口 → 证据链与报告契约 → 迁移与测试闭环收口）已全部收口。
-- 后端回归全量 pytest 通过（**223 passed**，当前分支实测 2026-09-06）；推进记录见 `.planning/STATE.md`。开放参数见 SSOT §31——**待用户校准，禁止臆造默认值**。
+- 后端回归全量 pytest 通过（**544 passed**，当前分支实测 2026-09-10）；推进记录见 `.planning/STATE.md`。开放参数见 SSOT §31——**待用户校准，禁止臆造默认值**。
 - 目标形态为**演示上线**：单机、单实例、单进程；评测基于 `mock` 回归 + 独立 `eval/`，不替代真实 LLM 质量验证。
 
 ## 相关约定
@@ -170,3 +170,107 @@ CI 位于 `.github/workflows/ci.yml`，push / PR 时执行上述后端测试与�
 - 提交信息使用中文；一次 commit 一个逻辑单元；涉及 SSOT 的变更需先经用户授权并原子提交。
 - 运行产物（`.env`、`data/`、`web-next/node_modules/`、`web-next/dist/`）均已被 `.gitignore` 忽略，不入库。
 - 前端基线（2026-09-08）：`web-next/` 为唯一活跃前端；`web/` 已退役留档，不再改动，CI 也不再构建它。
+
+## 部署到服务器（演示上线）
+
+单机单进程演示形态（SSOT 部署约定）：前端 `npm run build` 产物 `web-next/dist` 由 FastAPI 静态托管，uvicorn 不加 `--reload`、不开 worker 多进程（SQLite 单写 + 后台任务内存执行的设计前提）。以下以 Linux + systemd + Nginx 为例；前端仅构建期需要 Node，服务器长期运行无需 Node。
+
+### 1) 前置检查
+
+| 项 | 要求 |
+|---|---|
+| Python | 3.11+（服务器长期需要） |
+| Node.js | 20（仅构建前端时需要，构建完可卸载） |
+| 端口 | uvicorn 监听 `127.0.0.1:8000`，Nginx 对外 80/443 |
+| 真实 LLM | 可选——`LLM_PROVIDER=mock` 离线可跑通全流程；接 DeepSeek 等配 `LLM_API_KEY` |
+
+### 2) 构建
+
+```bash
+git clone <本仓库> && cd 26-summer             # 或已有部署，git pull 拉最新
+python3 -m venv .venv && .venv/bin/pip install -r server/requirements.txt
+
+cd web-next && npm ci && npm run build          # 产出 web-next/dist（由后端托管）
+cd ..
+```
+
+### 3) 配置 `.env`（仓库根，已在 .gitignore）
+
+```bash
+cp .env.example .env
+# 必改：JWT_SECRET 用强随机值（公开默认值会被启动 fail-closed 拒绝）
+python3 -c "import secrets; print(secrets.token_hex(32))"   # 生成一段填入
+# 按需：LLM_PROVIDER=deepseek + LLM_API_KEY；DB_PATH 建议绝对路径（防 systemd cwd 漂移）
+```
+
+```bash
+# 初始化种子管理员（幂等，可重复执行；建议生产用非默认口令）
+ADMIN_USERNAME=admin ADMIN_PASSWORD=<强口令> .venv/bin/python -m scripts.seed_admin
+```
+
+> **注意 cwd**：`DB_PATH` 默认相对路径 `data/app.db`——**必须从仓库根启动**，否则会在错误目录静默新建空库（登录全部 401 的假象）。systemd unit 已用 `WorkingDirectory` 钉死；手动重启时同样注意。
+
+### 4) systemd 常驻
+
+`/etc/systemd/system/competency.service`：
+
+```ini
+[Unit]
+Description=Competency assessment system (FastAPI, single process)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/26-summer          # 仓库根——钉死 cwd，DB_PATH 相对它解析
+EnvironmentFile=/opt/26-summer/.env
+ExecStart=/opt/26-summer/.venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo chown -R www-data:www-data /opt/26-summer/data     # SQLite 写权限（首启动会自动建库建表）
+sudo systemctl daemon-reload && sudo systemctl enable --now competency
+curl http://127.0.0.1:8000/api/health                    # {"status":"ok"} 即就绪
+```
+
+### 5) Nginx 反向代理（SSE 关键）
+
+`/etc/nginx/sites-available/competency`：
+
+```nginx
+server {
+    listen 80;
+    server_name your.domain.or.ip;
+
+    client_max_body_size 4m;              # JD JSONL 上传（后端限 500 行，此为字节层兜底）
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;           # 测评对话 SSE 长连接
+        proxy_buffering off;               # SSE 必关——否则代理层攒包，对话流卡死
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/competency /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+- 后端 SSE 响应已自带 `X-Accel-Buffering: no` 头，`proxy_buffering off` 为双保险；`/login`、`/assessment/**` 等前端路由深链刷新由后端 SPA 回退返回 index.html（已内置，无需 Nginx rewrite）
+- HTTPS（可选）：`certbot --nginx` 按向导补 443 即可
+
+### 6) 数据备份与升级
+
+- **备份**：`data/` 整目录（`app.db` + `jd_corpus/`）冷拷贝即可；建议 cron 定时（如每日 `sqlite3 app.db ".backup data/backup-$(date +%F).db"`）。
+- **升级**：`git pull` → （前端有变更时）`cd web-next && npm ci && npm run build` → `sudo systemctl restart competency`。迁移随启动自动执行（`schema_version` 登记簿，迁前自动备份）。
+- **回滚**：`git checkout <旧 tag>` 重启；数据层从备份目录恢复 `app.db` 后重启。

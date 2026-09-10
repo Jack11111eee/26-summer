@@ -68,7 +68,7 @@ The system is organized around four design modules (see `design/final-design/总
 ├── design/                 # Design & requirements docs (see "Authoritative Documents")
 ├── data/                   # Runtime data (git-ignored): app.db, jd_corpus, backups
 ├── eval/                   # Independent Module-4 eval: consistency (b) + virtual candidates (c) + fixtures
-├── scripts/                # seed_admin.py (bootstrap admin), jd_corpus_normalize.py (corpus normalization)
+├── scripts/                # One-off/ops scripts: seed_admin (bootstrap admin), jd_corpus_normalize, backfill_jd_source_title, dict_governance, review_gate_positions, etc.
 ├── prototype/              # High-fidelity static prototypes (visual reference only — not a functional acceptance basis)
 ├── research/               # Research notes / gap registers / reference docs
 ├── .planning/              # GSD progress records: ROADMAP / STATE / PROJECT / decisions / requirements
@@ -162,7 +162,7 @@ CI lives in `.github/workflows/ci.yml` and runs the backend tests plus the front
 ## Current Status
 
 - All six phases of milestone v2.0 are closed: P0 security & main chain → dynamic selection & bounded loop → forms/SSE/idempotency/timing → question-bank version binding & Module-1 closure → evidence-chain & report contract → migration & test-loop closure.
-- The backend regression suite is fully green — **223 passed** (measured on the current branch, 2026-09-06). Progress records live in `.planning/STATE.md`. Open parameters are tracked in SSOT §31 — they **await user calibration; no invented defaults**.
+- The backend regression suite is fully green — **544 passed** (measured on the current branch, 2026-09-10). Progress records live in `.planning/STATE.md`. Open parameters are tracked in SSOT §31 — they **await user calibration; no invented defaults**.
 - Target shape is a **demo deployment**: single machine, single instance, single process. Evaluation relies on `mock` regression plus the independent `eval/`; it does not substitute for real-LLM quality validation.
 
 ## Conventions
@@ -170,3 +170,107 @@ CI lives in `.github/workflows/ci.yml` and runs the backend tests plus the front
 - Commit messages are written in Chinese; each commit is one logical unit; SSOT-affecting changes require prior user authorization and are committed atomically.
 - Runtime artifacts (`.env`, `data/`, `web-next/node_modules/`, `web-next/dist/`) are git-ignored and never committed.
 - Frontend baseline (2026-09-08): `web-next/` is the only active frontend; `web/` is retired and kept for history — no further changes, and CI no longer builds it.
+
+## Server Deployment (Demo)
+
+Single-machine, single-process demo shape (per the SSOT deployment convention): the `npm run build` output `web-next/dist` is served statically by FastAPI; run uvicorn without `--reload` and without multi-process workers (SQLite single-writer + in-memory background tasks are design assumptions). Example below uses Linux + systemd + Nginx; Node is only needed at build time — the running server needs no Node.
+
+### 1) Prerequisites
+
+| Item | Requirement |
+|---|---|
+| Python | 3.11+ (required at runtime) |
+| Node.js | 20 (build time only; can be removed afterwards) |
+| Ports | uvicorn listens on `127.0.0.1:8000`; Nginx exposes 80/443 |
+| Real LLM | Optional — `LLM_PROVIDER=mock` runs the full flow offline; for DeepSeek etc. set `LLM_API_KEY` |
+
+### 2) Build
+
+```bash
+git clone <this repo> && cd 26-summer             # or, on an existing deploy, git pull
+python3 -m venv .venv && .venv/bin/pip install -r server/requirements.txt
+
+cd web-next && npm ci && npm run build          # produces web-next/dist (served by the backend)
+cd ..
+```
+
+### 3) Configure `.env` (repo root; git-ignored)
+
+```bash
+cp .env.example .env
+# REQUIRED: set JWT_SECRET to a strong random value (public defaults are rejected fail-closed at startup)
+python3 -c "import secrets; print(secrets.token_hex(32))"   # generate one and paste it in
+# Optional: LLM_PROVIDER=deepseek + LLM_API_KEY; DB_PATH is best as an absolute path (guards against systemd cwd drift)
+```
+
+```bash
+# Bootstrap the seed admin (idempotent; use a non-default password in production)
+ADMIN_USERNAME=admin ADMIN_PASSWORD=<strong-password> .venv/bin/python -m scripts.seed_admin
+```
+
+> **Mind the cwd**: `DB_PATH` defaults to the relative path `data/app.db` — **always start from the repo root**, otherwise an empty DB is silently created in the wrong directory (the symptom is every login returning 401). The systemd unit pins this with `WorkingDirectory`; keep it in mind for manual restarts too.
+
+### 4) systemd service
+
+`/etc/systemd/system/competency.service`:
+
+```ini
+[Unit]
+Description=Competency assessment system (FastAPI, single process)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/26-summer          # repo root — pins the cwd that DB_PATH resolves against
+EnvironmentFile=/opt/26-summer/.env
+ExecStart=/opt/26-summer/.venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo chown -R www-data:www-data /opt/26-summer/data     # SQLite write permission (tables are auto-created on first start)
+sudo systemctl daemon-reload && sudo systemctl enable --now competency
+curl http://127.0.0.1:8000/api/health                    # {"status":"ok"} means ready
+```
+
+### 5) Nginx reverse proxy (SSE matters)
+
+`/etc/nginx/sites-available/competency`:
+
+```nginx
+server {
+    listen 80;
+    server_name your.domain.or.ip;
+
+    client_max_body_size 4m;              # JD JSONL uploads (backend caps at 500 lines; this is the byte-level backstop)
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;           # assessment chat SSE long connections
+        proxy_buffering off;               # MUST be off for SSE — otherwise the proxy buffers and the chat stream stalls
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/competency /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+- The backend's SSE responses already send `X-Accel-Buffering: no`; `proxy_buffering off` is belt-and-suspenders. Deep links such as `/login`, `/assessment/**` are handled by the backend's SPA fallback (returns index.html — built in, no Nginx rewrite needed).
+- HTTPS (optional): run `certbot --nginx` and follow the wizard to add 443.
+
+### 6) Backup & Upgrade
+
+- **Backup**: cold-copy the whole `data/` directory (`app.db` + `jd_corpus/`); a cron job is recommended (e.g. daily `sqlite3 app.db ".backup data/backup-$(date +%F).db"`).
+- **Upgrade**: `git pull` → (if the frontend changed) `cd web-next && npm ci && npm run build` → `sudo systemctl restart competency`. Migrations run automatically at startup (`schema_version` registry, with an automatic pre-migration backup).
+- **Rollback**: `git checkout <old tag>` and restart; for data, restore `app.db` from the backup directory and restart.

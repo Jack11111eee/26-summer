@@ -25,6 +25,6 @@ jobs:
         with:
           node-version: "20"
       - name: Install frontend dependencies
-        run: cd web && npm ci
+        run: cd web-next && npm ci
       - name: Build frontend
-        run: cd web && npm run build
+        run: cd web-next && npm run build
