@@ -6,9 +6,11 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -93,3 +95,24 @@ app.include_router(assessment.router)
 _dist = ROOT / "web-next" / "dist"
 if _dist.exists():
     app.mount("/", StaticFiles(directory=_dist, html=True), name="static")
+
+# SPA 深链回退：前端为 history 路由（createWebHistory），/login、/assessment/... 等路径
+# 刷新/直开时后端没有对应静态文件，StaticFiles 会 404——须回送 index.html 交给前端路由。
+# 仅回退非 /api 路径；API 404（未知 session 等）保持 JSON 语义，不打扰前端错误处理。
+# dist 不存在（开发模式）或 index.html 缺失时维持 FastAPI 默认 404，不改变本地行为。
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _spa_fallback(request: Request, exc: StarletteHTTPException):
+    if (
+        exc.status_code == 404
+        and not request.url.path.startswith(("/api/", "/docs", "/openapi.json", "/redoc"))
+        and (_dist / "index.html").is_file()
+    ):
+        return FileResponse(_dist / "index.html")
+    headers = getattr(exc, "headers", None)
+    if headers:
+        return JSONResponse(
+            {"detail": exc.detail}, status_code=exc.status_code, headers=headers
+        )
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
