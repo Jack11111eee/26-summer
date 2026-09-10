@@ -143,6 +143,7 @@ medium → hard：充分且稳定证据；hard 仅对 target_level > 4 开放
 ## 5. 证据判定（结构化观察 + 代码裁决）
 
 - `evidence_sufficient`：LLM/规则输出结构化维度（relevance / required_points_covered / specificity / attribution / source_span_available / contradiction_detected / uncertainty），代码计算最终布尔。排除：拒答、纯态度、复述、无关、无具体事实、无 span、题目无效、模型不确定。
+- **按题型判定（2026-09-10，SSOT §11.3）**：共同要求 VALID_EVIDENCE、relevance=true、specificity≥1，且无明确矛盾或不确定。主观题维持 attribution=true；客观题要求 required_points_covered=true 且 source_span_available=true，不要求个人经历归因，不因名称、公式等答案简短而追问。字段缺失或覆盖不全不得判充分；只影响推进与难度导航，不替代终局评分。
 - `stable_evidence`：两个不同普通题实例的独立观察，或一次 hard 强证据（仍须满足 rubric）；依据观察独立性 + target 覆盖一致性 + 锚点一致性 + 无矛盾 + rubric/version 一致；同一回答的两个相似句子不算两次观察；证据冲突 → 不平均、`false` → 人工复核；
 - **实施注记（2026-09-06，SSOT §11.3）**：现实现为轻量口径——同 item 充分观察计数 `sufficient_in_row ≥ 2`（事件表布尔聚合），**by-design 转正**：唯一消费者是难度状态机升档，漏判只导致保守不升档，不影响任何分数/报告/聚合；完整判据依赖 P-interviewer 结构化输出重构（SSOT §26 登记项）。
 
@@ -175,6 +176,7 @@ score_state:  SCORED / REFUSED / INSUFFICIENT_EVIDENCE / NOT_ADMINISTERED /
 ## 7. 对话传输与幂等
 
 - 决策阶段非流式（内部 function-call adapter，结构化 action/reason/assessment，**先落库再展示**）；话术阶段真实 SSE 逐 token 推送；`finish` 仅代码规则触发；
+- **话术服从最终动作（2026-09-10，SSOT §11.5）**：证据裁决与追问上限检查后，由代码按 action / answer_state / qtype 选择中性固定话术。followup 必须明确请求作答，不得宣告结束或换题；next 默认确认已记录，不继续提问或预告一定有下一题；特殊状态保留确认、边界和反馈渠道说明。reply_suggestion 仅保留兼容与原始 trace，不直接展示、不反向决定动作、不增加 LLM 调用；追问上限、SSE 与幂等协议不变。
 - SSE 定义事件类型/顺序/错误/结束事件；本期不做事件 ID/cursor 续传（留扩展记录）；
 - 幂等作用域 `session_id + endpoint + idempotency_key`；答题带 `question_instance_id / expected_question_revision / client_attempt_id`；重复请求返回第一次结果，不重复消息/followup/题量/任务；事务 + 乐观版本号防并发双写；
 - LLM 输出全部严格 schema 校验，非法输出进失败/人工状态，不卡死会话。
